@@ -2458,18 +2458,24 @@
                         <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
                     </span>
                 </div>
-                {% call table() %}
+                {#
+                   Keep the operational columns in view on a desktop.  The prior
+                   auto-layout table honoured every evidence column's minimum
+                   width, pushing SPF/DKIM/DMARC and the next action off-screen.
+                   Narrow screens retain an intentional horizontal reading view.
+                #}
+                {% call table('min-w-[960px] xl:min-w-0 xl:table-fixed xl:w-full') %}
                     {% call thead() %}
                         {% call tr() %}
-                            {% call th() %}Source IP / Hostname{% endcall %}
-                            {% call th() %}Sender{% endcall %}
-                            {% call th() %}IP Intelligence{% endcall %}
-                            {% call th() %}Total Emails{% endcall %}
-                            {% call th() %}SPF{% endcall %}
-                            {% call th() %}DKIM{% endcall %}
-                            {% call th() %}DMARC{% endcall %}
-                            {% call th() %}Disposition{% endcall %}
-                            {% call th() %}Recommendations{% endcall %}
+                            {% call th('w-[14%] align-top') %}Source IP / Hostname{% endcall %}
+                            {% call th('w-[13%] align-top') %}Sender{% endcall %}
+                            {% call th('w-[17%] align-top') %}IP Intelligence{% endcall %}
+                            {% call th('w-[10%] align-top') %}Total Emails{% endcall %}
+                            {% call th('w-[7%] align-top') %}SPF{% endcall %}
+                            {% call th('w-[7%] align-top') %}DKIM{% endcall %}
+                            {% call th('w-[7%] align-top') %}DMARC{% endcall %}
+                            {% call th('w-[9%] align-top') %}Disposition{% endcall %}
+                            {% call th('w-[16%] align-top') %}Recommendations{% endcall %}
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
@@ -2496,13 +2502,13 @@
                         </template>
                         <template x-for="source in (!sourcesLoading && !sourcesError ? filteredSources : [])" :key="source.ip">
                             {% call tr() %}
-                                {% call td() %}
-                                    <div class="flex flex-col">
+                                {% call td('align-top') %}
+                                    <div class="flex min-w-0 flex-col break-words">
                                         <span class="font-mono text-sm" x-text="source.ip"></span>
                                         <template x-if="source.hostname">
                                             <span class="text-xs text-muted-foreground">
                                                 <span>PTR </span>
-                                                <span x-text="source.hostname"></span>
+                                                <span class="break-all" x-text="source.hostname"></span>
                                             </span>
                                         </template>
                                         <template x-if="!source.hostname">
@@ -2521,10 +2527,10 @@
                                               x-text="sourceActivityLabel(source)"></span>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
-                                    <div class="min-w-52 space-y-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-semibold text-sm" x-text="sourceSenderName(source)"></span>
+                                {% call td('align-top') %}
+                                    <div class="min-w-0 break-words space-y-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="min-w-0 break-words font-semibold text-sm" x-text="sourceSenderName(source)"></span>
                                             <span
                                                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                                 :class="senderStatusClass(sourceSenderStatus(source))"
@@ -2544,8 +2550,8 @@
                                         </template>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
-                                    <div class="min-w-60 space-y-2 text-xs">
+                                {% call td('align-top') %}
+                                    <div class="min-w-0 break-words space-y-2 text-xs">
                                         <div class="flex flex-wrap gap-1.5">
                                             <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
                                                 <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>
@@ -2635,8 +2641,8 @@
                                         </template>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
-                                    <div class="min-w-44 space-y-2">
+                                {% call td('align-top') %}
+                                    <div class="min-w-0 space-y-2">
                                         <div class="font-semibold" x-text="formatLargeNumber(source.count)"></div>
                                         <div class="space-y-0.5 text-xs text-muted-foreground">
                                             <div>
@@ -2671,7 +2677,7 @@
                                         </div>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
+                                {% call td('align-top') %}
                                     <template x-if="source.spf === 'pass'">
                                         <div class="tooltip" data-tip="IP is authorized in the SPF record">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2698,7 +2704,7 @@
                                         <span x-text="(source.spf_fail_count || 0) + ' fail'"></span>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
+                                {% call td('align-top') %}
                                     <template x-if="source.dkim === 'pass'">
                                         <div class="tooltip" data-tip="Valid DKIM signature found">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2725,7 +2731,7 @@
                                         <span x-text="(source.dkim_fail_count || 0) + ' fail'"></span>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
+                                {% call td('align-top') %}
                                     <template x-if="source.dmarc === 'pass'">
                                         <div class="tooltip" data-tip="DMARC passed: SPF or DKIM alignment succeeded">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2747,7 +2753,7 @@
                                         <span x-text="(source.dmarc_fail_count || 0) + ' fail'"></span>
                                     </div>
                                 {% endcall %}
-                                {% call td() %}
+                                {% call td('align-top') %}
                                     <template x-if="source.disposition === 'none'">
                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">None</span>
                                     </template>
@@ -2758,12 +2764,12 @@
                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Reject</span>
                                     </template>
                                 {% endcall %}
-                                {% call td() %}
+                                {% call td('align-top') %}
                                     <template x-if="!source.recommendations || source.recommendations.length === 0">
                                         <span class="text-xs text-muted-foreground">No action</span>
                                     </template>
                                     <template x-if="source.recommendations && source.recommendations.length > 0">
-                                        <div class="space-y-2 min-w-72">
+                                        <div class="min-w-0 break-words space-y-2">
                                             <template x-for="recommendation in source.recommendations" :key="recommendation.type">
                                                 <div class="rounded-md border border-base-300 bg-base-100 p-2">
                                                     <div class="flex items-start gap-2">
@@ -2777,7 +2783,7 @@
                                                             <p class="mt-1 text-xs" x-text="recommendation.action"></p>
                                                             <template x-if="recommendation.type === 'dkim_only_pass' && source.spf_fix_hint">
                                                                 <div class="mt-2 flex items-center gap-2 rounded bg-base-200 px-2 py-1">
-                                                                    <code class="flex-1 font-mono text-xs" x-text="source.spf_fix_hint"></code>
+                                                                    <code class="min-w-0 flex-1 break-all font-mono text-xs" x-text="source.spf_fix_hint"></code>
                                                                     <button
                                                                         :data-domain-detail-copy-value="source.spf_fix_hint"
                                                                         class="btn btn-xs btn-ghost"

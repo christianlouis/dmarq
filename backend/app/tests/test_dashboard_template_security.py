@@ -2555,6 +2555,20 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
+
+
+def test_domain_details_keeps_sending_source_authentication_columns_visible_on_desktop():
+    """Sending-source evidence must not force the operational columns off-screen."""
+    template = _domain_details_template()
+
+    assert "min-w-[960px] xl:min-w-0 xl:table-fixed xl:w-full" in template
+    assert "w-[7%] align-top') %}SPF" in template
+    assert "w-[7%] align-top') %}DKIM" in template
+    assert "w-[7%] align-top') %}DMARC" in template
+    assert "w-[16%] align-top') %}Recommendations" in template
+    assert "min-w-52" not in template
+    assert "min-w-60" not in template
+    assert "min-w-72" not in template
     assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
