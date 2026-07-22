@@ -533,6 +533,25 @@ def _initialize_provider_data() -> None:
             provider_db.close()
 
 
+def _initialize_synthetic_load_data() -> None:
+    """Seed an explicit, non-demo acceptance scenario when requested."""
+    if settings.SYNTHETIC_LOAD_TEST_SCENARIO != "simon-811":
+        return
+
+    from app.services.synthetic_load_seed import seed_simon_811_scenario
+
+    scenario_db = SessionLocal()
+    try:
+        seeded = seed_simon_811_scenario(scenario_db)
+        logger.warning("Synthetic acceptance scenario ready: %s", seeded)
+    except Exception:
+        scenario_db.rollback()
+        logger.exception("Failed to seed synthetic acceptance scenario")
+        raise
+    finally:
+        scenario_db.close()
+
+
 def _start_background_tasks() -> None:
     """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
     global background_task, dns_prewarm_task  # pylint: disable=global-statement
@@ -606,6 +625,7 @@ def create_app() -> FastAPI:
         Base.metadata.create_all(bind=engine)
 
         _initialize_provider_data()
+        _initialize_synthetic_load_data()
 
         # Warn loudly when authentication is completely disabled
         if settings.AUTH_DISABLED:
