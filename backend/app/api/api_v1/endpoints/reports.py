@@ -655,6 +655,18 @@ class ReportSummaryDetail(BaseModel):
     pass_rate: float
 
 
+class ReportEnrichmentStatus(BaseModel):
+    """Bounded enrichment outcome for report-detail progressive hydration."""
+
+    status: str = "complete"
+    pending: bool = False
+    ptr: str = "complete"
+    network: str = "complete"
+    reputation: str = "complete"
+    unique_source_ips: int = 0
+    record_count: int = 0
+
+
 class ReportDetail(BaseModel):
     """Full detail of a single DMARC report"""
 
@@ -670,6 +682,7 @@ class ReportDetail(BaseModel):
     records: List[ReportRecordDetail]
     summary: ReportSummaryDetail
     reputation_summary: Dict[str, Any] = Field(default_factory=dict)
+    enrichment: ReportEnrichmentStatus = Field(default_factory=ReportEnrichmentStatus)
 
 
 def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -722,6 +735,133 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
         return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
     except Exception:
         return None
+
+
+def _unique_source_ips(ips: List[str]) -> List[str]:
+    """Preserve first-seen order while collapsing duplicate report-row IPs."""
+    return list(dict.fromkeys(ips))
+
+
+async def _ptr_lookups_by_ip(
+    provider: Any,
+    unique_ips: List[str],
+    *,
+    concurrency: int = 20,
+) -> Dict[str, Optional[str]]:
+    """Resolve PTR hostnames once per unique IP with bounded concurrency."""
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+
+    async def _lookup(ip: str) -> tuple[str, Optional[str]]:
+        async with semaphore:
+            return ip, await _safe_ptr_lookup(provider, ip)
+
+    pairs = await asyncio.gather(*[_lookup(ip) for ip in unique_ips])
+    return dict(pairs)
+
+
+async def _report_networks_by_ip(
+    db: Session,
+    provider: Any,
+    unique_ips: List[str],
+    settings: Any,
+) -> tuple[Dict[str, SourceNetworkIntelligence], str]:
+    """Batch network enrichment with a hard detail-path timeout."""
+    if not settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
+        return {}, "disabled"
+    try:
+        networks = await asyncio.wait_for(
+            lookup_sources_network_cached(
+                db,
+                provider,
+                unique_ips,
+                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            ),
+            timeout=max(
+                0.5,
+                float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+            ),
+        )
+        return networks, "complete"
+    except asyncio.TimeoutError:
+        logger.info("Report source network enrichment timed out for report detail")
+        return {}, "timed_out"
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.info(
+            "Report source network enrichment failed for report detail: %s",
+            type(exc).__name__,
+        )
+        return {}, "failed"
+
+
+async def _report_reputations_by_ip(
+    db: Session,
+    domain_name: str,
+    report: Dict[str, Any],
+    source_rows: List[Dict[str, Any]],
+    sender_by_ip: Dict[str, Dict[str, Any]],
+    *,
+    refresh: bool,
+    settings: Any,
+) -> tuple[Optional[DomainReputation], Dict[str, SourceReputation], str]:
+    """Build reputation evidence with a hard detail-path timeout."""
+    try:
+        reputation_result, _, _ = await asyncio.wait_for(
+            build_source_reputation_cached(
+                db,
+                domain_name,
+                [report],
+                source_rows,
+                senders_by_ip=sender_by_ip,
+                anomalies_by_ip={},
+                days=1,
+                refresh=refresh,
+            ),
+            timeout=max(
+                0.5,
+                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * (2 if refresh else 1),
+            ),
+        )
+        return reputation_result, source_reputation_by_ip(reputation_result), "complete"
+    except asyncio.TimeoutError:
+        logger.info("Report source reputation enrichment timed out for report detail")
+        return None, {}, "timed_out"
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.info(
+            "Report source reputation enrichment failed for report detail: %s",
+            type(exc).__name__,
+        )
+        _raise_refresh_reputation_failure(refresh, exc)
+        return None, {}, "failed"
+
+
+def _report_enrichment_status(
+    *,
+    ptr_status: str,
+    network_status: str,
+    reputation_status: str,
+    unique_source_ips: int,
+    record_count: int,
+) -> ReportEnrichmentStatus:
+    pending_states = {"timed_out", "pending"}
+    pending = network_status in pending_states or reputation_status in pending_states
+    if pending:
+        overall = "partial"
+    elif "failed" in {network_status, reputation_status, ptr_status}:
+        overall = "partial"
+    elif network_status == "disabled" and reputation_status == "complete":
+        overall = "complete"
+    else:
+        overall = "complete"
+    return ReportEnrichmentStatus(
+        status=overall,
+        pending=pending,
+        ptr=ptr_status,
+        network=network_status,
+        reputation=reputation_status,
+        unique_source_ips=unique_source_ips,
+        record_count=record_count,
+    )
 
 
 def _raise_refresh_reputation_failure(refresh_reputation: bool, exc: Exception) -> None:
@@ -990,52 +1130,33 @@ async def get_report_by_id(
     provider = get_default_provider(db)
     settings = get_settings()
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
-    ptr_semaphore = asyncio.Semaphore(20)
+    unique_ips = _unique_source_ips(ips)
 
-    async def _bounded_ptr_lookup(ip: str) -> Optional[str]:
-        async with ptr_semaphore:
-            return await _safe_ptr_lookup(provider, ip)
+    # Evidence first: PTR and network enrichment run in parallel, each bounded.
+    # PTR is deduped to one lookup per unique IP (not per report row).
+    ptr_task = asyncio.create_task(_ptr_lookups_by_ip(provider, unique_ips))
+    network_task = asyncio.create_task(
+        _report_networks_by_ip(db, provider, unique_ips, settings)
+    )
+    hostnames_by_ip, (networks_by_ip, network_status) = await asyncio.gather(
+        ptr_task, network_task
+    )
+    hostnames = [hostnames_by_ip.get(ip) for ip in ips]
+    ptr_status = "complete"
 
-    hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in ips])
-    networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
-    if settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
-        try:
-            networks_by_ip = await lookup_sources_network_cached(
-                db,
-                provider,
-                ips,
-                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
-                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
-            )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.info(
-                "Report source network enrichment failed for report detail: %s",
-                type(exc).__name__,
-            )
     sender_by_ip = {
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
         for ip, row, hostname in zip(ips, source_rows, hostnames, strict=True)
     }
-    reputation_result: Optional[DomainReputation] = None
-    reputations_by_ip: Dict[str, SourceReputation] = {}
-    try:
-        reputation_result, _, _ = await build_source_reputation_cached(
-            db,
-            str(report.get("domain", "")),
-            [report],
-            source_rows,
-            senders_by_ip=sender_by_ip,
-            anomalies_by_ip={},
-            days=1,
-            refresh=refresh_reputation,
-        )
-        reputations_by_ip = source_reputation_by_ip(reputation_result)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.info(
-            "Report source reputation enrichment failed for report detail: %s",
-            type(exc).__name__,
-        )
-        _raise_refresh_reputation_failure(refresh_reputation, exc)
+    reputation_result, reputations_by_ip, reputation_status = await _report_reputations_by_ip(
+        db,
+        str(report.get("domain", "")),
+        report,
+        source_rows,
+        sender_by_ip,
+        refresh=refresh_reputation,
+        settings=settings,
+    )
 
     # Normalize records
     record_details = []
@@ -1072,6 +1193,13 @@ async def get_report_by_id(
         failed_count=raw_summary.get("failed_count", 0),
         pass_rate=raw_summary.get("pass_rate", 0.0),
     )
+    enrichment = _report_enrichment_status(
+        ptr_status=ptr_status,
+        network_status=network_status,
+        reputation_status=reputation_status,
+        unique_source_ips=len(unique_ips),
+        record_count=len(raw_records),
+    )
 
     return ReportDetail(
         report_id=report.get("report_id", ""),
@@ -1086,4 +1214,5 @@ async def get_report_by_id(
         records=record_details,
         summary=summary_detail,
         reputation_summary=_report_reputation_summary(reputation_result),
+        enrichment=enrichment,
     )

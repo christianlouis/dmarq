@@ -6,6 +6,7 @@ function reportDetailApp(reportId = '') {
         error: null,
         reputationRefreshing: false,
         reputationRefreshError: '',
+        enrichmentHydrating: false,
         recordRiskFilter: 'all',
         recordPageSize: 25,
 
@@ -96,6 +97,9 @@ function reportDetailApp(reportId = '') {
                     if (!refreshReputation) {
                         this.reputationRefreshError = '';
                     }
+                    if (!refreshReputation && this.report?.enrichment?.pending) {
+                        this.hydrateEnrichment();
+                    }
                 } else if (response.status === 404) {
                     if (!refreshReputation) {
                         this.report = null;
@@ -167,11 +171,48 @@ function reportDetailApp(reportId = '') {
             return {
                 ...normalized,
                 reputation_summary: normalized.reputation_summary || {},
+                enrichment: normalized.enrichment || {
+                    status: 'complete',
+                    pending: false,
+                    ptr: 'complete',
+                    network: 'complete',
+                    reputation: 'complete',
+                    unique_source_ips: 0,
+                    record_count: 0,
+                },
                 records: (normalized.records || []).map((record) => ({
                     ...record,
                     source_details: record.source_details || {},
                 })),
             };
+        },
+
+        async hydrateEnrichment() {
+            if (this.enrichmentHydrating || !this.reportId) {
+                return;
+            }
+            this.enrichmentHydrating = true;
+            try {
+                const response = await fetch(
+                    `/api/v1/reports/${encodeURIComponent(this.reportId)}`
+                );
+                if (!response.ok) {
+                    return;
+                }
+                const next = this.normalizeReport(await response.json());
+                // Keep evidence already on screen; only replace enrichment-bearing fields.
+                this.report = {
+                    ...this.report,
+                    ...next,
+                    records: next.records,
+                    reputation_summary: next.reputation_summary,
+                    enrichment: next.enrichment,
+                };
+            } catch (_err) {
+                // Evidence remains visible; enrichment stays partial until the next load.
+            } finally {
+                this.enrichmentHydrating = false;
+            }
         },
 
         get reportDomainUrl() {

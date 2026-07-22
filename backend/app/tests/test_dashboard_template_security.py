@@ -1979,6 +1979,9 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "reputationEvidencePreview" in script
     assert "senderStatusClass" in script
     assert "normalizeReport" in script
+    assert "hydrateEnrichment" in script
+    assert "enrichmentHydrating" in script
+    assert "report?.enrichment?.pending" in script
     assert "reportDomainUrl" in script
     assert "?." not in template
     assert "??" not in template

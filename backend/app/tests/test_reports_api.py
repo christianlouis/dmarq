@@ -1,5 +1,6 @@
 import asyncio
 import io
+import time
 import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -1211,6 +1212,155 @@ def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
 
     assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "not-an-ip")) is None
     assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "192.0.2.55")) is None
+
+
+def _large_report_fixture(*, report_id: str, record_count: int = 320, unique_ips: int = 40) -> dict:
+    """Build a large aggregate report with repeated source IPs for perf regression."""
+    records = []
+    for index in range(record_count):
+        octet = (index % unique_ips) + 1
+        records.append(
+            {
+                "source_ip": f"203.0.113.{octet}",
+                "count": 1,
+                "disposition": "none",
+                "dkim_result": "pass" if index % 3 else "fail",
+                "spf_result": "pass" if index % 2 else "fail",
+                "header_from": "example.com",
+            }
+        )
+    return {
+        "domain": "example.com",
+        "report_id": report_id,
+        "org_name": "google.com",
+        "email": "noreply@example.com",
+        "begin_timestamp": 1782691200,
+        "end_timestamp": 1782777599,
+        "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+        "records": records,
+        "summary": {
+            "total_count": record_count,
+            "passed_count": record_count // 2,
+            "failed_count": record_count - (record_count // 2),
+            "pass_rate": 50.0,
+        },
+    }
+
+
+def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Report detail must perform at most one PTR lookup per unique source IP."""
+    workspace = get_or_create_default_workspace(db_session)
+    fixture = _large_report_fixture(report_id="large-ptr-dedupe-report", record_count=300, unique_ips=25)
+    _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
+
+    ptr_calls: list[str] = []
+
+    async def counting_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
+        ptr_calls.append(ip)
+        await asyncio.sleep(0.01)
+        return f"host-{ip.replace('.', '-')}.example.net"
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain="example.com",
+                status="unknown",
+                checked_at="2026-07-01T00:00:00Z",
+                sources=[],
+                summary={"total_sources": 0},
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", counting_ptr)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    started = time.monotonic()
+    response = authed_client.get("/api/v1/reports/large-ptr-dedupe-report")
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["records"]) == 300
+    assert body["enrichment"]["unique_source_ips"] == 25
+    assert body["enrichment"]["record_count"] == 300
+    assert len(ptr_calls) == 25
+    assert len(set(ptr_calls)) == 25
+    # Unbounded per-row PTR (300 * 10ms) would exceed ~2s; deduped path stays bounded.
+    assert elapsed < 2.0
+
+
+def test_get_report_by_id_bounds_slow_network_enrichment(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Slow per-IP network enrichment must not block report evidence indefinitely."""
+    workspace = get_or_create_default_workspace(db_session)
+    fixture = _large_report_fixture(
+        report_id="large-network-timeout-report",
+        record_count=320,
+        unique_ips=40,
+    )
+    _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
+
+    network_calls: list[str] = []
+
+    async def slow_networks(_db, _provider, source_ips, **_kwargs):
+        unique = list(dict.fromkeys(str(ip) for ip in source_ips))
+        for ip in unique:
+            network_calls.append(ip)
+            await asyncio.sleep(0.25)
+        return {}
+
+    async def fake_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
+        return None
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain="example.com",
+                status="unknown",
+                checked_at="2026-07-01T00:00:00Z",
+                sources=[],
+                summary={"total_sources": 0},
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", slow_networks)
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    class _Settings:
+        SOURCE_NETWORK_ENRICHMENT_ENABLED = True
+        SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS = 86_400
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS = 100
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS = 0.6
+        SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS = 4.0
+
+    monkeypatch.setattr(reports_endpoint, "get_settings", lambda: _Settings())
+
+    started = time.monotonic()
+    response = authed_client.get("/api/v1/reports/large-network-timeout-report")
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["records"]) == 320
+    assert body["records"][0]["source_ip"].startswith("203.0.113.")
+    assert body["enrichment"]["network"] == "timed_out"
+    assert body["enrichment"]["pending"] is True
+    assert body["enrichment"]["status"] == "partial"
+    # Unbounded sequential enrichment (~40 * 0.25s) would take ~10s; bound stays near timeout.
+    assert elapsed < 3.0
+    assert len(set(network_calls)) <= 40
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):
