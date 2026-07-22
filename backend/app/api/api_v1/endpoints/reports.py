@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +22,7 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
+from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.sender_intelligence import identify_sender, source_geo_for
 from app.services.source_network import (
     SourceNetworkIntelligence,
@@ -727,27 +727,16 @@ def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
-    """Return reverse DNS without letting enrichment break report loading.
+    """Return reverse DNS for an IP without letting enrichment break report loading."""
+    result = await _resolve_ptr_result(provider, ip, timeout=timeout)
+    return result.hostname
 
-    Sender rows use the same independent resolver fallback policy as the
-    domain Sources view.  A transient failure from one recursive resolver is
-    not evidence that an address has no PTR record.
-    """
-    try:
-        ipaddress.ip_address(ip)
-    except ValueError:
-        return None
-    candidates = dns_fallback_candidates(provider)
-    for candidate in candidates:
-        try:
-            hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            continue
-        if hostname:
-            return str(hostname).rstrip(".")
-    return None
+
+async def _resolve_ptr_result(
+    provider: Any, ip: str, timeout: float = 3.0
+) -> PtrLookupResult:
+    """Resolve PTR with fallbacks; patchable in tests."""
+    return await lookup_ptr_with_fallbacks(provider, ip, timeout=timeout)
 
 
 def _unique_source_ips(ips: List[str]) -> List[str]:
@@ -760,13 +749,13 @@ async def _ptr_lookups_by_ip(
     unique_ips: List[str],
     *,
     concurrency: int = 20,
-) -> Dict[str, Optional[str]]:
+) -> Dict[str, PtrLookupResult]:
     """Resolve PTR hostnames once per unique IP with bounded concurrency."""
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
-    async def _lookup(ip: str) -> tuple[str, Optional[str]]:
+    async def _lookup(ip: str) -> tuple[str, PtrLookupResult]:
         async with semaphore:
-            return ip, await _safe_ptr_lookup(provider, ip)
+            return ip, await _resolve_ptr_result(provider, ip)
 
     pairs = await asyncio.gather(*[_lookup(ip) for ip in unique_ips])
     return dict(pairs)
@@ -1073,10 +1062,14 @@ def _source_details(
     hostname: Optional[str],
     sender: Dict[str, Any],
     network: Optional[SourceNetworkIntelligence] = None,
+    ptr_result: Optional[PtrLookupResult] = None,
 ) -> Dict[str, Any]:
     geo = merge_network_into_geo(source_geo_for(ip, record), network)
     return {
         "hostname": hostname,
+        "ptr_status": ptr_result.status if ptr_result else None,
+        "ptr_detail": ptr_result.detail if ptr_result else None,
+        "ptr_transient": ptr_result.transient if ptr_result else None,
         "sender": sender,
         "country": geo.get("country"),
         "country_code": geo.get("country_code"),
@@ -1154,11 +1147,21 @@ async def get_report_by_id(
     network_task = asyncio.create_task(
         _report_networks_by_ip(db, provider, unique_ips, settings)
     )
-    hostnames_by_ip, (networks_by_ip, network_status) = await asyncio.gather(
+    ptr_by_ip, (networks_by_ip, network_status) = await asyncio.gather(
         ptr_task, network_task
     )
-    hostnames = [hostnames_by_ip.get(ip) for ip in ips]
-    ptr_status = "complete"
+    hostnames = [
+        (ptr_by_ip.get(ip).hostname if ptr_by_ip.get(ip) else None) for ip in ips
+    ]
+    if any((ptr_by_ip.get(ip) and ptr_by_ip[ip].transient) for ip in unique_ips):
+        ptr_status = "timed_out"
+    elif any(
+        (ptr_by_ip.get(ip) and ptr_by_ip[ip].status not in {"ok", "nxdomain", "skipped", "invalid"})
+        for ip in unique_ips
+    ):
+        ptr_status = "partial"
+    else:
+        ptr_status = "complete"
 
     sender_by_ip = {
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
@@ -1196,6 +1199,7 @@ async def get_report_by_id(
                     hostname,
                     sender_by_ip.get(ip, {}),
                     networks_by_ip.get(ip),
+                    ptr_by_ip.get(ip),
                 ),
                 reputation=_source_reputation_dict(reputation) if reputation else None,
                 **guidance,

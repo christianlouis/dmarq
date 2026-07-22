@@ -2518,7 +2518,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     script = _domain_details_script()
 
     assert "Trust signals" in template
-    assert "PTR unavailable" in template
+    assert "PTR unavailable" in template or "ptrStatusLabel" in script
+    assert "ptrStatusLabel" in script
     assert "sourceGeoSummary(source)" in script
     assert "geoAvailabilityHint" in script
     assert "sourceNetworkSummary(source)" in template

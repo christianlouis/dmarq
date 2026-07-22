@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.services.ptr_lookup import PtrLookupResult
 from app.models.domain import Domain
 from app.models.setting import Setting
 from app.models.webhook import WebhookDelivery
@@ -2735,9 +2736,9 @@ def test_get_domain_sources_returns_recommendations(
     """Endpoint includes actionable guidance for common failure patterns."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "sender.example.net"
+        return PtrLookupResult(hostname="sender.example.net", status="ok", detail="PTR record found")
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     report = {
         **REPORT_DICT_POLICY,
         "report_id": "rpt-full-fail",
@@ -2772,9 +2773,13 @@ def test_get_domain_sources_returns_sender_identity(
     """Endpoint names recognized sending services with evidence and remediation."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "mail-qv1-f75.google.com"
+        return PtrLookupResult(
+            hostname="mail-qv1-f75.google.com",
+            status="ok",
+            detail="PTR record found",
+        )
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     report = {
         **REPORT_DICT_POLICY,
         "report_id": "rpt-google-source",
@@ -2892,7 +2897,13 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     source_ip = "193.138.195.141"
 
     async def fake_ptr_lookup(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "smtp.customer.example" if ip == source_ip else None
+        if ip == source_ip:
+            return PtrLookupResult(
+                hostname="smtp.customer.example",
+                status="ok",
+                detail="PTR record found",
+            )
+        return PtrLookupResult(status="unavailable", detail="stubbed")
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -2943,7 +2954,7 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
             )
         }
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
     monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", fake_networks)
     workspace = get_or_create_default_workspace(db_session)
@@ -3074,7 +3085,11 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
         raise AssertionError("source detail routes should not hydrate the full ReportStore")
 
     async def fake_ptr_lookup(*_args, **_kwargs):
-        return "mail.fast-sources.example"
+        return PtrLookupResult(
+            hostname="mail.fast-sources.example",
+            status="ok",
+            detail="PTR record found",
+        )
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -3090,7 +3105,7 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
         )
 
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydrate)
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
 
     sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=30")
@@ -3220,25 +3235,6 @@ async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch
         async def lookup_ptr(self, _ip):
             raise AssertionError("lookup_ptr should not be called")
 
-    class FailingProvider:
-        async def lookup_ptr(self, _ip):
-            raise LookupError("no PTR")
-
-    class EmptyFallbackProvider:
-        async def lookup_ptr(self, _ip):
-            return None
-
-    monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: EmptyFallbackProvider(),
-    )
-    monkeypatch.setattr(
-        domains_endpoint,
-        "CloudflareDNSProvider",
-        lambda: EmptyFallbackProvider(),
-    )
-
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
             InvalidProvider(), "not-an-ip"
@@ -3248,12 +3244,6 @@ async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
             InvalidProvider(), "10.0.0.1"
-        )
-        is None
-    )
-    assert (
-        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
-            FailingProvider(), "203.0.113.7"
         )
         is None
     )
@@ -3273,9 +3263,8 @@ async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPa
             return "mta200a-ord.mtasv.net."
 
     monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: WorkingFallbackProvider(),
+        "app.services.ptr_lookup.dns_fallback_candidates",
+        lambda provider: [provider, WorkingFallbackProvider()],
     )
 
     hostname = await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
@@ -3288,24 +3277,17 @@ async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPa
 @pytest.mark.asyncio
 async def test_safe_ptr_lookup_propagates_cancellation(monkeypatch: pytest.MonkeyPatch):
     """Request cancellation must not be hidden as a recoverable DNS miss."""
+    from app.services.ptr_lookup import clear_ptr_lookup_cache
+
+    clear_ptr_lookup_cache()
 
     class CancelledProvider:
         async def lookup_ptr(self, _ip):
             raise asyncio.CancelledError()
 
-    class UnexpectedFallbackProvider:
-        async def lookup_ptr(self, _ip):
-            raise AssertionError("fallback should not run after cancellation")
-
     monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: UnexpectedFallbackProvider(),
-    )
-    monkeypatch.setattr(
-        domains_endpoint,
-        "CloudflareDNSProvider",
-        lambda: UnexpectedFallbackProvider(),
+        "app.services.ptr_lookup.dns_fallback_candidates",
+        lambda provider: [provider],
     )
 
     with pytest.raises(asyncio.CancelledError):

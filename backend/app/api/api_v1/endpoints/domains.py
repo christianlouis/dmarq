@@ -77,9 +77,7 @@ from app.services.dns_provider_writes import (
     simulate_demo_dns_write,
 )
 from app.services.dns_resolver import (
-    CloudflareDNSProvider,
     DomainDNSResult,
-    PublicRecursiveDNSProvider,
     extract_dmarc_policy,
     get_default_provider,
 )
@@ -122,6 +120,7 @@ from app.services.remediation_readiness import (
     OPERATOR_REVIEW_READINESS_LEVELS,
     repair_readiness_for_stage,
 )
+from app.services.ptr_lookup import lookup_ptr_with_fallbacks
 from app.services.report_persistence import (
     domain_summaries_from_db,
     hydrate_domain_report_store_from_db,
@@ -1980,6 +1979,8 @@ class SourceEntry(BaseModel):
     dmarc_fail_count: int = 0
     disposition_counts: Dict[str, int] = Field(default_factory=dict)
     hostname: Optional[str] = None
+    ptr_status: Optional[str] = None
+    ptr_detail: Optional[str] = None
     sender: SenderIdentity
     geo: SourceGeo
     anomalies: List[SourceAnomaly] = Field(default_factory=list)
@@ -7965,45 +7966,21 @@ def _reputation_recommendations(item: Optional[SourceReputation]) -> List[Source
 
 
 def _ptr_lookup_providers(provider: Any) -> List[Any]:
-    """Return resolver candidates for reverse-DNS sender enrichment."""
-    providers = [provider]
-    provider_class = provider.__class__
-    provider_name = provider_class.__name__
-    if provider_name == "DemoDNSProvider":
-        return providers
-    if provider_class is not PublicRecursiveDNSProvider:
-        providers.append(PublicRecursiveDNSProvider())
-    if provider_class is not CloudflareDNSProvider:
-        providers.append(CloudflareDNSProvider())
-    return providers
+    """Deprecated wrapper kept for tests that still patch this helper."""
+    from app.services.dns_fallbacks import dns_fallback_candidates
+
+    return list(dns_fallback_candidates(provider))
 
 
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
     """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
-    try:
-        parsed_ip = ipaddress.ip_address(ip)  # validate before making a DNS query
-    except ValueError:
-        return None
-    if not parsed_ip.is_global:
-        return None
-    for candidate in _ptr_lookup_providers(provider):
-        try:
-            hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.debug(
-                "PTR lookup provider failed during sender enrichment",
-                extra={
-                    "provider": candidate.__class__.__name__,
-                    "ip": ip,
-                    "error": str(exc),
-                },
-            )
-            continue
-        if hostname:
-            return str(hostname).rstrip(".")
-    return None
+    result = await lookup_ptr_with_fallbacks(provider, ip, timeout=timeout, use_cache=True)
+    return result.hostname
+
+
+async def _safe_ptr_lookup_result(provider: Any, ip: str, timeout: float = 3.0):
+    """Return structured PTR diagnostics for one source IP."""
+    return await lookup_ptr_with_fallbacks(provider, ip, timeout=timeout, use_cache=True)
 
 
 async def _source_networks_by_ip(
@@ -8093,9 +8070,13 @@ async def get_domain_sources(
     settings = get_settings()
 
     ips = [s.get("source_ip", "unknown") for s in sources]
-    ptr_task = asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
+    ptr_task = asyncio.gather(*[_safe_ptr_lookup_result(provider, ip) for ip in ips])
     network_task = asyncio.create_task(_source_networks_by_ip(db, provider, ips, settings))
-    hostnames, networks_by_ip = await asyncio.gather(ptr_task, network_task)
+    ptr_results, networks_by_ip = await asyncio.gather(ptr_task, network_task)
+    hostnames = [result.hostname for result in ptr_results]
+    ptr_by_ip = {
+        str(ip): result for ip, result in zip(ips, ptr_results, strict=True)
+    }
     geo_by_ip = {
         str(source.get("source_ip") or "unknown"): merge_network_into_geo(
             source_geo_for(str(source.get("source_ip") or "unknown"), source),
@@ -8166,6 +8147,8 @@ async def get_domain_sources(
                 dmarc_fail_count=source.get("dmarc_fail_count", 0),
                 disposition_counts=source.get("disposition_counts", {}),
                 hostname=hostname,
+                ptr_status=(ptr_by_ip.get(ip).status if ptr_by_ip.get(ip) else None),
+                ptr_detail=(ptr_by_ip.get(ip).detail if ptr_by_ip.get(ip) else None),
                 sender=SenderIdentity(**sender),
                 geo=SourceGeo(
                     **(

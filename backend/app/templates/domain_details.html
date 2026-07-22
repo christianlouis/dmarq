@@ -2516,7 +2516,7 @@
                                             </span>
                                         </template>
                                         <template x-if="!source.hostname">
-                                            <span class="text-xs text-muted-foreground">PTR unavailable</span>
+                                            <span class="text-xs text-muted-foreground" x-text="ptrStatusLabel(source)"></span>
                                         </template>
                                         <template x-if="source.geo">
                                             <span class="text-xs text-muted-foreground" x-text="sourceGeoSummary(source)"></span>
