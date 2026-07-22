@@ -2560,8 +2560,11 @@
                                             <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
                                                 <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>
                                                 <span class="mx-1">·</span>
-                                                <span x-text="pathValue(source, 'geo.country') && pathValue(source, 'geo.country') !== 'Unknown' ? pathValue(source, 'geo.country') : 'Country unknown'"></span>
+                                                <span x-text="pathValue(source, 'geo.country') && pathValue(source, 'geo.country') !== 'Unknown' ? pathValue(source, 'geo.country') : (pathValue(source, 'geo.country_code') && pathValue(source, 'geo.country_code') !== 'ZZ' ? pathValue(source, 'geo.country_code') : 'Country unknown')"></span>
                                             </span>
+                                            <template x-if="pathValue(source, 'geo.enrichment_mode') === 'tokenless-fallback'">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/70">Tokenless ASN/geo</span>
+                                            </template>
                                             <template x-if="pathValue(source, 'geo.asn')">
                                                 <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-800" x-text="source.geo.asn"></span>
                                             </template>
@@ -2597,6 +2600,9 @@
                                         </template>
                                         <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')">
                                             <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
+                                        </template>
+                                        <template x-if="pathValue(source, 'geo.config_hint')">
+                                            <p class="text-muted-foreground" x-text="geoAvailabilityHint(source)"></p>
                                         </template>
                                         <template x-if="source.reputation">
                                             <div class="space-y-1.5">

@@ -2032,11 +2032,37 @@ function domainDetailsApp(domainId = '') {
             const isKnown = (value) => value && String(value).trim().toLowerCase() !== 'unknown';
             const region = isKnown(geo.region) ? geo.region : null;
             const country = isKnown(geo.country) ? geo.country : null;
+            const countryCode = geo.country_code && geo.country_code !== 'ZZ' ? geo.country_code : null;
             const network = isKnown(geo.network) ? geo.network : null;
             const asn = isKnown(geo.asn) ? geo.asn : null;
             const prefix = isKnown(geo.bgp_prefix) ? geo.bgp_prefix : null;
-            const parts = [region, country, [asn, network, prefix].filter(Boolean).join(' · ')].filter(Boolean);
-            return parts.length ? parts.join(' · ') : 'Geo unavailable';
+            const parts = [
+                region,
+                country || countryCode,
+                [asn, network, prefix].filter(Boolean).join(' · '),
+            ].filter(Boolean);
+            if (parts.length) {
+                return parts.join(' · ');
+            }
+            if (geo.enrichment_mode === 'tokenless-fallback') {
+                return 'Tokenless ASN lookup pending or partial';
+            }
+            if (geo.enrichment_mode === 'unavailable') {
+                return geo.network_error || 'Geo unavailable';
+            }
+            return 'Geo unavailable';
+        },
+
+        geoAvailabilityHint(source) {
+            const geo = source?.geo || source || {};
+            if (geo.config_hint) {
+                return geo.config_hint;
+            }
+            const availability = geo.field_availability || {};
+            if (availability.city === 'requires_optional_provider') {
+                return 'City/org detail needs an optional geo token; ASN can still come from Team Cymru without tokens.';
+            }
+            return '';
         },
 
         formatLargeNumber(value) {

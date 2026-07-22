@@ -1915,6 +1915,9 @@ class SourceGeo(BaseModel):
     network_source: Optional[str] = None
     network_checked_at: Optional[str] = None
     network_error: Optional[str] = None
+    enrichment_mode: Optional[str] = None
+    field_availability: Dict[str, str] = Field(default_factory=dict)
+    config_hint: Optional[str] = None
     source: str
 
 

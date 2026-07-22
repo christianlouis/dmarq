@@ -958,6 +958,9 @@ def _source_details(
         "network_source": geo.get("network_source"),
         "network_checked_at": geo.get("network_checked_at"),
         "network_error": geo.get("network_error"),
+        "enrichment_mode": geo.get("enrichment_mode"),
+        "field_availability": geo.get("field_availability") or {},
+        "config_hint": geo.get("config_hint"),
         "geo_source": geo.get("source"),
     }
 

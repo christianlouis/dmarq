@@ -429,11 +429,29 @@ function reportDetailApp(reportId = '') {
 
         sourceLocation(record) {
             const details = record.source_details || {};
-            const country = details.country || 'Unknown country';
-            const region = details.region || 'Unknown region';
-            const code = details.country_code && details.country_code !== 'ZZ' ? ` (${details.country_code})` : '';
+            const countryKnown = details.country && details.country !== 'Unknown';
+            const regionKnown = details.region && details.region !== 'Unknown';
+            const country = countryKnown
+                ? details.country
+                : (details.country_code && details.country_code !== 'ZZ' ? details.country_code : null);
+            const region = regionKnown ? details.region : null;
+            const code = details.country_code && details.country_code !== 'ZZ' && countryKnown
+                ? ` (${details.country_code})`
+                : '';
             const network = [details.asn, details.network, details.bgp_prefix].filter(Boolean).join(' · ');
-            return [region, `${country}${code}`, network].filter(Boolean).join(' · ');
+            const parts = [region, country ? `${country}${code}` : null, network].filter(Boolean);
+            if (parts.length) {
+                return parts.join(' · ');
+            }
+            if (details.enrichment_mode === 'tokenless-fallback') {
+                return 'Tokenless ASN lookup pending or partial';
+            }
+            return details.network_error || 'Geo unavailable';
+        },
+
+        geoAvailabilityHint(details) {
+            const geo = details || {};
+            return geo.config_hint || '';
         },
 
         reputationClass(status) {
