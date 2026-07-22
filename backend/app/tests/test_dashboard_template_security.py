@@ -2516,7 +2516,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     template = _domain_details_template()
     script = _domain_details_script()
 
-    assert "IP Intelligence" in template
+    assert "IP intelligence" in template
     assert "PTR unavailable" in template or "ptrStatusLabel" in script
     assert "ptrStatusLabel" in script
     assert "sourceGeoSummary(source)" in script
@@ -2562,7 +2562,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
     assert "Use Refresh reputation" in template
-    assert 'colspan="9"' in template
+    assert 'data-sending-sources-list' in template
+    assert 'data-sending-source-auth' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
     assert 'aria-label="Recent sending volume"' in template
     assert ":viewBox=\"'0 0 ' + point.width + ' 100'\"" in template
