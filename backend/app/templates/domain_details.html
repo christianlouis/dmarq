@@ -528,10 +528,6 @@
                        x-cloak
                        class="mt-4 rounded border border-[#d8ebe8] bg-[#f2fbf9] px-3 py-2 text-sm font-semibold text-[#1f7c83]"
                        x-text="remediationQueueRefreshMessage"></p>
-                    <p x-show="remediationQueueEnrichmentNotice"
-                       x-cloak
-                       class="mt-4 rounded border border-[#d9d5ea] bg-[#f7f5ff] px-3 py-2 text-sm text-[#504b70]"
-                       x-text="remediationQueueEnrichmentNotice"></p>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && (remediationQueue.verified_items || []).length > 0">
                         <div class="mt-4 rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-3">
                             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -2462,30 +2458,9 @@
                         <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
                     </span>
                 </div>
-                {#
-                   Keep the operational columns in view on a desktop.  The prior
-                   auto-layout table honoured every evidence column's minimum
-                   width, pushing SPF/DKIM/DMARC and the next action off-screen.
-                   Narrow screens retain an intentional horizontal reading view.
-                #}
-                {% call table('min-w-[960px] xl:min-w-0 xl:table-fixed xl:w-full') %}
-                    {% call thead() %}
-                        {% call tr() %}
-                            {% call th('w-[14%] align-top') %}Source IP / Hostname{% endcall %}
-                            {% call th('w-[13%] align-top') %}Sender{% endcall %}
-                            {% call th('w-[17%] align-top') %}Trust signals{% endcall %}
-                            {% call th('w-[10%] align-top') %}Observed mail{% endcall %}
-                            {% call th('w-[7%] align-top') %}SPF{% endcall %}
-                            {% call th('w-[7%] align-top') %}DKIM{% endcall %}
-                            {% call th('w-[7%] align-top') %}DMARC{% endcall %}
-                            {% call th('w-[9%] align-top') %}Disposition{% endcall %}
-                            {% call th('w-[16%] align-top') %}Recommendations{% endcall %}
-                        {% endcall %}
-                    {% endcall %}
-                    {% call tbody() %}
+                <div class="sending-sources-list space-y-3" data-sending-sources-list>
                         <template x-if="sources.length === 0">
-                            <tr>
-                                <td colspan="9" class="text-center py-4">
+                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-center" data-sending-sources-empty>
                                     <div class="text-muted-foreground" x-show="sourcesLoading">Loading sending sources...</div>
                                     <div class="text-red-700" x-show="!sourcesLoading && sourcesError" x-text="sourcesError"></div>
                                     <div class="text-muted-foreground" x-show="!sourcesLoading && !sourcesError && sourceEvidenceCount === 0">
@@ -2494,20 +2469,20 @@
                                     <div class="text-muted-foreground" x-show="!sourcesLoading && !sourcesError && sourceEvidenceCount > 0">
                                         Source summary is available, but row details are not loaded for this window. Try All time or refresh the page.
                                     </div>
-                                </td>
-                            </tr>
+                            </div>
                         </template>
                         <template x-if="!sourcesLoading && !sourcesError && sources.length > 0 && filteredSources.length === 0">
-                            <tr>
-                                <td colspan="9" class="text-center py-4">
-                                    <div class="text-muted-foreground">No sending sources match this filter.</div>
-                                </td>
-                            </tr>
+                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-center text-muted-foreground">
+                                    No sending sources match this filter.
+                            </div>
                         </template>
                         <template x-for="source in (!sourcesLoading && !sourcesError ? filteredSources : [])" :key="source.ip">
-                            {% call tr() %}
-                                {% call td('align-top') %}
-                                    <div class="flex min-w-0 flex-col break-words">
+                            <article class="sending-source-row rounded-lg border border-base-300 bg-base-100 p-3 shadow-sm"
+                                     data-sending-source-row
+                                     :data-source-ip="source.ip">
+                                <div class="sending-source-grid">
+                                    <div class="sending-source-identity min-w-0 space-y-2">
+                                    <div class="flex flex-col">
                                         <span class="font-mono text-sm" x-text="source.ip"></span>
                                         <template x-if="source.hostname">
                                             <span class="text-xs text-muted-foreground">
@@ -2530,11 +2505,9 @@
                                               :class="sourceActivityClass(source)"
                                               x-text="sourceActivityLabel(source)"></span>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
-                                    <div class="min-w-0 break-words space-y-1">
+                                    <div class="space-y-1">
                                         <div class="flex flex-wrap items-center gap-2">
-                                            <span class="min-w-0 break-words font-semibold text-sm" x-text="sourceSenderName(source)"></span>
+                                            <span class="font-semibold text-sm" x-text="sourceSenderName(source)"></span>
                                             <span
                                                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                                 :class="senderStatusClass(sourceSenderStatus(source))"
@@ -2553,52 +2526,9 @@
                                             <p class="text-xs" x-text="sourceSenderRemediationHint(source)"></p>
                                         </template>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
-                                    <div class="min-w-0 space-y-2 text-xs">
-                                        <div class="flex flex-wrap gap-1.5">
-                                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="sourceNetworkSummary(source)"></span>
-                                            <template x-if="source.reputation">
-                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold" :class="reputationStatusClass(source.reputation.status)" x-text="reputationRiskLabel(source.reputation)"></span>
-                                            </template>
-                                            <template x-if="!source.reputation">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/70">Reputation pending</span>
-                                            </template>
-                                        </div>
-                                        <template x-if="source.reputation">
-                                            <p class="text-muted-foreground" x-text="reputationLabel(source.reputation) + ' · ' + reputationAgeLabel(source.reputation)"></p>
-                                        </template>
-                                        <details class="rounded border border-base-300 bg-base-100 px-2 py-1.5 text-muted-foreground">
-                                            <summary class="cursor-pointer font-medium text-base-content">Network &amp; reputation evidence</summary>
-                                            <div class="mt-2 space-y-2 break-words">
-                                                <p x-text="sourceGeoSummary(source)"></p>
-                                                <template x-if="pathValue(source, 'geo.allocated') || pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source')">
-                                                    <p>
-                                                        <span x-show="pathValue(source, 'geo.allocated')">Allocated <span x-text="pathValue(source, 'geo.allocated')"></span></span>
-                                                        <span x-show="pathValue(source, 'geo.network_source')"> · Network data: <span x-text="pathValue(source, 'geo.network_source')"></span></span>
-                                                    </p>
-                                                </template>
-                                                <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')"><p x-text="source.geo.network_error"></p></template>
-                                                <template x-if="pathValue(source, 'geo.config_hint')"><p x-text="geoAvailabilityHint(source)"></p></template>
-                                                <template x-if="source.reputation">
-                                                    <div class="space-y-1">
-                                                        <p x-text="source.reputation.status_detail || source.reputation.summary"></p>
-                                                        <p x-text="reputationCheckedLabel(source.reputation)"></p>
-                                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 font-medium" :class="reputationFeedClass(source.reputation.feed_status)" x-text="source.reputation.feed_summary || 'Local reputation evidence only'"></span>
-                                                        <template x-if="pathValue(source, 'reputation.listings.length', 0)"><p class="font-medium text-[#ff6f3c]">Listed on <span x-text="source.reputation.listings.join(', ')"></span></p></template>
-                                                        <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(source.reputation).length">
-                                                            <template x-for="item in reputationEvidencePreview(source.reputation)" :key="item.label + item.value"><span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px]"><span class="font-medium" x-text="item.label"></span><span class="px-1">·</span><span class="truncate" x-text="item.value"></span></span></template>
-                                                        </div>
-                                                    </div>
-                                                </template>
-                                                <template x-if="!source.reputation"><p>Reputation has not been calculated yet. Use Refresh reputation to recalculate cached IP evidence.</p></template>
-                                                <template x-if="pathValue(source, 'geo.radar_url')"><a class="font-medium text-primary hover:underline" :href="source.geo.radar_url" target="_blank" rel="noopener noreferrer">Open in Cloudflare Radar</a></template>
-                                            </div>
-                                        </details>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
-                                    <div class="min-w-0 space-y-2">
+                                    <div class="sending-source-volume min-w-0 space-y-2">
+                                        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Observed mail</div>
                                         <div class="font-semibold" x-text="formatLargeNumber(source.count) + ' observed'"></div>
                                         <div class="text-xs" :class="source.dmarc_fail_count ? 'text-error' : 'text-success'" x-text="source.dmarc_fail_count ? formatLargeNumber(source.dmarc_fail_count) + ' DMARC failed' : 'No DMARC failures'"></div>
                                         <div class="space-y-0.5 text-xs text-muted-foreground">
@@ -2623,8 +2553,9 @@
                                             </div>
                                         </details>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
+                                    <div class="sending-source-auth min-w-0" data-sending-source-auth>
+                                        <div class="auth-status-cell" data-auth="spf">
+                                            <span class="auth-label">SPF</span>
                                     <template x-if="source.spf === 'pass'">
                                         <div class="tooltip" data-tip="IP is authorized in the SPF record">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2645,13 +2576,14 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.spf"></span>
                                         </div>
                                     </template>
-                                    <div class="mt-1 text-xs text-muted-foreground">
+                                    <div class="text-xs text-muted-foreground">
                                         <span x-text="(source.spf_pass_count || 0) + ' pass'"></span>
                                         <span> / </span>
                                         <span x-text="(source.spf_fail_count || 0) + ' fail'"></span>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
+                                        </div>
+                                        <div class="auth-status-cell" data-auth="dkim">
+                                            <span class="auth-label">DKIM</span>
                                     <template x-if="source.dkim === 'pass'">
                                         <div class="tooltip" data-tip="Valid DKIM signature found">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2672,13 +2604,14 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.dkim"></span>
                                         </div>
                                     </template>
-                                    <div class="mt-1 text-xs text-muted-foreground">
+                                    <div class="text-xs text-muted-foreground">
                                         <span x-text="(source.dkim_pass_count || 0) + ' pass'"></span>
                                         <span> / </span>
                                         <span x-text="(source.dkim_fail_count || 0) + ' fail'"></span>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
+                                        </div>
+                                        <div class="auth-status-cell" data-auth="dmarc">
+                                            <span class="auth-label">DMARC</span>
                                     <template x-if="source.dmarc === 'pass'">
                                         <div class="tooltip" data-tip="DMARC passed: SPF or DKIM alignment succeeded">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
@@ -2694,13 +2627,14 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Mixed</span>
                                         </div>
                                     </template>
-                                    <div class="mt-1 text-xs text-muted-foreground">
+                                    <div class="text-xs text-muted-foreground">
                                         <span x-text="(source.dmarc_pass_count || 0) + ' pass'"></span>
                                         <span> / </span>
                                         <span x-text="(source.dmarc_fail_count || 0) + ' fail'"></span>
                                     </div>
-                                {% endcall %}
-                                {% call td('align-top') %}
+                                        </div>
+                                        <div class="auth-status-cell" data-auth="disposition">
+                                            <span class="auth-label">Disposition</span>
                                     <template x-if="source.disposition === 'none'">
                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">None</span>
                                     </template>
@@ -2710,13 +2644,15 @@
                                     <template x-if="source.disposition === 'reject'">
                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Reject</span>
                                     </template>
-                                {% endcall %}
-                                {% call td('align-top') %}
+                                        </div>
+                                    </div>
+                                    <div class="sending-source-recs min-w-0">
+                                        <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">Recommendations</div>
                                     <template x-if="!source.recommendations || source.recommendations.length === 0">
                                         <span class="text-xs text-muted-foreground">No action</span>
                                     </template>
                                     <template x-if="source.recommendations && source.recommendations.length > 0">
-                                        <div class="min-w-0 break-words space-y-2">
+                                        <div class="sending-source-recs-scroll space-y-2">
                                             <template x-for="recommendation in source.recommendations" :key="recommendation.type">
                                                 <div class="rounded-md border border-base-300 bg-base-100 p-2">
                                                     <div class="flex items-start gap-2">
@@ -2729,8 +2665,8 @@
                                                             <p class="mt-1 text-xs text-muted-foreground" x-text="recommendation.detail"></p>
                                                             <p class="mt-1 text-xs" x-text="recommendation.action"></p>
                                                             <template x-if="recommendation.type === 'dkim_only_pass' && source.spf_fix_hint">
-                                                                <div class="mt-2 flex items-center gap-2 rounded bg-base-200 px-2 py-1">
-                                                                    <code class="min-w-0 flex-1 break-all font-mono text-xs" x-text="source.spf_fix_hint"></code>
+                                                                <div class="mt-2 flex min-w-0 items-center gap-2 overflow-x-auto rounded bg-base-200 px-2 py-1">
+                                                                    <code class="flex-1 font-mono text-xs" x-text="source.spf_fix_hint"></code>
                                                                     <button
                                                                         :data-domain-detail-copy-value="source.spf_fix_hint"
                                                                         class="btn btn-xs btn-ghost"
@@ -2746,11 +2682,115 @@
                                             </template>
                                         </div>
                                     </template>
-                                {% endcall %}
-                            {% endcall %}
+                                    </div>
+                                </div>
+                                <details class="sending-source-intel mt-3 rounded-md border border-base-300 bg-[var(--dmarq-surface-section)] p-2 text-xs">
+                                    <summary class="cursor-pointer select-none text-xs font-semibold text-base-content">
+                                        <span>Trust signals</span>
+                                        <span class="ml-2 font-normal text-muted-foreground" x-text="sourceNetworkSummary(source)"></span>
+                                        <template x-if="source.reputation">
+                                            <span class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 font-semibold" :class="reputationStatusClass(source.reputation.status)" x-text="reputationRiskLabel(source.reputation)"></span>
+                                        </template>
+                                    </summary>
+                                    <div class="mt-2 space-y-2">
+                                        <div class="flex flex-wrap gap-1.5">
+                                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
+                                                <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>
+                                                <span class="mx-1">·</span>
+                                                <span x-text="pathValue(source, 'geo.country') && pathValue(source, 'geo.country') !== 'Unknown' ? pathValue(source, 'geo.country') : (pathValue(source, 'geo.country_code') && pathValue(source, 'geo.country_code') !== 'ZZ' ? pathValue(source, 'geo.country_code') : 'Country unknown')"></span>
+                                            </span>
+                                            <template x-if="pathValue(source, 'geo.enrichment_mode') === 'tokenless-fallback'">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/70">Tokenless ASN/geo</span>
+                                            </template>
+                                            <template x-if="pathValue(source, 'geo.asn')">
+                                                <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-800" x-text="source.geo.asn"></span>
+                                            </template>
+                                            <template x-if="pathValue(source, 'geo.network')">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.network"></span>
+                                            </template>
+                                            <template x-if="pathValue(source, 'geo.bgp_prefix')">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-mono font-medium text-base-content/80" x-text="source.geo.bgp_prefix"></span>
+                                            </template>
+                                            <template x-if="pathValue(source, 'geo.city')">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.city"></span>
+                                            </template>
+                                            <template x-if="pathValue(source, 'geo.registry')">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium uppercase text-base-content/70" x-text="source.geo.registry"></span>
+                                            </template>
+                                        </div>
+                                        <template x-if="pathValue(source, 'geo.allocated') || pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source')">
+                                            <p class="text-muted-foreground">
+                                                <span x-show="pathValue(source, 'geo.allocated')">Allocated <span x-text="pathValue(source, 'geo.allocated')"></span></span>
+                                                <span x-show="pathValue(source, 'geo.allocated') && (pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source'))"> · </span>
+                                                <span x-show="pathValue(source, 'geo.organization')" x-text="pathValue(source, 'geo.organization')"></span>
+                                                <span x-show="pathValue(source, 'geo.organization') && pathValue(source, 'geo.domain')"> · </span>
+                                                <span x-show="pathValue(source, 'geo.domain')" x-text="pathValue(source, 'geo.domain')"></span>
+                                                <span x-show="(pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain')) && pathValue(source, 'geo.network_source')"> · </span>
+                                                <span x-show="pathValue(source, 'geo.network_source')">Network data: <span x-text="pathValue(source, 'geo.network_source')"></span></span>
+                                            </p>
+                                        </template>
+                                        <template x-if="pathValue(source, 'geo.radar_url')">
+                                            <a class="text-xs font-medium text-primary hover:underline"
+                                               :href="source.geo.radar_url"
+                                               target="_blank"
+                                               rel="noopener noreferrer">Open in Cloudflare Radar</a>
+                                        </template>
+                                        <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')">
+                                            <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
+                                        </template>
+                                        <template x-if="pathValue(source, 'geo.config_hint')">
+                                            <p class="text-muted-foreground" x-text="geoAvailabilityHint(source)"></p>
+                                        </template>
+                                        <template x-if="source.reputation">
+                                            <div class="space-y-1.5">
+                                                <div class="flex flex-wrap items-center gap-1.5">
+                                                    <span
+                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold"
+                                                        :class="reputationStatusClass(source.reputation.status)"
+                                                        x-text="reputationLabel(source.reputation)"
+                                                    ></span>
+                                                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="reputationRiskLabel(source.reputation)"></span>
+                                                    <span
+                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-medium"
+                                                        :class="reputationFeedClass(source.reputation.feed_status)"
+                                                        x-text="source.reputation.feed_summary || 'Local reputation evidence only'"
+                                                    ></span>
+                                                </div>
+                                                <p class="text-muted-foreground" x-text="source.reputation.status_detail || source.reputation.summary"></p>
+                                                <p class="text-muted-foreground">
+                                                    <span x-text="reputationCheckedLabel(source.reputation)"></span>
+                                                    <span> · </span>
+                                                    <span x-text="reputationAgeLabel(source.reputation)"></span>
+                                                </p>
+                                                <template x-if="pathValue(source, 'reputation.listings.length', 0)">
+                                                    <p class="font-medium text-[#ff6f3c]">
+                                                        <span>Listed on </span>
+                                                        <span x-text="source.reputation.listings.slice(0, 2).join(', ')"></span>
+                                                        <span x-show="source.reputation.listings.length > 2" x-text="' +' + (source.reputation.listings.length - 2)"></span>
+                                                    </p>
+                                                </template>
+                                                <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(source.reputation).length">
+                                                    <template x-for="item in reputationEvidencePreview(source.reputation)" :key="item.label + item.value">
+                                                        <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
+                                                            <span class="font-medium" x-text="item.label"></span>
+                                                            <span class="px-1">·</span>
+                                                            <span class="truncate" x-text="item.value"></span>
+                                                        </span>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="!source.reputation">
+                                            <p class="text-muted-foreground">Reputation has not been calculated for this source yet. Use Refresh reputation to recalculate cached IP evidence.</p>
+                                        </template>
+                                        <template x-if="!pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network') && !source.reputation">
+                                            <p class="text-muted-foreground">No ASN or reputation evidence available yet.</p>
+                                        </template>
+                                    </div>
+                                </details>
+                            </article>
                         </template>
-                    {% endcall %}
-                {% endcall %}
+                </div>
             {% endcall %}
         {% endcall %}
         </section>

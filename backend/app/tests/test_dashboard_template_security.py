@@ -2538,6 +2538,12 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.active_days" in template
     assert "source.report_count" in template
     assert "pathValue(source, 'volume_history.length', 0)" in template
+    assert 'data-sending-sources-list' in template
+    assert 'data-sending-source-auth' in template
+    assert 'data-auth="spf"' in template
+    assert 'data-auth="dkim"' in template
+    assert 'data-auth="dmarc"' in template
+    assert 'data-auth="disposition"' in template
     assert "data-domain-detail-refresh-reputation" in template
     assert "data-domain-detail-refresh-reputation" in script
     assert "refreshSourceReputation" in script
