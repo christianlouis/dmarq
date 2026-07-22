@@ -748,16 +748,43 @@ async def _ptr_lookups_by_ip(
     unique_ips: List[str],
     *,
     concurrency: int = 20,
+    results: Optional[Dict[str, PtrLookupResult]] = None,
 ) -> Dict[str, PtrLookupResult]:
     """Resolve PTR hostnames once per unique IP with bounded concurrency."""
     semaphore = asyncio.Semaphore(max(1, concurrency))
+    resolved = results if results is not None else {}
 
-    async def _lookup(ip: str) -> tuple[str, PtrLookupResult]:
+    async def _lookup(ip: str) -> None:
         async with semaphore:
-            return ip, await _resolve_ptr_result(provider, ip)
+            resolved[ip] = await _resolve_ptr_result(provider, ip)
 
-    pairs = await asyncio.gather(*[_lookup(ip) for ip in unique_ips])
-    return dict(pairs)
+    await asyncio.gather(*[_lookup(ip) for ip in unique_ips])
+    return resolved
+
+
+async def _report_ptrs_by_ip(
+    provider: Any,
+    unique_ips: List[str],
+    settings: Any,
+) -> tuple[Dict[str, PtrLookupResult], str]:
+    """Cap and time-box PTR enrichment while retaining completed lookups."""
+    max_ips = max(0, int(settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS))
+    selected_ips = unique_ips[:max_ips]
+    resolved: Dict[str, PtrLookupResult] = {}
+    if not selected_ips:
+        return resolved, "complete" if not unique_ips else "pending"
+    try:
+        await asyncio.wait_for(
+            _ptr_lookups_by_ip(provider, selected_ips, results=resolved),
+            timeout=max(
+                0.5,
+                float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+            ),
+        )
+    except asyncio.TimeoutError:
+        logger.info("Report PTR enrichment timed out for report detail")
+        return resolved, "pending"
+    return resolved, "complete" if len(selected_ips) == len(unique_ips) else "pending"
 
 
 async def _report_networks_by_ip(
@@ -824,8 +851,9 @@ async def _report_reputations_by_ip(
             ),
         )
         return reputation_result, source_reputation_by_ip(reputation_result), "complete"
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as exc:
         logger.info("Report source reputation enrichment timed out for report detail")
+        _raise_refresh_reputation_failure(refresh, exc)
         return None, {}, "timed_out"
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
@@ -844,14 +872,15 @@ def _report_enrichment_status(
     unique_source_ips: int,
     record_count: int,
 ) -> ReportEnrichmentStatus:
-    pending_states = {"timed_out", "pending"}
-    pending = network_status in pending_states or reputation_status in pending_states
+    pending_states = {"timed_out", "pending", "partial"}
+    pending = any(
+        enrichment_status in pending_states
+        for enrichment_status in (ptr_status, network_status, reputation_status)
+    )
     if pending:
         overall = "partial"
     elif "failed" in {network_status, reputation_status, ptr_status}:
         overall = "partial"
-    elif network_status == "disabled" and reputation_status == "complete":
-        overall = "complete"
     else:
         overall = "complete"
     return ReportEnrichmentStatus(
@@ -1139,25 +1168,27 @@ async def get_report_by_id(
 
     # Evidence first: PTR and network enrichment run in parallel, each bounded.
     # PTR is deduped to one lookup per unique IP (not per report row).
-    ptr_task = asyncio.create_task(_ptr_lookups_by_ip(provider, unique_ips))
+    ptr_task = asyncio.create_task(_report_ptrs_by_ip(provider, unique_ips, settings))
     network_task = asyncio.create_task(
         _report_networks_by_ip(db, provider, unique_ips, settings)
     )
-    ptr_by_ip, (networks_by_ip, network_status) = await asyncio.gather(
+    (ptr_by_ip, ptr_status), (networks_by_ip, network_status) = await asyncio.gather(
         ptr_task, network_task
     )
     hostnames = [
         (ptr_by_ip.get(ip).hostname if ptr_by_ip.get(ip) else None) for ip in ips
     ]
-    if any((ptr_by_ip.get(ip) and ptr_by_ip[ip].transient) for ip in unique_ips):
-        ptr_status = "timed_out"
-    elif any(
-        (ptr_by_ip.get(ip) and ptr_by_ip[ip].status not in {"ok", "nxdomain", "skipped", "invalid"})
-        for ip in unique_ips
-    ):
-        ptr_status = "partial"
-    else:
-        ptr_status = "complete"
+    if ptr_status == "complete":
+        if any((ptr_by_ip.get(ip) and ptr_by_ip[ip].transient) for ip in unique_ips):
+            ptr_status = "timed_out"
+        elif any(
+            (
+                ptr_by_ip.get(ip)
+                and ptr_by_ip[ip].status not in {"ok", "nxdomain", "skipped", "invalid"}
+            )
+            for ip in unique_ips
+        ):
+            ptr_status = "partial"
 
     sender_by_ip = {
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
