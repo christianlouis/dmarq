@@ -28,12 +28,8 @@ def resolve_app_timezone_name(value: Optional[str]) -> str:
 
 
 def app_zoneinfo(name: Optional[str] = None) -> ZoneInfo:
-    """Resolve ZoneInfo for the configured application timezone."""
-    if name is None:
-        from app.core.config import get_settings
-
-        name = get_settings().APP_TIMEZONE
-    return ZoneInfo(resolve_app_timezone_name(name))
+    """Resolve ZoneInfo for an explicit presentation timezone, defaulting to UTC."""
+    return ZoneInfo(resolve_app_timezone_name(name or DEFAULT_APP_TIMEZONE))
 
 
 def ensure_utc(value: datetime) -> datetime:

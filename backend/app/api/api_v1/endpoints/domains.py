@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import SessionLocal, get_db
+from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
@@ -6361,7 +6362,7 @@ async def _build_domain_remediation_queue_for_workspace(
     except asyncio.TimeoutError:
         logger.info(
             "Remediation queue enrichment timed out for %s; returning bounded empty queue",
-            domain_name,
+            sanitize_for_log(domain_name),
         )
         summary = store.get_domain_summary(domain_name) or {}
         domain_health = {
@@ -6382,7 +6383,7 @@ async def _build_domain_remediation_queue_for_workspace(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Remediation queue enrichment failed for %s: %s",
-            domain_name,
+            sanitize_for_log(domain_name),
             type(exc).__name__,
         )
         domain_health = {

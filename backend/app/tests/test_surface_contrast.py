@@ -86,7 +86,7 @@ def test_surface_ladder_has_perceptible_contrast(surface_tokens: dict[str, str])
 
 
 def test_text_and_status_meet_wcag_aa(surface_tokens: dict[str, str]) -> None:
-    """Body text and status colors remain AA against card/control surfaces."""
+    """Body text is AA; status indicators meet non-text contrast against cards."""
     text = surface_tokens["text"]
     for surface_key in ("canvas", "section", "card", "control"):
         ratio = contrast_ratio(text, surface_tokens[surface_key])

@@ -32,6 +32,7 @@
 .surface-card {
     background-color: var(--dmarq-surface-card);
     border: 1px solid var(--dmarq-border-strong);
+    color: var(--dmarq-text);
 }
 
 .input.input-bordered,
