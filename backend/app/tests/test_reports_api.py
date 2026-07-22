@@ -4,8 +4,10 @@ import time
 import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -1215,6 +1217,34 @@ def test_get_report_by_id_surfaces_refresh_reputation_failure(
     assert response.json()["detail"] == "Source reputation could not be refreshed."
 
 
+def test_report_reputation_refresh_timeout_is_a_service_failure(monkeypatch):
+    async def timed_out_reputation(*_args, **_kwargs):
+        await asyncio.sleep(2)
+
+    monkeypatch.setattr(
+        reports_endpoint,
+        "build_source_reputation_cached",
+        timed_out_reputation,
+    )
+    settings = SimpleNamespace(SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS=0)
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            reports_endpoint._report_reputations_by_ip(
+                None,
+                "example.com",
+                {},
+                [],
+                {},
+                refresh=True,
+                settings=settings,
+            )
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Source reputation could not be refreshed."
+
+
 def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
     class FailingProvider:
         async def lookup_ptr(self, _ip):
@@ -1310,8 +1340,12 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
             None,
         )
 
+    async def fake_networks(*_args, **_kwargs):
+        return {}
+
     monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", counting_ptr)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
     started = time.monotonic()
     response = authed_client.get("/api/v1/reports/large-ptr-dedupe-report")
@@ -1326,6 +1360,44 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     assert len(set(ptr_calls)) == 25
     # Unbounded per-row PTR (300 * 10ms) would exceed ~2s; deduped path stays bounded.
     assert elapsed < 2.0
+
+
+def test_report_ptr_enrichment_is_capped_and_preserves_completed_lookups(monkeypatch):
+    calls: list[str] = []
+
+    async def staggered_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
+        calls.append(ip)
+        if ip.endswith(".1"):
+            await asyncio.sleep(0.01)
+            return PtrLookupResult(
+                hostname="resolved.example.net",
+                status="ok",
+                detail="PTR record found",
+            )
+        await asyncio.sleep(2)
+        return PtrLookupResult(
+            hostname="late.example.net",
+            status="ok",
+            detail="PTR record found",
+        )
+
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", staggered_ptr)
+    settings = SimpleNamespace(
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS=2,
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS=0,
+    )
+
+    resolved, ptr_status = asyncio.run(
+        reports_endpoint._report_ptrs_by_ip(
+            None,
+            ["203.0.113.1", "203.0.113.2", "203.0.113.3"],
+            settings,
+        )
+    )
+
+    assert calls == ["203.0.113.1", "203.0.113.2"]
+    assert resolved["203.0.113.1"].hostname == "resolved.example.net"
+    assert ptr_status == "pending"
 
 
 def test_get_report_by_id_bounds_slow_network_enrichment(
