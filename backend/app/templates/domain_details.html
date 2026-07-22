@@ -528,6 +528,10 @@
                        x-cloak
                        class="mt-4 rounded border border-[#d8ebe8] bg-[#f2fbf9] px-3 py-2 text-sm font-semibold text-[#1f7c83]"
                        x-text="remediationQueueRefreshMessage"></p>
+                    <p x-show="remediationQueueEnrichmentNotice"
+                       x-cloak
+                       class="mt-4 rounded border border-[#d9d5ea] bg-[#f7f5ff] px-3 py-2 text-sm text-[#504b70]"
+                       x-text="remediationQueueEnrichmentNotice"></p>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && (remediationQueue.verified_items || []).length > 0">
                         <div class="mt-4 rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-3">
                             <div class="flex flex-wrap items-start justify-between gap-3">

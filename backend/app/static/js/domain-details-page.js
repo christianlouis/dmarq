@@ -125,6 +125,7 @@ function domainDetailsApp(domainId = '') {
         remediationQueueError: '',
         remediationQueueRefreshError: '',
         remediationQueueRefreshMessage: '',
+        remediationQueueEnrichmentNotice: '',
         showAllVerifiedRemediationItems: false,
         showAllRemediationQueueItems: false,
         remediationQueueLoadedAt: '',
@@ -2406,6 +2407,7 @@ function domainDetailsApp(domainId = '') {
             this.remediationQueueLoadedAt = '';
             this.remediationQueueRefreshError = '';
             this.remediationQueueRefreshMessage = '';
+            this.remediationQueueEnrichmentNotice = '';
             this.remediationQueue = {
                 status: 'unavailable',
                 loop: {
@@ -2481,6 +2483,7 @@ function domainDetailsApp(domainId = '') {
             this.remediationQueueError = '';
             this.remediationQueueRefreshError = '';
             this.remediationQueueRefreshMessage = '';
+            this.remediationQueueEnrichmentNotice = '';
             this.showAllVerifiedRemediationItems = false;
             this.showAllRemediationQueueItems = false;
             try {
@@ -2506,6 +2509,10 @@ function domainDetailsApp(domainId = '') {
                 }
                 this.remediationQueue = await response.json();
                 this.remediationQueueLoadedAt = new Date().toISOString();
+                this.remediationQueueEnrichmentNotice = this.remediationQueue?.enrichment_pending
+                    ? (this.remediationQueue?.enrichment_detail
+                        || 'Some DNS and health evidence is still being prepared. Refresh the queue in a moment for the complete view.')
+                    : '';
                 if (refresh) {
                     const total = Number(this.remediationQueue?.summary?.total || 0);
                     this.remediationQueueRefreshMessage = total

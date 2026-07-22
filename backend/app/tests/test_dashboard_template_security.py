@@ -2582,6 +2582,15 @@ def test_domain_details_keeps_sending_source_authentication_columns_visible_on_d
     assert not _has_inline_style(template)
 
 
+def test_domain_details_explains_bounded_remediation_enrichment():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert "remediationQueueEnrichmentNotice" in template
+    assert "enrichment_pending" in script
+    assert "enrichment_detail" in script
+
+
 def test_domain_details_distinguishes_loading_error_and_empty_states():
     template = _domain_details_template()
     script = _domain_details_script()
