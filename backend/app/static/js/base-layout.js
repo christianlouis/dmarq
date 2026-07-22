@@ -2,6 +2,29 @@ if (typeof document !== 'undefined') {
     const multiWorkspaceUiEnabled = () =>
         document.documentElement.dataset.multiWorkspaceUi === 'true';
 
+    const dmarqAppTimezone = () =>
+        document.documentElement.dataset.appTimezone || 'UTC';
+
+    const dmarqFormatDateTime = (value, fallback = '—') => {
+        if (!value) return fallback;
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        try {
+            return new Intl.DateTimeFormat(undefined, {
+                dateStyle: 'short',
+                timeStyle: 'medium',
+                timeZone: dmarqAppTimezone(),
+            }).format(date);
+        } catch (_error) {
+            return date.toLocaleString();
+        }
+    };
+
+    if (typeof window !== 'undefined') {
+        window.dmarqAppTimezone = dmarqAppTimezone;
+        window.dmarqFormatDateTime = dmarqFormatDateTime;
+    }
+
     const userMenu = () => {
         const enabled = multiWorkspaceUiEnabled();
         return {

@@ -27,8 +27,13 @@ To manage your user profile:
 3. Here you can:
    - Update your name and email address
    - Change your password
-   - Set your timezone and date format preferences
    - Configure UI theme preferences (light/dark mode)
+
+Displayed mailbox timestamps (for example Mail Sources last check) use the
+deployment setting `APP_TIMEZONE` (IANA name such as `Europe/Berlin`). Set it
+in `.env`, Docker Compose, or the Helm `config.appTimezone` value. Invalid
+values fall back to `UTC`. Storage remains UTC; container `TZ` alone does not
+change DMARQ display.
 
 ### System Settings
 

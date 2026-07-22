@@ -19,7 +19,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
+<html lang="en" data-theme="dmarqlight" data-app-timezone="{{ app_timezone | default('UTC') }}" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
