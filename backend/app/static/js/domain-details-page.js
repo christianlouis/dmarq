@@ -462,7 +462,7 @@ function domainDetailsApp(domainId = '') {
             window.setTimeout(() => {
                 Promise.allSettled([
                     this.fetchPosture(),
-                    this.fetchRemediationQueue({ refresh: true }),
+                    this.fetchRemediationQueue(),
                     this.fetchHealthHistory(),
                     this.fetchMtaSts(),
                     this.fetchBimi()
@@ -2543,8 +2543,11 @@ function domainDetailsApp(domainId = '') {
             this.showAllVerifiedRemediationItems = false;
             this.showAllRemediationQueueItems = false;
             try {
+                const query = refresh ? '?refresh=true' : '';
                 const response = await this.fetchWithTimeout(
-                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation${query}`,
+                    {},
+                    refresh ? 20000 : 15000
                 );
                 if (!response.ok) {
                     console.error('Error fetching remediation queue:', {
@@ -2555,7 +2558,7 @@ function domainDetailsApp(domainId = '') {
                     if (keepExistingQueueVisible) {
                         this.remediationQueueRefreshError = 'Remediation queue refresh failed. Keeping the current queue visible.';
                     } else {
-                        this.remediationQueueError = 'Remediation queue could not be loaded.';
+                        this.remediationQueueError = 'Next remediation could not be loaded.';
                         this.resetRemediationQueue();
                     }
                     return;
@@ -2570,10 +2573,15 @@ function domainDetailsApp(domainId = '') {
                 }
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
+                const timedOut = String(error?.message || '').toLowerCase().includes('timed out');
                 if (keepExistingQueueVisible) {
-                    this.remediationQueueRefreshError = error.message || 'Remediation queue refresh failed. Keeping the current queue visible.';
+                    this.remediationQueueRefreshError = timedOut
+                        ? 'Remediation refresh timed out. Keeping the current queue visible.'
+                        : (error.message || 'Remediation queue refresh failed. Keeping the current queue visible.');
                 } else {
-                    this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
+                    this.remediationQueueError = timedOut
+                        ? 'Next remediation could not be loaded.'
+                        : (error.message || 'Next remediation could not be loaded.');
                     this.resetRemediationQueue();
                 }
             } finally {
