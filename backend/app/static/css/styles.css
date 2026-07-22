@@ -19,6 +19,16 @@ h1, h2, h3, h4, h5, h6 {
   --rounded-badge: 1.9rem;
 }
 
+/* Surface hierarchy tokens (mirrored in page-utilities.css for runtime overrides) */
+[data-theme="dmarqlight"] {
+  --dmarq-canvas: #dcd9e6;
+  --dmarq-surface-section: #f0eef5;
+  --dmarq-surface-card: #ffffff;
+  --dmarq-surface-control: #ffffff;
+  --dmarq-border-strong: #bdb9c8;
+  --dmarq-text: #07071f;
+}
+
 .dark {
   color-scheme: dark;
 }
