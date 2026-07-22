@@ -167,6 +167,12 @@ from app.utils.domain_validator import normalize_domain_name, validate_domain_co
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_log_value(value: Any) -> str:
+    """Strip control characters from values before writing logs."""
+    return "".join(character for character in str(value) if character.isprintable())
+
+
 router = APIRouter()
 DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
 REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
@@ -813,7 +819,11 @@ def _provider_credentials_configured(db: Session, provider_id: Optional[str]) ->
             )
         return lexicon_provider_environment_configured(normalized)
     except Exception as exc:  # pragma: no cover - defensive, no secret values are exposed.
-        logger.info("DNS provider credential readiness check failed for %s: %s", normalized, exc)
+        logger.info(
+            "DNS provider credential readiness check failed for %s: %s",
+            _safe_log_value(normalized),
+            _safe_log_value(exc),
+        )
     return False
 
 
@@ -4588,7 +4598,11 @@ async def _resolve_summary_dns_result(
             pending=False,
         )
     except (asyncio.TimeoutError, LookupError, OSError) as exc:
-        logger.warning("DNS check failed for %s: %s", domain_name, exc)
+        logger.warning(
+            "DNS check failed for %s: %s",
+            _safe_log_value(domain_name),
+            _safe_log_value(exc),
+        )
         return _failed_dns_summary_result(f"DNS lookup failed: {exc}")
 
 
@@ -5639,7 +5653,11 @@ async def verify_domain_ownership(
         observed = await get_default_provider(db).lookup_txt(record_name)
     except LookupError as exc:
         observed = []
-        logger.info("Domain ownership TXT lookup failed for %s: %s", record_name, exc)
+        logger.info(
+            "Domain ownership TXT lookup failed for %s: %s",
+            _safe_log_value(record_name),
+            _safe_log_value(exc),
+        )
 
     matched = expected in {str(value).strip() for value in observed}
     if matched and not domain.verified:
@@ -7073,7 +7091,7 @@ async def cloudflare_oauth_callback(
             scope_profile=state_payload.get("scope_profile"),
         )
     except LookupError as exc:
-        logger.info("Cloudflare OAuth callback failed: %s", exc)
+        logger.info("Cloudflare OAuth callback failed: %s", _safe_log_value(exc))
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
