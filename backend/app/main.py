@@ -25,6 +25,7 @@ import app.models.webhook  # noqa: F401 – ensure webhook tables are registered
 import app.models.workspace  # noqa: F401 – ensure workspace table is registered
 import app.models.workspace_access  # noqa: F401 – ensure RBAC/audit tables are registered
 from app.api.api_v1.api import api_router
+from app.core.app_timezone import present_datetime
 from app.core.auth_providers import auth_provider_registry
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import Base, SessionLocal, engine, get_db
@@ -686,6 +687,7 @@ templates = Jinja2Templates(directory=templates_dir)
 templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
 templates.env.globals["provider_demo_enabled"] = settings.PROVIDER_DEMO_ENABLED
 templates.env.globals["demo_mode"] = settings.DEMO_MODE
+templates.env.globals["app_timezone"] = settings.APP_TIMEZONE
 templates.env.globals["release_info"] = build_release_info(settings)
 templates.env.globals["support_session_context"] = support_session_from_request
 
@@ -1313,13 +1315,15 @@ def _source_status_payload(
     latest_import: Optional[MailSourceImport] = None,
 ) -> Dict[str, Any]:
     state = _mail_source_connection_state(source, latest_import)
+    presented = present_datetime(source.last_checked, tz_name=settings.APP_TIMEZONE)
     return {
         "source_id": source.id,
         "name": source.name,
         "method": (source.method or "IMAP").upper(),
         "label": _source_display_label(source),
         "enabled": bool(source.enabled),
-        "last_checked": source.last_checked.isoformat() if source.last_checked else None,
+        "last_checked": presented.isoformat() if presented else None,
+        "application_timezone": settings.APP_TIMEZONE,
         "connection_status": state["status"],
         "connection_attention": state["attention"],
         "connection_message": state["message"],

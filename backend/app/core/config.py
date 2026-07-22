@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     DEMO_MODE: bool = False
     PUBLIC_BASE_URL: Optional[str] = None
     LANGUAGE: str = "en"
+    # IANA timezone for UI/API presentation. Storage timestamps remain UTC.
+    # Invalid values fall back to UTC (see validate_app_timezone).
+    APP_TIMEZONE: str = "UTC"
     DMARQ_DEFAULT_LOCALE: Optional[str] = None
     DMARQ_RELEASE_VERSION: Optional[str] = None
     DMARQ_BUILD_SHA: Optional[str] = None
@@ -334,6 +337,14 @@ class Settings(BaseSettings):
             for email in self.PROVIDER_OPERATOR_EMAILS.split(",")
             if email.strip()
         }
+
+    @validator("APP_TIMEZONE", pre=True, always=True)
+    @classmethod
+    def validate_app_timezone(cls, v: Optional[str]) -> str:
+        """Accept a valid IANA identifier; fall back to UTC when invalid."""
+        from app.core.app_timezone import resolve_app_timezone_name
+
+        return resolve_app_timezone_name(v)
 
     @validator("ADMIN_API_KEY", pre=True, always=True)
     @classmethod

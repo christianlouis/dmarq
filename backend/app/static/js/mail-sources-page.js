@@ -446,6 +446,9 @@ function mailSourcesApp() {
         },
 
         formatDate(value) {
+            if (typeof window !== 'undefined' && typeof window.dmarqFormatDateTime === 'function') {
+                return window.dmarqFormatDateTime(value, '—');
+            }
             return value ? new Date(value).toLocaleString() : '—';
         },
 
