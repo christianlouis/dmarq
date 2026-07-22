@@ -69,7 +69,7 @@ def test_mail_source_response_presents_last_checked_in_app_timezone(monkeypatch)
         server="imap.example.com",
         port=993,
         username="user",
-        password="secret",
+        password=None,
         use_ssl=True,
         folder="INBOX",
         polling_interval=60,

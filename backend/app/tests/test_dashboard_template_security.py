@@ -1306,7 +1306,8 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "visibleVerifiedItems()" in template
     assert "data-domain-detail-remediation-refresh" in template
     assert "data-domain-detail-verified-repairs-toggle" in template
-    assert "fetchRemediationQueue({ refresh: true })" in script or "fetchRemediationQueue()" in script
+    assert "fetchRemediationQueue()" in script
+    assert "fetchRemediationQueue({ refresh: true })" in script
     assert "remediationQueueRefreshing" in script
     assert "remediationQueueRefreshError" in script
     assert "remediationQueueRefreshMessage" in script
@@ -2517,7 +2518,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "PTR unavailable" in template
     assert "sourceGeoSummary(source)" in script
     assert "geoAvailabilityHint" in script
-    assert "Tokenless ASN/geo" in template or "tokenless-fallback" in template
+    assert "Tokenless ASN; geo may be partial" in template
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
     assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
@@ -2694,7 +2695,6 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert 'href="#remediation-queue"' in template
     assert 'id="remediation-queue"' in template
     assert "Loading remediation queue..." in template
-    assert "Remediation queue could not be loaded." not in script or "Next remediation could not be loaded." in script
     assert "Next remediation could not be loaded." in script
     assert "Retry remediation queue" in template
     assert "data-domain-detail-remediation-retry" in template

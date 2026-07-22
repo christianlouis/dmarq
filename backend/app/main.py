@@ -1374,7 +1374,11 @@ def _mail_source_status_summary() -> dict:
                         "label": label,
                         "enabled": True,
                         "last_checked": (
-                            row["last_checked"].isoformat() if row.get("last_checked") else None
+                            present_datetime(
+                                row["last_checked"], tz_name=settings.APP_TIMEZONE
+                            ).isoformat()
+                            if row.get("last_checked")
+                            else None
                         ),
                         "connection_status": (
                             "connected" if method in {"GMAIL_API", "M365_GRAPH"} else "configured"
@@ -1393,7 +1397,11 @@ def _mail_source_status_summary() -> dict:
                 "sources": source_statuses,
                 "attention_sources": 0,
                 "reauth_required_sources": 0,
-                "latest_source_check": latest_checked.isoformat() if latest_checked else None,
+                "latest_source_check": (
+                    present_datetime(latest_checked, tz_name=settings.APP_TIMEZONE).isoformat()
+                    if latest_checked
+                    else None
+                ),
             }
         latest_imports = _latest_imports_by_source(
             db, [int(source.id) for source in enabled_sources]
@@ -1430,7 +1438,11 @@ def _mail_source_status_summary() -> dict:
             "sources": source_statuses,
             "attention_sources": len(attention_sources),
             "reauth_required_sources": len(reauth_sources),
-            "latest_source_check": latest_checked.isoformat() if latest_checked else None,
+            "latest_source_check": (
+                present_datetime(latest_checked, tz_name=settings.APP_TIMEZONE).isoformat()
+                if latest_checked
+                else None
+            ),
         }
     finally:
         db.close()

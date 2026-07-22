@@ -4519,7 +4519,7 @@ class TestTriggerPollEndpoint:
         assert data["sources_by_method"] == {"GMAIL_API": 1}
         assert data["source_labels"] == ["Gmail API: dmarc-reports@example.com"]
         assert data["sources"][0]["connection_status"] == "connected"
-        assert data["latest_source_check"] == "2026-07-02T12:00:00"
+        assert data["latest_source_check"] == "2026-07-02T12:00:00+00:00"
         assert data["authenticated_by"] == "session"
 
     def test_poll_status_surfaces_gmail_reauth_attention(self):
@@ -4600,6 +4600,7 @@ class TestTriggerPollEndpoint:
             with TestClient(main_app) as tc:
                 with (
                     patch("app.main.SessionLocal", return_value=mock_db),
+                    patch("app.main.settings", SimpleNamespace(APP_TIMEZONE="Europe/Berlin")),
                     patch("app.main.uses_legacy_demo_fixtures", return_value=True),
                     patch("app.main.build_demo_mail_sources", return_value=demo_sources),
                 ):
@@ -4616,7 +4617,9 @@ class TestTriggerPollEndpoint:
             "IMAP: reports@example.test",
             "Gmail API: dmarc@example.test",
         ]
-        assert data["latest_source_check"] == "2026-07-16T08:00:00+00:00"
+        assert data["sources"][0]["last_checked"] == "2026-07-16T09:30:00+02:00"
+        assert data["sources"][1]["last_checked"] == "2026-07-16T10:00:00+02:00"
+        assert data["latest_source_check"] == "2026-07-16T10:00:00+02:00"
 
     def test_trigger_poll_with_no_enabled_sources(self):
         """With no enabled sources, the endpoint returns an empty-success response."""

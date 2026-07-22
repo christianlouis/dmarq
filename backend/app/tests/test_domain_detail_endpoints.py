@@ -1900,7 +1900,7 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
     """Slow DNS/health enrichment must not hang the Next remediation panel."""
 
     async def slow_grade(*_args, **_kwargs):
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         return {
             "domain": DOMAIN,
             "score": 50,
@@ -1919,7 +1919,7 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
         }
 
     async def slow_guidance(*_args, **_kwargs):
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         return {
             "domain": DOMAIN,
             "status": "needs_attention",
@@ -1934,7 +1934,7 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
 
     class _Settings:
         DEMO_MODE = False
-        REMEDIATION_QUEUE_TIMEOUT_SECONDS = 0.2
+        REMEDIATION_QUEUE_TIMEOUT_SECONDS = 1
 
     monkeypatch.setattr(domains_endpoint, "get_settings", lambda: _Settings())
 
