@@ -809,7 +809,7 @@ async def lookup_source_network_cached(
     return result, False, row.checked_at
 
 
-async def lookup_sources_network_cached(
+async def lookup_sources_network_cached(  # noqa: C901 - batch cache and network coordination
     db: Session,
     provider: Any,
     source_ips: Iterable[str],
@@ -817,8 +817,14 @@ async def lookup_sources_network_cached(
     ttl_seconds: int = 86_400,
     max_ips: int = 100,
     refresh: bool = False,
+    concurrency: int = 8,
 ) -> Dict[str, SourceNetworkIntelligence]:
-    """Lookup network context for a bounded set of observed source IPs."""
+    """Lookup network context for a bounded set of observed source IPs.
+
+    Cache reads and writes stay on the request session, while uncached remote
+    lookups run with bounded concurrency.  A report with many unique senders
+    must not serially wait for one DNS/API timeout per sender.
+    """
     results: Dict[str, SourceNetworkIntelligence] = {}
     seen: set[str] = set()
     unique_ips: List[str] = []
@@ -830,15 +836,84 @@ async def lookup_sources_network_cached(
         unique_ips.append(ip)
         if len(unique_ips) >= max_ips:
             break
+    # ``lookup_source_network_cached`` persists through this SQLAlchemy
+    # session, so do cache inspection and writes sequentially.  Only the
+    # independent remote calls are parallelized below.
+    now = _utcnow_naive()
+    settings = get_settings()
+    selectors_key = _source_network_cache_selectors_key(settings)
+    custom_mode = bool(_custom_geoip_url_template(settings))
+    pending: List[Tuple[str, Optional[DNSCache], Optional[SourceNetworkIntelligence]]] = []
     for ip in unique_ips:
-        result, _, _ = await lookup_source_network_cached(
-            db,
-            provider,
-            ip,
-            ttl_seconds=ttl_seconds,
-            refresh=refresh,
+        row = (
+            db.query(DNSCache)
+            .filter(
+                DNSCache.domain == ip,
+                DNSCache.provider == _CACHE_PROVIDER,
+                DNSCache.selectors_key == selectors_key,
+            )
+            .first()
         )
+        cached_result = _from_json(row.result_json) if row and not refresh else None
+        if cached_result is not None:
+            cache_ttl = (
+                min(ttl_seconds, _ERROR_CACHE_TTL_SECONDS) if cached_result.error else ttl_seconds
+            )
+            if _is_fresh(row, cache_ttl, now):
+                results[ip] = cached_result
+                continue
+        pending.append((ip, row, cached_result))
+
+    semaphore = asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+    async def _lookup_pending(
+        ip: str,
+        _row: Optional[DNSCache],
+        cached_result: Optional[SourceNetworkIntelligence],
+    ) -> Tuple[str, Optional[DNSCache], SourceNetworkIntelligence]:
+        async with semaphore:
+            if cached_result and cached_result.dns_retry_pending and not custom_mode:
+                result = await _retry_cached_dns_enrichment(provider, cached_result)
+            else:
+                result = await lookup_source_network(provider, ip)
+            return ip, _row, result
+
+    looked_up = await asyncio.gather(
+        *(_lookup_pending(ip, row, cached) for ip, row, cached in pending)
+    )
+    for ip, row, result in looked_up:
+        payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
+        if row is None:
+            row = DNSCache(
+                domain=ip,
+                provider=_CACHE_PROVIDER,
+                selectors_key=selectors_key,
+                result_json=payload,
+                checked_at=now,
+            )
+            db.add(row)
+        else:
+            row.result_json = payload
+            row.checked_at = now
         results[ip] = result
+
+    if looked_up:
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # A concurrent request won the cache insert race. Re-run the
+            # normal single-IP path so its established recovery logic keeps
+            # the final cache state consistent.
+            for ip, _row, _result in looked_up:
+                result, _, _ = await lookup_source_network_cached(
+                    db,
+                    provider,
+                    ip,
+                    ttl_seconds=ttl_seconds,
+                    refresh=refresh,
+                )
+                results[ip] = result
     return results
 
 
