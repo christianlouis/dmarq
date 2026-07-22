@@ -8,6 +8,7 @@ from app.services.synthetic_load_seed import (
     SCENARIO_DOMAIN,
     seed_simon_811_scenario,
 )
+from app.services.workspaces import get_default_workspace
 
 
 def test_simon_811_seed_is_idempotent_and_has_large_report(db_session):
@@ -15,6 +16,7 @@ def test_simon_811_seed_is_idempotent_and_has_large_report(db_session):
     second = seed_simon_811_scenario(db_session)
 
     domain = db_session.query(Domain).filter(Domain.name == SCENARIO_DOMAIN).one()
+    workspace = get_default_workspace(db_session)
     reports = (
         db_session.query(DMARCReport).filter(DMARCReport.domain_id == domain.id).all()
     )
@@ -23,6 +25,8 @@ def test_simon_811_seed_is_idempotent_and_has_large_report(db_session):
     assert first["reports"] == SCENARIO_DAYS
     assert second["reports"] == SCENARIO_DAYS
     assert len(reports) == SCENARIO_DAYS
+    assert workspace is not None
+    assert domain.workspace_id == workspace.id
     assert len(largest_report.records) == LARGE_REPORT_RECORDS
     assert (
         db_session.query(ReportRecord)

@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.services.workspaces import get_or_create_default_workspace
 
 
-SCENARIO_DOMAIN = "simon-load.example"
+SCENARIO_DOMAIN = "simonstest.fret.de"
 SCENARIO_PREFIX = "synthetic-811-"
 SCENARIO_DAYS = 30
 DAILY_RECORDS = 12
@@ -22,12 +23,16 @@ def _source_ip(index: int) -> str:
 
 
 def _ensure_domain(db: Session) -> Domain:
+    workspace = get_or_create_default_workspace(db, commit=False)
     domain = db.query(Domain).filter(Domain.name == SCENARIO_DOMAIN).first()
     if domain is None:
-        domain = Domain(name=SCENARIO_DOMAIN)
+        domain = Domain(name=SCENARIO_DOMAIN, workspace_id=workspace.id)
         db.add(domain)
         db.flush()
 
+    # Acceptance data must be visible through the same workspace-scoped queries
+    # used by a freshly installed single-user deployment.
+    domain.workspace_id = workspace.id
     domain.description = "Synthetic acceptance scenario for report-detail load testing."
     domain.active = True
     domain.verified = False
