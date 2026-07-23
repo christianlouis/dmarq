@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # provider console. This is intentionally separate from tenant roles.
     PROVIDER_OPERATOR_EMAILS: str = ""
     PROVIDER_BOOTSTRAP_DEFAULT_PLANS: bool = False
+    # Opt-in, versioned acceptance data. The startup hook only accepts known
+    # scenario identifiers, keeping normal installs and DEMO_MODE separate.
+    SYNTHETIC_LOAD_TEST_SCENARIO: Optional[str] = None
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that
