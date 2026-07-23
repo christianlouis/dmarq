@@ -304,8 +304,8 @@ answer "is this IP listed or risky according to a configured provider?"
 | `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached sender-IP network enrichment for ASN, BGP prefix, location, and operator metadata. | `true` | `false` |
 | `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
 | `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
-| `SOURCE_EVIDENCE_PREWARM_ENABLED` | Capture PTR, network, country, and configured reputation-feed evidence for recent sender IPs in the background. | `true` | `false` |
-| `SOURCE_EVIDENCE_PREWARM_LIMIT` | Maximum recent unique sender IPs processed per background cycle. | `250` | `500` |
+| `SOURCE_EVIDENCE_PREWARM_ENABLED` | Capture PTR, network, country, and configured reputation-feed evidence for new and historical report rows in the background. Existing snapshots are not overwritten. | `true` | `false` |
+| `SOURCE_EVIDENCE_PREWARM_LIMIT` | Maximum unique sender IPs still missing snapshots processed per background cycle. Repeated cycles drain the historical backlog. | `250` | `500` |
 | `SOURCE_EVIDENCE_PREWARM_CONCURRENCY` | Maximum concurrent PTR/network lookups in one background cycle. | `8` | `12` |
 | `SOURCE_EVIDENCE_PREWARM_TIMEOUT_SECONDS` | Total network-enrichment budget for one background cycle. | `20` | `30` |
 | `SOURCE_EVIDENCE_PREWARM_INTERVAL_SECONDS` | Delay between background cycles. Values below 30 seconds are clamped. | `300` | `600` |
