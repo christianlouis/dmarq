@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Kept completed sender ASN, prefix, country, and ownership lookups visible
+  when a larger source batch reaches its response budget. Slow DNS lookups no
+  longer discard already-resolved network evidence for every other sender.
+- Replaced unexplained sender-volume micro-bars with an explicit observed-mail
+  and DMARC-failure summary plus an optional 14-day daily evidence view.
+  Sender network and reputation evidence now lead with compact trust signals
+  and retain provider, feed, and lookup detail behind one disclosure.
 - Made a selected but unconfigured Akamai ETP, Infoblox, or custom DNS profile
   explicitly degrade to Public DNS for read-only lookups. Settings and setup
   now show the deployment configuration still required, while domain DNS and

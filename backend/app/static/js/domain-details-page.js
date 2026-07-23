@@ -2053,6 +2053,16 @@ function domainDetailsApp(domainId = '') {
             return 'Geo unavailable';
         },
 
+        sourceNetworkSummary(source) {
+            const geo = source?.geo || {};
+            const country = geo.country && geo.country !== 'Unknown'
+                ? geo.country
+                : (geo.country_code && geo.country_code !== 'ZZ' ? geo.country_code : null);
+            const asn = geo.asn || null;
+            if (country || asn) return [country, asn].filter(Boolean).join(' · ');
+            return geo.network_error ? 'Network lookup pending' : 'Network context unavailable';
+        },
+
         geoAvailabilityHint(source) {
             const geo = source?.geo || source || {};
             if (geo.config_hint) {
@@ -2084,27 +2094,20 @@ function domainDetailsApp(domainId = '') {
             return date.toLocaleDateString();
         },
 
-        sourceVolumeBars(source) {
-            const history = (source.volume_history || []).slice(-14);
-            const max = Math.max(...history.map(point => Number(point.count || 0)), 1);
-            const logMax = Math.log10(max + 1);
-            const slotWidth = 140 / Math.max(history.length, 1);
-            const barWidth = Math.max(4, slotWidth - 2);
-            return history.map((point, index) => {
-                const count = Number(point.count || 0);
-                const failed = Number(point.failed || 0);
-                const scaled = logMax > 0 ? Math.log10(count + 1) / logMax : 0;
-                const height = count > 0 ? Math.max(12, Math.round(scaled * 100)) : 4;
-                return {
-                    ...point,
-                    failed,
-                    x: Math.round((index * slotWidth + 1) * 10) / 10,
-                    y: 100 - height,
-                    width: Math.round(barWidth * 10) / 10,
-                    height,
-                    label: `${point.date}: ${this.formatLargeNumber(count)} emails${failed ? ', ' + this.formatLargeNumber(failed) + ' failed' : ''}`,
-                };
-            });
+        sourceVolumeHistory(source) {
+            return (source.volume_history || []).slice(-14).map((point) => ({
+                ...point,
+                count: Number(point.count || 0),
+                failed: Number(point.failed || 0),
+            }));
+        },
+
+        sourceVolumeSummary(source) {
+            const history = this.sourceVolumeHistory(source);
+            const count = history.reduce((total, point) => total + point.count, 0);
+            const failed = history.reduce((total, point) => total + point.failed, 0);
+            const volume = `${this.formatLargeNumber(count)} observed`;
+            return failed ? `${volume} · ${this.formatLargeNumber(failed)} DMARC failed` : volume;
         },
 
         sourceDateWindow() {

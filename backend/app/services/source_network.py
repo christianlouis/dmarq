@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import time
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -922,12 +923,15 @@ async def lookup_sources_network_cached(  # noqa: C901 - batch cache and network
     max_ips: int = 100,
     refresh: bool = False,
     concurrency: int = 8,
+    timeout_seconds: Optional[float] = None,
 ) -> Dict[str, SourceNetworkIntelligence]:
     """Lookup network context for a bounded set of observed source IPs.
 
     Cache reads and writes stay on the request session, while uncached remote
     lookups run with bounded concurrency.  A report with many unique senders
-    must not serially wait for one DNS/API timeout per sender.
+    must not serially wait for one DNS/API timeout per sender. When a time
+    budget is supplied, completed lookups are returned and cached instead of
+    discarding the whole batch because one remote resolver is slow.
     """
     results: Dict[str, SourceNetworkIntelligence] = {}
     seen: set[str] = set()
@@ -982,9 +986,38 @@ async def lookup_sources_network_cached(  # noqa: C901 - batch cache and network
                 result = await lookup_source_network(provider, ip)
             return ip, _row, result
 
-    looked_up = await asyncio.gather(
-        *(_lookup_pending(ip, row, cached) for ip, row, cached in pending)
+    tasks = {
+        asyncio.create_task(_lookup_pending(ip, row, cached))
+        for ip, row, cached in pending
+    }
+    looked_up: List[Tuple[str, Optional[DNSCache], SourceNetworkIntelligence]] = []
+    deadline = (
+        time.monotonic() + max(0.0, float(timeout_seconds))
+        if timeout_seconds is not None
+        else None
     )
+
+    while tasks:
+        remaining = None if deadline is None else deadline - time.monotonic()
+        if remaining is not None and remaining <= 0:
+            break
+        done, tasks = await asyncio.wait(
+            tasks,
+            timeout=remaining,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if not done:
+            break
+        for task in done:
+            try:
+                looked_up.append(task.result())
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.info("Source network lookup failed: %s", type(exc).__name__)
+
+    if tasks:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     for ip, row, result in looked_up:
         payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
         if row is None:
