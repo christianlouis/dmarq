@@ -246,7 +246,7 @@ async def test_prewarm_does_not_overwrite_historical_evidence(db_session, monkey
 
 
 @pytest.mark.asyncio
-async def test_prewarm_retries_transient_ptr_before_freezing_snapshot(db_session, monkeypatch):
+async def test_prewarm_keeps_partial_snapshot_while_retrying_transient_ptr(db_session, monkeypatch):
     domain = Domain(name="example.com", active=True)
     db_session.add(domain)
     db_session.flush()
@@ -276,10 +276,11 @@ async def test_prewarm_retries_transient_ptr_before_freezing_snapshot(db_session
         "lookup_sources_network_cached",
         AsyncMock(return_value={}),
     )
+    ptr_lookup = AsyncMock(return_value=PtrLookupResult(status="timeout"))
     monkeypatch.setattr(
         source_evidence_prewarm,
         "lookup_ptr_with_fallbacks",
-        AsyncMock(return_value=PtrLookupResult(status="timeout")),
+        ptr_lookup,
     )
     monkeypatch.setattr(source_evidence_prewarm, "providers_from_settings", lambda _settings: [])
     monkeypatch.setattr(
@@ -288,5 +289,21 @@ async def test_prewarm_retries_transient_ptr_before_freezing_snapshot(db_session
         AsyncMock(return_value={}),
     )
 
-    assert await source_evidence_prewarm.prewarm_source_evidence() == 0
-    assert db_session.get(ReportRecord, record_id).source_evidence is None
+    assert await source_evidence_prewarm.prewarm_source_evidence() == 1
+    record = db_session.get(ReportRecord, record_id)
+    evidence = json.loads(record.source_evidence)
+    assert evidence["ptr"]["status"] == "timeout"
+    assert evidence["ptr_retry_pending"] is True
+    assert evidence["reputation"]["status"] == "not_configured"
+
+    ptr_lookup.return_value = PtrLookupResult(
+        hostname="recovered.example.net",
+        status="ok",
+        provider="test",
+    )
+    assert await source_evidence_prewarm.prewarm_source_evidence() == 1
+    record = db_session.get(ReportRecord, record_id)
+    evidence = json.loads(record.source_evidence)
+    assert evidence["ptr"]["hostname"] == "recovered.example.net"
+    assert "ptr_retry_pending" not in evidence
+    assert evidence["ptr_resolved_at"].endswith("Z")

@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -23,6 +23,8 @@ from app.services.source_reputation_feeds import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PTR_RETRY_MARKER = '%"ptr_retry_pending":true%'
 
 
 def ptr_from_source_evidence(evidence: object):
@@ -61,7 +63,10 @@ def _pending_source_ips(limit: int) -> List[str]:
             )
             .join(DMARCReport, DMARCReport.id == ReportRecord.report_id)
             .filter(
-                ReportRecord.source_evidence.is_(None),
+                or_(
+                    ReportRecord.source_evidence.is_(None),
+                    ReportRecord.source_evidence.like(_PTR_RETRY_MARKER),
+                ),
                 ReportRecord.source_ip.isnot(None),
                 ReportRecord.source_ip != "unknown",
             )
@@ -78,6 +83,50 @@ def _pending_source_ips(limit: int) -> List[str]:
         db.close()
 
 
+def _reputation_snapshot(ip: str, feed_result, feed_providers) -> dict:
+    if feed_result and feed_providers:
+        return {
+            **asdict(feed_result),
+            "status": "listed" if feed_result.listed else "clear",
+        }
+    return {
+        "ip": ip,
+        "status": "not_configured",
+        "listed": False,
+        "evidence": [],
+    }
+
+
+def _apply_evidence_snapshot(
+    row: ReportRecord,
+    ptr_result: PtrLookupResult,
+    network,
+    feed_result,
+    feed_providers,
+    captured_at: str,
+) -> bool:
+    """Persist a new snapshot or finish the PTR portion of a partial one."""
+    existing = json.loads(row.source_evidence) if row.source_evidence else None
+    if existing:
+        if ptr_result.transient:
+            return False
+        existing["ptr"] = ptr_result.as_public_dict()
+        existing["ptr_resolved_at"] = captured_at
+        existing.pop("ptr_retry_pending", None)
+        payload = existing
+    else:
+        ip = str(row.source_ip)
+        payload = {
+            "captured_at": captured_at,
+            "ptr": ptr_result.as_public_dict(),
+            "ptr_retry_pending": ptr_result.transient,
+            "network": asdict(network) if network else {},
+            "reputation": _reputation_snapshot(ip, feed_result, feed_providers),
+        }
+    row.source_evidence = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return True
+
+
 async def prewarm_source_evidence() -> int:
     """Capture point-in-time PTR, network, and reputation evidence for report rows."""
     settings = get_settings()
@@ -85,9 +134,7 @@ async def prewarm_source_evidence() -> int:
         return 0
 
     limit = max(0, int(settings.SOURCE_EVIDENCE_PREWARM_LIMIT or 0))
-    if limit == 0:
-        return 0
-    source_ips = _pending_source_ips(limit)
+    source_ips = _pending_source_ips(limit) if limit else []
     if not source_ips:
         return 0
 
@@ -132,39 +179,27 @@ async def prewarm_source_evidence() -> int:
         rows = (
             db.query(ReportRecord)
             .filter(
-                ReportRecord.source_evidence.is_(None),
+                or_(
+                    ReportRecord.source_evidence.is_(None),
+                    ReportRecord.source_evidence.like(_PTR_RETRY_MARKER),
+                ),
                 ReportRecord.source_ip.in_(source_ips),
             )
             .all()
         )
-        completed_ips = {ip for ip, ptr_result in ptr_results.items() if not ptr_result.transient}
-        rows = [row for row in rows if str(row.source_ip) in completed_ips]
+        changed_rows = []
         for row in rows:
             ip = str(row.source_ip)
-            feed_result = reputation.get(ip)
-            row.source_evidence = json.dumps(
-                {
-                    "captured_at": captured_at,
-                    "ptr": ptr_results[ip].as_public_dict(),
-                    "network": asdict(networks[ip]) if ip in networks else {},
-                    "reputation": (
-                        {
-                            **asdict(feed_result),
-                            "status": "listed" if feed_result.listed else "clear",
-                        }
-                        if feed_result and feed_providers
-                        else {
-                            "ip": ip,
-                            "status": "not_configured",
-                            "listed": False,
-                            "evidence": [],
-                        }
-                    ),
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        if rows:
+            if _apply_evidence_snapshot(
+                row,
+                ptr_results[ip],
+                networks.get(ip),
+                reputation.get(ip),
+                feed_providers,
+                captured_at,
+            ):
+                changed_rows.append(row)
+        if changed_rows:
             db.commit()
     except asyncio.CancelledError:
         raise
@@ -176,10 +211,10 @@ async def prewarm_source_evidence() -> int:
 
     logger.info(
         "Captured sender evidence for %d report row(s) across %d source IP(s)",
-        len(rows),
+        len(changed_rows),
         len(source_ips),
     )
-    return len(rows)
+    return len(changed_rows)
 
 
 async def scheduled_source_evidence_prewarm() -> None:
