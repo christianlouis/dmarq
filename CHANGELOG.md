@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Made sender-evidence backfill drain the complete historical report backlog.
+  Each background cycle now selects only rows still missing a snapshot, so
+  recent enriched senders cannot starve older reports behind the batch limit.
 - Kept completed sender ASN, prefix, country, and ownership lookups visible
   when a larger source batch reaches its response budget. Slow DNS lookups no
   longer discard already-resolved network evidence for every other sender.

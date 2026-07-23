@@ -45,7 +45,12 @@ def network_from_source_evidence(evidence: object):
     return SourceNetworkIntelligence(**{key: payload[key] for key in payload if key in allowed})
 
 
-def _recent_source_ips(limit: int) -> List[str]:
+def _pending_source_ips(limit: int) -> List[str]:
+    """Return the next sender IPs that still need an evidence snapshot.
+
+    Filtering before applying the batch limit is important for upgrades: already
+    enriched, recent senders must not permanently starve older report rows.
+    """
     db = SessionLocal()
     try:
         rows = (
@@ -55,7 +60,11 @@ def _recent_source_ips(limit: int) -> List[str]:
                 func.sum(ReportRecord.count).label("message_count"),
             )
             .join(DMARCReport, DMARCReport.id == ReportRecord.report_id)
-            .filter(ReportRecord.source_ip.isnot(None), ReportRecord.source_ip != "unknown")
+            .filter(
+                ReportRecord.source_evidence.is_(None),
+                ReportRecord.source_ip.isnot(None),
+                ReportRecord.source_ip != "unknown",
+            )
             .group_by(ReportRecord.source_ip)
             .order_by(
                 func.max(DMARCReport.end_date).desc(),
@@ -78,7 +87,7 @@ async def prewarm_source_evidence() -> int:
     limit = max(0, int(settings.SOURCE_EVIDENCE_PREWARM_LIMIT or 0))
     if limit == 0:
         return 0
-    source_ips = _recent_source_ips(limit)
+    source_ips = _pending_source_ips(limit)
     if not source_ips:
         return 0
 
