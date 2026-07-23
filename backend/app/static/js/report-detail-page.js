@@ -6,6 +6,7 @@ function reportDetailApp(reportId = '') {
         error: null,
         reputationRefreshing: false,
         reputationRefreshError: '',
+        enrichmentHydrating: false,
         recordRiskFilter: 'all',
         recordPageSize: 25,
 
@@ -96,6 +97,9 @@ function reportDetailApp(reportId = '') {
                     if (!refreshReputation) {
                         this.reputationRefreshError = '';
                     }
+                    if (!refreshReputation && this.report?.enrichment?.pending) {
+                        this.hydrateEnrichment();
+                    }
                 } else if (response.status === 404) {
                     if (!refreshReputation) {
                         this.report = null;
@@ -167,11 +171,56 @@ function reportDetailApp(reportId = '') {
             return {
                 ...normalized,
                 reputation_summary: normalized.reputation_summary || {},
+                enrichment: normalized.enrichment || {
+                    status: 'complete',
+                    pending: false,
+                    ptr: 'complete',
+                    network: 'complete',
+                    reputation: 'complete',
+                    unique_source_ips: 0,
+                    record_count: 0,
+                },
                 records: (normalized.records || []).map((record) => ({
                     ...record,
                     source_details: record.source_details || {},
                 })),
             };
+        },
+
+        async hydrateEnrichment() {
+            if (this.enrichmentHydrating || !this.reportId) {
+                return;
+            }
+            this.enrichmentHydrating = true;
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 15000);
+            try {
+                const response = await fetch(
+                    `/api/v1/reports/${encodeURIComponent(this.reportId)}?hydrate_enrichment=true`,
+                    { signal: controller.signal }
+                );
+                if (!response.ok) {
+                    return;
+                }
+                const next = this.normalizeReport(await response.json());
+                // Keep evidence already on screen; only replace enrichment-bearing fields.
+                const records = (this.report?.records || []).map((record, index) => ({
+                    ...record,
+                    source_details: next.records?.[index]?.source_details || record.source_details,
+                    reputation: next.records?.[index]?.reputation || record.reputation,
+                }));
+                this.report = {
+                    ...this.report,
+                    records,
+                    reputation_summary: next.reputation_summary,
+                    enrichment: next.enrichment,
+                };
+            } catch (_err) {
+                // Evidence remains visible; enrichment stays partial until the next load.
+            } finally {
+                window.clearTimeout(timeout);
+                this.enrichmentHydrating = false;
+            }
         },
 
         get reportDomainUrl() {
@@ -452,6 +501,40 @@ function reportDetailApp(reportId = '') {
         geoAvailabilityHint(details) {
             const geo = details || {};
             return geo.config_hint || '';
+        },
+
+        ptrStatusLabel(details) {
+            const source = details || {};
+            const status = source.ptr_status || '';
+            const detail = (source.ptr_detail || '').trim();
+            if (source.hostname) {
+                return `PTR ${source.hostname}`;
+            }
+            if (status === 'nxdomain') {
+                return 'PTR unavailable — no PTR record (NXDOMAIN)';
+            }
+            if (status === 'timeout') {
+                return 'PTR unavailable — resolver timeout (will retry)';
+            }
+            if (status === 'refused') {
+                return 'PTR unavailable — resolver refused the query (will retry)';
+            }
+            if (status === 'servfail') {
+                return 'PTR unavailable — resolver failure (will retry)';
+            }
+            if (status === 'transient') {
+                return 'PTR unavailable — transient DNS error (will retry)';
+            }
+            if (status === 'skipped') {
+                return 'PTR skipped — address is not a global unicast IP';
+            }
+            if (status === 'invalid') {
+                return 'PTR skipped — invalid IP address';
+            }
+            if (detail) {
+                return `PTR unavailable — ${detail}`;
+            }
+            return 'PTR unavailable';
         },
 
         reputationClass(status) {

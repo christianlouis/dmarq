@@ -474,8 +474,7 @@ def reputation_presentation(item: SourceReputation) -> ReputationPresentation:
         feed_status = "not_configured"
         feed_summary = "External reputation feeds are not configured."
     elif any(
-        token in external_values
-        for token in ("timed out", "unavailable", "unexpected", "error")
+        token in external_values for token in ("timed out", "unavailable", "unexpected", "error")
     ):
         feed_status = "error"
         feed_summary = "External reputation lookup returned errors."
@@ -485,6 +484,17 @@ def reputation_presentation(item: SourceReputation) -> ReputationPresentation:
     else:
         feed_status = "local_only"
         feed_summary = "Using local DMARC evidence only; external feeds are not enabled."
+
+    if item.status == "clean":
+        if feed_status == "checked":
+            status_label = "No listings found"
+            status_detail = "Configured reputation feeds were checked and returned no listings."
+        elif feed_status == "error":
+            status_label = "Evidence incomplete"
+            status_detail = "Local DMARC signals are healthy, but an external lookup failed."
+        else:
+            status_label = "No local risk signals"
+            status_detail = "DMARQ found no local risk signals; this is not a reputation guarantee."
 
     evidence_summary = item.summary
     if item.evidence:

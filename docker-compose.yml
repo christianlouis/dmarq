@@ -30,8 +30,6 @@ services:
       DATABASE_URL: ${DATABASE_URL:?Run ./scripts/bootstrap-docker-env.sh first}
       SECRET_KEY: ${SECRET_KEY:?Run ./scripts/bootstrap-docker-env.sh first}
       ADMIN_API_KEY: ${ADMIN_API_KEY:?Run ./scripts/bootstrap-docker-env.sh first}
-      # Presentation timezone (IANA). Also set via .env / APP_TIMEZONE.
-      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       NODE_ENV: production
     volumes:
       - app_data:/app/data

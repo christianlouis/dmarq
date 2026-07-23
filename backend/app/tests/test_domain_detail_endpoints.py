@@ -25,7 +25,9 @@ from app.models.webhook import WebhookDelivery
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
+from app.services.bimi import BIMIResult
 from app.services.health_score_snapshots import upsert_health_score_snapshot
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_store import ReportStore
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import (
@@ -42,6 +44,22 @@ from app.services.workspaces import get_or_create_default_workspace
 # ---------------------------------------------------------------------------
 # Helpers / constants
 # ---------------------------------------------------------------------------
+
+
+def test_bimi_warning_is_not_presented_as_an_unqualified_pass():
+    result = BIMIResult(
+        status="pass",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=;",
+        warnings=["No BIMI certificate URL is published."],
+    )
+
+    check = domains_endpoint._bimi_check(
+        result, dmarc_ready=True
+    )  # pylint: disable=protected-access
+
+    assert check.status == "review"
+    assert "certificate URL" in check.message
+
 
 DOMAIN = "example.com"
 
@@ -2735,9 +2753,11 @@ def test_get_domain_sources_returns_recommendations(
     """Endpoint includes actionable guidance for common failure patterns."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "sender.example.net"
+        return PtrLookupResult(
+            hostname="sender.example.net", status="ok", detail="PTR record found"
+        )
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     report = {
         **REPORT_DICT_POLICY,
         "report_id": "rpt-full-fail",
@@ -2761,6 +2781,12 @@ def test_get_domain_sources_returns_recommendations(
     source = response.json()["sources"][0]
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert {"unknown_sender", "full_fail", "policy_not_enforced"}.issubset(recommendation_types)
+    override = next(
+        item for item in source["recommendations"] if item["type"] == "policy_not_enforced"
+    )
+    assert override["title"] == "Receiver override observed"
+    assert "does not mean" in override["detail"]
+    assert "do not change the published policy" in override["action"]
     assert source["sender"]["name"] == "Unknown sender"
     assert source["sender"]["status"] == "unknown"
     assert source["spf_fix_hint"] is None
@@ -2772,9 +2798,13 @@ def test_get_domain_sources_returns_sender_identity(
     """Endpoint names recognized sending services with evidence and remediation."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "mail-qv1-f75.google.com"
+        return PtrLookupResult(
+            hostname="mail-qv1-f75.google.com",
+            status="ok",
+            detail="PTR record found",
+        )
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     report = {
         **REPORT_DICT_POLICY,
         "report_id": "rpt-google-source",
@@ -2892,7 +2922,13 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     source_ip = "193.138.195.141"
 
     async def fake_ptr_lookup(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "smtp.customer.example" if ip == source_ip else None
+        if ip == source_ip:
+            return PtrLookupResult(
+                hostname="smtp.customer.example",
+                status="ok",
+                detail="PTR record found",
+            )
+        return PtrLookupResult(status="unavailable", detail="stubbed")
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -2943,7 +2979,7 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
             )
         }
 
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
     monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", fake_networks)
     workspace = get_or_create_default_workspace(db_session)
@@ -2987,6 +3023,67 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert source["reputation"]["listings"] == ["Spamhaus Zen"]
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert "source_reputation" in recommendation_types
+
+
+def test_get_domain_sources_prefers_ingestion_evidence_over_live_lookup(
+    seeded_client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+):
+    source_ip = "93.184.216.34"
+    workspace = get_or_create_default_workspace(db_session)
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-snapshotted-source-evidence",
+        "records": [
+            {
+                "source_ip": source_ip,
+                "count": 4,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": DOMAIN,
+            }
+        ],
+        "summary": {"total_count": 4, "passed_count": 4, "failed_count": 0},
+    }
+    saved, _ = report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.flush()
+    saved.records[0].source_evidence = json.dumps(
+        {
+            "captured_at": "2026-07-23T12:00:00Z",
+            "ptr": {"hostname": "edge.example.net", "status": "ok", "detail": "stored"},
+            "network": {
+                "ip": source_ip,
+                "asn": "AS15133",
+                "as_name": "Edgecast Inc.",
+                "country_code": "US",
+                "country": "United States",
+                "source": "team-cymru",
+                "checked_at": "2026-07-23T12:00:00Z",
+            },
+        }
+    )
+    db_session.commit()
+
+    async def reject_snapshot_ptr(_provider, ip, timeout=1.5):
+        if ip == source_ip:
+            raise AssertionError("stored PTR evidence must avoid a live lookup")
+        return PtrLookupResult(status="unavailable", detail="stubbed")
+
+    async def reject_snapshot_network(_db, _provider, ips, **_kwargs):
+        assert source_ip not in ips
+        return {}
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", reject_snapshot_ptr)
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", reject_snapshot_network)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
+    assert source["hostname"] == "edge.example.net"
+    assert source["geo"]["asn"] == "AS15133"
+    assert source["geo"]["country_code"] == "US"
+    assert source["evidence_captured_at"] == "2026-07-23T12:00:00Z"
 
 
 def test_get_domain_sources_continues_when_enrichment_times_out(
@@ -3074,7 +3171,11 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
         raise AssertionError("source detail routes should not hydrate the full ReportStore")
 
     async def fake_ptr_lookup(*_args, **_kwargs):
-        return "mail.fast-sources.example"
+        return PtrLookupResult(
+            hostname="mail.fast-sources.example",
+            status="ok",
+            detail="PTR record found",
+        )
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -3090,7 +3191,7 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
         )
 
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydrate)
-    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
 
     sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=30")
@@ -3220,25 +3321,6 @@ async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch
         async def lookup_ptr(self, _ip):
             raise AssertionError("lookup_ptr should not be called")
 
-    class FailingProvider:
-        async def lookup_ptr(self, _ip):
-            raise LookupError("no PTR")
-
-    class EmptyFallbackProvider:
-        async def lookup_ptr(self, _ip):
-            return None
-
-    monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: EmptyFallbackProvider(),
-    )
-    monkeypatch.setattr(
-        domains_endpoint,
-        "CloudflareDNSProvider",
-        lambda: EmptyFallbackProvider(),
-    )
-
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
             InvalidProvider(), "not-an-ip"
@@ -3248,12 +3330,6 @@ async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
             InvalidProvider(), "10.0.0.1"
-        )
-        is None
-    )
-    assert (
-        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
-            FailingProvider(), "203.0.113.7"
         )
         is None
     )
@@ -3273,9 +3349,8 @@ async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPa
             return "mta200a-ord.mtasv.net."
 
     monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: WorkingFallbackProvider(),
+        "app.services.ptr_lookup.dns_fallback_candidates",
+        lambda provider: [provider, WorkingFallbackProvider()],
     )
 
     hostname = await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
@@ -3288,24 +3363,17 @@ async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPa
 @pytest.mark.asyncio
 async def test_safe_ptr_lookup_propagates_cancellation(monkeypatch: pytest.MonkeyPatch):
     """Request cancellation must not be hidden as a recoverable DNS miss."""
+    from app.services.ptr_lookup import clear_ptr_lookup_cache
+
+    clear_ptr_lookup_cache()
 
     class CancelledProvider:
         async def lookup_ptr(self, _ip):
             raise asyncio.CancelledError()
 
-    class UnexpectedFallbackProvider:
-        async def lookup_ptr(self, _ip):
-            raise AssertionError("fallback should not run after cancellation")
-
     monkeypatch.setattr(
-        domains_endpoint,
-        "PublicRecursiveDNSProvider",
-        lambda: UnexpectedFallbackProvider(),
-    )
-    monkeypatch.setattr(
-        domains_endpoint,
-        "CloudflareDNSProvider",
-        lambda: UnexpectedFallbackProvider(),
+        "app.services.ptr_lookup.dns_fallback_candidates",
+        lambda provider: [provider],
     )
 
     with pytest.raises(asyncio.CancelledError):
@@ -3353,6 +3421,36 @@ async def test_source_networks_by_ip_handles_disabled_and_failed_enrichment(
 
 
 @pytest.mark.asyncio
+async def test_source_ptr_results_are_deduplicated_capped_and_time_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+
+    async def fake_ptr(_provider, ip, timeout=1.5):  # pylint: disable=unused-argument
+        calls.append(ip)
+        if ip.endswith(".2"):
+            await asyncio.sleep(1)
+        return PtrLookupResult(hostname=f"mx-{ip}.example", status="ok")
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr)
+    settings = SimpleNamespace(
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS=2,
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS=0.01,
+    )
+
+    result = await domains_endpoint._source_ptr_results_by_ip(  # pylint: disable=protected-access
+        object(),
+        ["8.8.8.1", "8.8.8.1", "8.8.8.2", "8.8.8.3"],
+        settings,
+    )
+
+    assert calls.count("8.8.8.1") == 1
+    assert result["8.8.8.1"].hostname == "mx-8.8.8.1.example"
+    assert result["8.8.8.2"].status == "timeout"
+    assert "source limit" in result["8.8.8.3"].detail
+
+
+@pytest.mark.asyncio
 async def test_source_reputations_by_ip_handles_failed_enrichment(
     db_session,
     monkeypatch: pytest.MonkeyPatch,
@@ -3367,6 +3465,36 @@ async def test_source_reputations_by_ip_handles_failed_enrichment(
         "build_source_reputation_cached",
         failing_reputation_lookup,
     )
+
+
+@pytest.mark.asyncio
+async def test_source_reputation_refresh_surfaces_provider_failure(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def failing_reputation_lookup(*_args, **_kwargs):
+        raise RuntimeError("reputation provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "build_source_reputation_cached",
+        failing_reputation_lookup,
+    )
+
+    with pytest.raises(domains_endpoint.HTTPException) as exc_info:
+        await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            [],
+            [],
+            {},
+            {},
+            30,
+            True,
+            SimpleNamespace(SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS=1.0),
+        )
+
+    assert exc_info.value.status_code == 503
 
     assert (
         await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access

@@ -4650,9 +4650,3 @@ class TestTriggerPollEndpoint:
             }
         finally:
             main_app.dependency_overrides.clear()
-
-
-# ---------------------------------------------------------------------------
-# Pytest marker to avoid warnings for test methods without assertions
-# ---------------------------------------------------------------------------
-pytestmark = pytest.mark.usefixtures("_reset_report_store")

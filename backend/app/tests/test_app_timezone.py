@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.core.app_timezone import (
@@ -27,12 +28,26 @@ def test_resolve_app_timezone_falls_back_for_invalid(caplog) -> None:
     assert any("Invalid APP_TIMEZONE" in record.message for record in caplog.records)
 
 
+def test_resolve_app_timezone_handles_non_string_input(caplog) -> None:
+    with caplog.at_level("WARNING"):
+        assert resolve_app_timezone_name(42) == DEFAULT_APP_TIMEZONE
+    assert any("Invalid APP_TIMEZONE" in record.message for record in caplog.records)
+
+
 def test_settings_validator_falls_back_to_utc() -> None:
     settings = Settings(APP_TIMEZONE="Not/AZone")
     assert settings.APP_TIMEZONE == "UTC"
 
     berlin = Settings(APP_TIMEZONE="Europe/Berlin")
     assert berlin.APP_TIMEZONE == "Europe/Berlin"
+
+
+def test_compose_does_not_override_timezone_from_custom_env_file() -> None:
+    compose = (Path(__file__).parents[3] / "docker-compose.yml").read_text(encoding="utf-8")
+    app_environment = compose.split("    environment:\n", maxsplit=2)[2].split(
+        "    volumes:\n", maxsplit=1
+    )[0]
+    assert "APP_TIMEZONE:" not in app_environment
 
 
 def test_present_datetime_applies_offset_and_keeps_utc_instant() -> None:

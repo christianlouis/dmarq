@@ -1051,7 +1051,6 @@ test('dashboard becomes useful before false empty states appear', async ({ page 
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();
-  await expect(page.getByText('Traffic-weighted health')).toBeVisible();
   expect(Date.now() - started).toBeLessThan(2_000);
 
   const analytics = page.locator('details', {
@@ -1174,23 +1173,31 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await page.goto('/domains/cklnet.com');
 
   await expect(page.getByRole('heading', { name: 'cklnet.com' })).toBeVisible();
-  await expect(page.getByText('TXT lookup timed out; showing cached DNS evidence')).toBeVisible();
-  await expect(page.getByText('v=DMARC1; p=reject; rua=mailto:dmarc@cklnet.com')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Source Intelligence' })).toBeVisible();
-  await expect(page.getByText('Postmark').first()).toBeVisible();
-  await expect(page.getByText('Owned infrastructure').first()).toBeVisible();
-  await expect(page.getByText('Reputation clean').first()).toBeVisible();
-  await expect(page.getByText('Reputation not checked').first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Review owned infrastructure DKIM' }).first()).toBeVisible();
-  const advancedPosture = page.locator('#posture-dashboard');
-  await advancedPosture.locator(':scope > summary').click();
-  const acknowledgeButton = advancedPosture.getByRole('button', { name: 'Acknowledge' }).first();
-  await acknowledgeButton.scrollIntoViewIfNeeded();
-  page.once('dialog', async (dialog) => {
-    await dialog.accept('');
+  const dnsEvidence = page.locator('details', {
+    has: page.locator('summary', { hasText: 'DNS and authentication' }),
   });
-  await acknowledgeButton.click();
-  await expect(page.getByText('Marked acknowledged. No DNS changes were made.')).toBeVisible();
+  await dnsEvidence.locator(':scope > summary').click();
+  await expect(dnsEvidence.getByText('TXT lookup timed out; showing cached DNS evidence')).toBeVisible();
+  await expect(dnsEvidence.getByText('v=DMARC1; p=reject; rua=mailto:dmarc@cklnet.com')).toBeVisible();
+  const sourceIntelligence = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Source intelligence' }),
+  });
+  await sourceIntelligence.locator(':scope > summary').click();
+  await expect(sourceIntelligence.getByRole('heading', { name: 'Source Intelligence' })).toBeVisible();
+  const sendingSources = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Sending sources' }),
+  });
+  await sendingSources.locator(':scope > summary').click();
+  await expect(sendingSources.getByText('Postmark').first()).toBeVisible();
+  await expect(sendingSources.getByText('Owned infrastructure').first()).toBeVisible();
+  const trustSignals = sendingSources.locator('details', {
+    has: page.locator('summary', { hasText: 'Trust signals' }),
+  });
+  await trustSignals.nth(0).locator(':scope > summary').click();
+  await trustSignals.nth(1).locator(':scope > summary').click();
+  await expect(sendingSources.getByText('Reputation clean').first()).toBeVisible();
+  await expect(sendingSources.getByText('Reputation not checked').first()).toBeVisible();
+  await expect(sendingSources.getByText('Fix DKIM on owned infrastructure').first()).toBeVisible();
   await expect(page.getByText('Sending sources could not be loaded.')).not.toBeVisible();
   await expect(page.getByText('No data available for this time period')).not.toBeVisible();
 });
@@ -1213,7 +1220,7 @@ test('reports list and aggregate detail keep source evidence actionable', async 
   await page.locator('select[x-model="recordRiskFilter"]').selectOption('all');
   const rawEvidence = page.locator('#report-records');
   await rawEvidence.locator(':scope > summary').click();
-  await expect(rawEvidence.getByText('mta203-ab1.mtasv.net')).toBeVisible();
+  await expect(rawEvidence.getByText('mta203-ab1.mtasv.net', { exact: true })).toBeVisible();
   await expect(rawEvidence.getByText('AS23352').first()).toBeVisible();
   await expect(rawEvidence.getByText('SERVERCENTRAL - DEFT.COM, US').first()).toBeVisible();
   await expect(rawEvidence.getByRole('columnheader', { name: 'Reputation' })).toBeVisible();

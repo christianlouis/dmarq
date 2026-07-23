@@ -1,5 +1,6 @@
 # Import all models so Base.metadata knows every table
 from importlib import import_module
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
@@ -21,10 +22,13 @@ import app.models.user  # noqa: F401  # pylint: disable=unused-import
 import app.models.webhook  # noqa: F401  # pylint: disable=unused-import
 import app.models.workspace  # noqa: F401  # pylint: disable=unused-import
 import app.models.workspace_access  # noqa: F401  # pylint: disable=unused-import
+from app.core.config import get_settings
 from app.core.database import Base, get_db
 from app.core.security import require_admin_auth
 from app.main import create_app
+from app.services.ptr_lookup import clear_ptr_lookup_cache
 from app.services.report_store import ReportStore
+from app.services.source_network import clear_source_network_cache
 
 import_module("app.models.organization")
 import_module("app.models.health_score_snapshot")
@@ -78,12 +82,21 @@ def client(test_app: FastAPI, db_session):  # pylint: disable=redefined-outer-na
 
 
 @pytest.fixture(autouse=True)
-def _reset_report_store():
-    """Reset the ReportStore singleton between tests to avoid state leakage."""
-    store = ReportStore.get_instance()
-    store.clear()
-    yield
-    store.clear()
+def _reset_process_state():
+    """Reset process-local caches and singletons around every test."""
+
+    def reset() -> None:
+        clear_ptr_lookup_cache()
+        clear_source_network_cache()
+        get_settings.cache_clear()
+        ZoneInfo.clear_cache()
+        ReportStore.get_instance().clear()
+
+    reset()
+    try:
+        yield
+    finally:
+        reset()
 
 
 @pytest.fixture()

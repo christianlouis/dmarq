@@ -46,3 +46,67 @@
 .card.bg-base-100 {
     border: 1px solid var(--dmarq-border-strong);
 }
+
+/*
+ * Sending Sources layout (#814).
+ * Status badges stay beside their auth labels; desktop uses a compact grid;
+ * narrow screens stack; only recommendation code snippets may scroll.
+ */
+.sending-source-grid {
+    display: grid;
+    gap: 0.75rem 1rem;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+}
+
+.sending-source-auth {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.75rem;
+}
+
+.auth-status-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.auth-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--dmarq-text) 60%, transparent);
+}
+
+.sending-source-recs-scroll {
+    max-width: 100%;
+}
+
+@media (min-width: 768px) {
+    .sending-source-grid {
+        grid-template-columns:
+            minmax(0, 1.35fr)
+            minmax(0, 0.75fr)
+            minmax(14rem, 1.15fr)
+            minmax(0, 1.15fr);
+    }
+
+    .sending-source-auth {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1400px) {
+    .sending-source-auth {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 767px) {
+    .sending-source-row {
+        overflow-x: hidden;
+    }
+}
