@@ -1090,7 +1090,9 @@ function dashboardApp() {
         },
 
         formatLargeNumber(value) {
-            return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value);
+            return typeof window !== 'undefined' && window.dmarqFormatNumber
+                ? window.dmarqFormatNumber(value, { notation: 'compact' })
+                : new Intl.NumberFormat().format(value);
         },
 
         formatScoreDelta(value) {
@@ -1101,7 +1103,8 @@ function dashboardApp() {
         },
 
         formatMoney(cents, currency = 'EUR') {
-            return new Intl.NumberFormat(undefined, {
+            const locale = typeof window !== 'undefined' ? window.dmarqLocale : 'en';
+            return new Intl.NumberFormat(locale || 'en', {
                 style: 'currency',
                 currency
             }).format((Number(cents) || 0) / 100);

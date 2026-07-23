@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
@@ -6,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -29,6 +30,11 @@ from app.core.app_timezone import present_datetime
 from app.core.auth_providers import auth_provider_registry
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import Base, SessionLocal, engine, get_db
+from app.core.localization import (
+    catalog_for_locale,
+    resolve_request_locale,
+    template_locale_context,
+)
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.core.startup_checks import run_startup_checks
 from app.middleware.auth import AuthRedirectMiddleware
@@ -708,7 +714,12 @@ app = create_app()  # noqa: F811 – intentional rebind; `app` package imported 
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
-templates = Jinja2Templates(directory=templates_dir)
+templates = Jinja2Templates(
+    directory=templates_dir,
+    context_processors=[
+        lambda request: template_locale_context(request, default=settings.default_locale)
+    ],
+)
 templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
 templates.env.globals["provider_demo_enabled"] = settings.PROVIDER_DEMO_ENABLED
 templates.env.globals["demo_mode"] = settings.DEMO_MODE
@@ -727,6 +738,20 @@ async def index(request: Request):
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return FileResponse(os.path.join(os.path.dirname(__file__), "static", "img", "favicon.ico"))
+
+
+@app.get("/ui/localization-catalog.js", include_in_schema=False)
+async def localization_catalog(request: Request):
+    """Serve the selected UI catalog as a CSP-compatible same-origin script."""
+    locale = resolve_request_locale(request, default=settings.default_locale)
+    payload = json.dumps(catalog_for_locale(locale), ensure_ascii=False).replace("</", "<\\/")
+    response = Response(
+        content=f"window.DMARQ_I18N_CATALOG={payload};window.DMARQ_I18N_LOCALE={locale!r};",
+        media_type="application/javascript",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Cookie"
+    return response
 
 
 # Individual page routes

@@ -261,11 +261,17 @@ and import history are stored per source.
 |----------|-------------|---------|---------|
 | `PROJECT_NAME` | Instance name used by server-rendered pages | `DMARQ` | `Company DMARC Monitor` |
 | `PUBLIC_BASE_URL` | Public origin used behind a proxy/ingress and for OAuth callbacks | request origin | `https://dmarq.example.com` |
-| `LANGUAGE` | Default language for operator-facing guidance | `en` | `en`, `de` |
-| `DMARQ_DEFAULT_LOCALE` | Optional override for localized guidance; falls back to `LANGUAGE` | - | `de` |
+| `LANGUAGE` | Default UI and operator-guidance language for browsers without an explicit preference | `en` | `en`, `de` |
+| `DMARQ_DEFAULT_LOCALE` | Optional deployment override for the UI and localized guidance; falls back to `LANGUAGE` | - | `de` |
 | `APP_TIMEZONE` | IANA timezone for UI/API presentation of timestamps (for example Mail Sources last check). Storage remains UTC. Invalid values fall back to `UTC`. Container `TZ` alone does not change DMARQ display. | `UTC` | `Europe/Berlin` |
 | `SYNTHETIC_LOAD_TEST_SCENARIO` | Explicit idempotent acceptance data seed. Do not set on customer data. | - | `simon-811` |
 | `DEMO_MODE` | Force generated demo reports and demo DNS records for public demo instances. Do not enable on production customer data. | `false` | `true` |
+
+English and German are available from the account menu and **Settings >
+Language**. The explicit browser choice is stored for one year and takes
+precedence over the deployment default. Missing translations fall back to the
+English source text. API field names, protocol values, DNS records, hostnames,
+and imported report content are never translated.
 
 ### Sender Reputation Feeds
 

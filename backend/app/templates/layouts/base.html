@@ -19,7 +19,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-app-timezone="{{ app_timezone | default('UTC') }}" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
+<html lang="{{ locale | default('en') }}" data-theme="dmarqlight" data-app-locale="{{ locale | default('en') }}" data-app-timezone="{{ app_timezone | default('UTC') }}" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -36,6 +36,10 @@
     
     <!-- Built Tailwind CSS & DaisyUI bundle -->
     <link href="/static/css/app.css" rel="stylesheet" type="text/css"/>
+
+    <!-- One server-owned catalog also localizes client-rendered status text. -->
+    <script src="/ui/localization-catalog.js?lang={{ locale }}"></script>
+    <script src="/static/js/localization.js"></script>
 
     <!-- Alpine.js for interactivity -->
     <script src="/static/js/pages.js"></script>
@@ -128,6 +132,16 @@
                             <li><a href="/members">Members</a></li>
                             {% endif %}
                             <li><a href="/settings">Settings</a></li>
+                            <li class="menu-title mt-1 px-2 py-1"><span>Language</span></li>
+                            <li class="px-2 py-1">
+                                <label class="sr-only" for="account-language-selector">Language</label>
+                                <select id="account-language-selector"
+                                        class="select select-sm select-bordered w-full"
+                                        data-language-selector>
+                                    <option value="en" {{ 'selected' if locale == 'en' else '' }}>English</option>
+                                    <option value="de" {{ 'selected' if locale == 'de' else '' }}>German</option>
+                                </select>
+                            </li>
                             <li class="menu-title mt-1 px-2 py-1"><span>Advanced tools</span></li>
                             <li><a href="/forensics">Forensic reports</a></li>
                             <li><a href="/tls-reports">TLS reports</a></li>

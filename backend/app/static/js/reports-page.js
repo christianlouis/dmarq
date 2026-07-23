@@ -148,7 +148,9 @@ function reportsApp() {
             if (Number.isNaN(date.getTime())) {
                 return '';
             }
-            return date.toLocaleDateString();
+            return window.dmarqFormatDate
+                ? window.dmarqFormatDate(date)
+                : date.toLocaleDateString();
         },
 
         normalizeReport(report) {

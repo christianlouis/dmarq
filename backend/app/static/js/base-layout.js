@@ -5,23 +5,27 @@ if (typeof document !== 'undefined') {
     const dmarqAppTimezone = () =>
         document.documentElement.dataset.appTimezone || 'UTC';
 
+    const dmarqAppLocale = () =>
+        document.documentElement.dataset.appLocale || document.documentElement.lang || 'en';
+
     const dmarqFormatDateTime = (value, fallback = '—') => {
         if (!value) return fallback;
         const date = value instanceof Date ? value : new Date(value);
         if (Number.isNaN(date.getTime())) return String(value);
         try {
-            return new Intl.DateTimeFormat(undefined, {
+            return new Intl.DateTimeFormat(dmarqAppLocale(), {
                 dateStyle: 'short',
                 timeStyle: 'medium',
                 timeZone: dmarqAppTimezone(),
             }).format(date);
         } catch (_error) {
-            return date.toLocaleString(undefined, { timeZone: 'UTC' });
+            return date.toLocaleString(dmarqAppLocale(), { timeZone: 'UTC' });
         }
     };
 
     if (typeof window !== 'undefined') {
         window.dmarqAppTimezone = dmarqAppTimezone;
+        window.dmarqAppLocale = dmarqAppLocale;
         window.dmarqFormatDateTime = dmarqFormatDateTime;
     }
 
