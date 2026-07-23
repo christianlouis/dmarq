@@ -76,6 +76,14 @@ evidence, and first/last observed dates when that context is available. Treat a
 low-confidence sender match as a prompt to verify PTR, ASN, authenticated
 domains, and provider account evidence before changing SPF or DKIM.
 
+PTR, ASN, country, network ownership, and configured reputation-feed results are
+captured shortly after ingestion and stored with the report observation. This
+makes old reports reproducible even if an IP later moves to another network or
+its reputation changes. The normal detail view uses the captured evidence and
+does not block on live third-party lookups. Use **Refresh reputation** only when
+you intentionally want a current comparison; a missing feed configuration is
+shown as *not configured*, never as a clean result.
+
 ### Forensic Reports
 
 To view forensic reports (when available):

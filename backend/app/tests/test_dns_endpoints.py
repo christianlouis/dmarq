@@ -2029,11 +2029,19 @@ def test_posture_dashboard_weights_optional_controls_below_core_authentication(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "degraded"
-    assert data["score"] == 85
+    assert data["status"] == "healthy"
+    assert data["score"] == 100
+    assert "Core DMARC controls are healthy" in data["summary"]
+    assert {item["status"] for item in data["coverage"] if item["key"] in {"mta_sts", "bimi"}} == {
+        "review"
+    }
     assert data["health"]["grade"] != "F"
     recommendation_types = {item["type"] for item in data["recommendations"]}
     assert {"missing_mta_sts", "missing_bimi"}.issubset(recommendation_types)
+    missing_mta_sts = next(
+        item for item in data["recommendations"] if item["type"] == "missing_mta_sts"
+    )
+    assert missing_mta_sts["severity"] == "info"
 
 
 def test_posture_dashboard_refreshes_health_grade_dns(

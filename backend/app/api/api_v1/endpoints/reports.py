@@ -12,9 +12,9 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
-from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import get_default_provider
 from app.services.organizations import OrganizationPlanLimitError
+from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.report_persistence import (
     delete_persisted_report,
     hydrate_report_store_from_db,
@@ -22,8 +22,11 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
-from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.sender_intelligence import identify_sender, source_geo_for
+from app.services.source_evidence_prewarm import (
+    network_from_source_evidence,
+    ptr_from_source_evidence,
+)
 from app.services.source_network import (
     SourceNetworkIntelligence,
     lookup_sources_network_cached,
@@ -732,9 +735,7 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
     return result.hostname
 
 
-async def _resolve_ptr_result(
-    provider: Any, ip: str, timeout: float = 3.0
-) -> PtrLookupResult:
+async def _resolve_ptr_result(provider: Any, ip: str, timeout: float = 3.0) -> PtrLookupResult:
     """Resolve PTR with fallbacks; patchable in tests."""
     return await lookup_ptr_with_fallbacks(provider, ip, timeout=timeout)
 
@@ -742,6 +743,30 @@ async def _resolve_ptr_result(
 def _unique_source_ips(ips: List[str]) -> List[str]:
     """Preserve first-seen order while collapsing duplicate report-row IPs."""
     return list(dict.fromkeys(ips))
+
+
+def _snapshotted_report_evidence(
+    records: List[Dict[str, Any]],
+) -> tuple[Dict[str, PtrLookupResult], Dict[str, SourceNetworkIntelligence]]:
+    """Return the newest stored PTR/network snapshot for each report source IP."""
+    ptr_by_ip: Dict[str, PtrLookupResult] = {}
+    networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
+    evidence_at_by_ip: Dict[str, str] = {}
+    for record in records:
+        ip = str(record.get("source_ip") or "unknown")
+        evidence = record.get("source_evidence") or {}
+        captured_at = str(evidence.get("captured_at") or "")
+        if captured_at < evidence_at_by_ip.get(ip, ""):
+            continue
+        snapshot_ptr = ptr_from_source_evidence(evidence)
+        snapshot_network = network_from_source_evidence(evidence)
+        if snapshot_ptr is not None:
+            ptr_by_ip[ip] = snapshot_ptr
+        if snapshot_network is not None:
+            networks_by_ip[ip] = snapshot_network
+        if snapshot_ptr is not None or snapshot_network is not None:
+            evidence_at_by_ip[ip] = captured_at
+    return ptr_by_ip, networks_by_ip
 
 
 async def _ptr_lookups_by_ip(
@@ -777,9 +802,8 @@ async def _report_ptrs_by_ip(
     try:
         await asyncio.wait_for(
             _ptr_lookups_by_ip(provider, selected_ips, results=resolved),
-            timeout=max(
-                0.5,
-                float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+            timeout=_initial_enrichment_timeout(
+                settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS
             ),
         )
     except asyncio.TimeoutError:
@@ -806,9 +830,8 @@ async def _report_networks_by_ip(
                 ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
                 max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
             ),
-            timeout=max(
-                0.5,
-                float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+            timeout=_initial_enrichment_timeout(
+                settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS
             ),
         )
         return networks, "complete"
@@ -846,9 +869,10 @@ async def _report_reputations_by_ip(
                 days=1,
                 refresh=refresh,
             ),
-            timeout=max(
-                0.5,
-                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * (2 if refresh else 1),
+            timeout=(
+                max(0.5, float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * 2)
+                if refresh
+                else _initial_enrichment_timeout(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS)
             ),
         )
         return reputation_result, source_reputation_by_ip(reputation_result), "complete"
@@ -863,6 +887,11 @@ async def _report_reputations_by_ip(
         )
         _raise_refresh_reputation_failure(refresh, exc)
         return None, {}, "failed"
+
+
+def _initial_enrichment_timeout(configured_timeout: Any) -> float:
+    """Keep optional evidence from delaying the initial report detail response."""
+    return max(0.5, min(float(configured_timeout), 1.0))
 
 
 def _report_enrichment_status(
@@ -1170,18 +1199,27 @@ async def get_report_by_id(
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
     unique_ips = _unique_source_ips(ips)
 
-    # Evidence first: PTR and network enrichment run in parallel, each bounded.
-    # PTR is deduped to one lookup per unique IP (not per report row).
-    ptr_task = asyncio.create_task(_report_ptrs_by_ip(provider, unique_ips, settings))
+    # Prefer point-in-time evidence captured after ingestion. Only missing IPs
+    # receive a bounded fallback lookup; opening a report is never the primary
+    # enrichment path.
+    ptr_by_ip, networks_by_ip = _snapshotted_report_evidence(raw_records)
+
+    missing_ptr_ips = [ip for ip in unique_ips if ip not in ptr_by_ip]
+    missing_network_ips = [ip for ip in unique_ips if ip not in networks_by_ip]
+    ptr_task = asyncio.create_task(_report_ptrs_by_ip(provider, missing_ptr_ips, settings))
     network_task = asyncio.create_task(
-        _report_networks_by_ip(db, provider, unique_ips, settings)
+        _report_networks_by_ip(db, provider, missing_network_ips, settings)
     )
-    (ptr_by_ip, ptr_status), (networks_by_ip, network_status) = await asyncio.gather(
+    (live_ptr, ptr_status), (live_networks, network_status) = await asyncio.gather(
         ptr_task, network_task
     )
-    hostnames = [
-        (ptr_by_ip.get(ip).hostname if ptr_by_ip.get(ip) else None) for ip in ips
-    ]
+    ptr_by_ip.update(live_ptr)
+    networks_by_ip.update(live_networks)
+    if not missing_ptr_ips:
+        ptr_status = "complete"
+    if not missing_network_ips:
+        network_status = "complete"
+    hostnames = [(ptr_by_ip.get(ip).hostname if ptr_by_ip.get(ip) else None) for ip in ips]
     if ptr_status == "complete":
         if any((ptr_by_ip.get(ip) and ptr_by_ip[ip].transient) for ip in unique_ips):
             ptr_status = "timed_out"

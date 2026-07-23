@@ -192,25 +192,33 @@ function reportDetailApp(reportId = '') {
                 return;
             }
             this.enrichmentHydrating = true;
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 15000);
             try {
                 const response = await fetch(
-                    `/api/v1/reports/${encodeURIComponent(this.reportId)}`
+                    `/api/v1/reports/${encodeURIComponent(this.reportId)}`,
+                    { signal: controller.signal }
                 );
                 if (!response.ok) {
                     return;
                 }
                 const next = this.normalizeReport(await response.json());
                 // Keep evidence already on screen; only replace enrichment-bearing fields.
+                const records = (this.report?.records || []).map((record, index) => ({
+                    ...record,
+                    source_details: next.records?.[index]?.source_details || record.source_details,
+                    reputation: next.records?.[index]?.reputation || record.reputation,
+                }));
                 this.report = {
                     ...this.report,
-                    ...next,
-                    records: next.records,
+                    records,
                     reputation_summary: next.reputation_summary,
                     enrichment: next.enrichment,
                 };
             } catch (_err) {
                 // Evidence remains visible; enrichment stays partial until the next load.
             } finally {
+                window.clearTimeout(timeout);
                 this.enrichmentHydrating = false;
             }
         },

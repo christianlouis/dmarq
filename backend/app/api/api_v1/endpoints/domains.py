@@ -107,6 +107,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
     summarize_remediation_activity,
@@ -120,7 +121,6 @@ from app.services.remediation_readiness import (
     OPERATOR_REVIEW_READINESS_LEVELS,
     repair_readiness_for_stage,
 )
-from app.services.ptr_lookup import lookup_ptr_with_fallbacks
 from app.services.report_persistence import (
     domain_summaries_from_db,
     hydrate_domain_report_store_from_db,
@@ -132,6 +132,10 @@ from app.services.sender_intelligence import (
     build_source_intelligence,
     identify_sender,
     source_geo_for,
+)
+from app.services.source_evidence_prewarm import (
+    network_from_source_evidence,
+    ptr_from_source_evidence,
 )
 from app.services.source_network import (
     SourceNetworkIntelligence,
@@ -1991,6 +1995,7 @@ class SourceEntry(BaseModel):
     hostname: Optional[str] = None
     ptr_status: Optional[str] = None
     ptr_detail: Optional[str] = None
+    evidence_captured_at: Optional[str] = None
     sender: SenderIdentity
     geo: SourceGeo
     anomalies: List[SourceAnomaly] = Field(default_factory=list)
@@ -3525,10 +3530,17 @@ def _bimi_check(result: BIMIResult, dmarc_ready: bool) -> DNSHealthCheck:
         message = "BIMI record is published, but DMARC enforcement is not ready."
     else:
         message = result.errors[0] if result.errors else "BIMI posture needs attention."
+    status = "pass" if result.status == "pass" and dmarc_ready else "fail"
+    if status == "fail" and not result.dns_record:
+        status = "review"
+        message = "BIMI is not configured. It is optional for DMARC report analysis."
+    if status == "pass" and result.warnings:
+        status = "review"
+        message = "; ".join(result.warnings)
     return DNSHealthCheck(
         key="bimi",
         label="BIMI",
-        status="pass" if result.status == "pass" and dmarc_ready else "fail",
+        status=status,
         message=message,
         evidence=evidence,
     )
@@ -3588,10 +3600,14 @@ def _mta_sts_check(result: MTAStsResult) -> DNSHealthCheck:
         if result.status == "pass"
         else (result.errors[0] if result.errors else "MTA-STS posture needs attention.")
     )
+    status = result.status
+    if status == "fail" and not result.dns_record:
+        status = "review"
+        message = "MTA-STS is not configured. It is optional for DMARC report analysis."
     return DNSHealthCheck(
         key="mta_sts",
         label="MTA-STS",
-        status=result.status,
+        status=status,
         message=message,
         evidence=evidence,
     )
@@ -3607,6 +3623,7 @@ def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommend
         action = "Move the policy to mode: enforce once MX coverage is confirmed."
         recommendation_type = "mta_sts_review"
     elif not result.dns_record:
+        severity = "info"
         title = "Publish MTA-STS"
         detail = "; ".join(result.errors or ["MTA-STS is not configured."])
         action = "Publish _mta-sts TXT and a valid HTTPS policy at the well-known URL."
@@ -3769,10 +3786,11 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     if bimi_recommendation:
         recommendations.append(bimi_recommendation)
 
-    failed_checks = sum(1 for check in checks if check.status == "fail")
-    health_status = (
-        "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
-    )
+    failed_checks = [check for check in checks if check.status == "fail"]
+    failed_core_checks = [check for check in failed_checks if check.key in {"dmarc", "spf", "dkim"}]
+    health_status = "healthy"
+    if failed_checks:
+        health_status = "critical" if len(failed_core_checks) >= 2 else "degraded"
     return DNSHealthResponse(
         status=health_status,
         policy=policy,
@@ -3870,6 +3888,13 @@ def _coverage_href(check: DNSHealthCheck) -> str:
 
 def _posture_summary(health: DNSHealthResponse) -> str:
     if health.status == "healthy":
+        review_count = sum(1 for check in health.checks if check.status == "review")
+        if review_count:
+            item = "item" if review_count == 1 else "items"
+            return (
+                "Core DMARC controls are healthy. "
+                f"{review_count} optional posture {item} remain for review."
+            )
         return "All configured posture checks are passing."
     failed = sum(1 for check in health.checks if check.status == "fail")
     area = "area" if failed == 1 else "areas"
@@ -4157,7 +4182,9 @@ def _posture_score(checks: List[DNSHealthCheck]) -> int:
     total_weight = sum(weights.get(check.key, 0) for check in checks)
     if total_weight <= 0:
         return 0
-    passing_weight = sum(weights.get(check.key, 0) for check in checks if check.status == "pass")
+    passing_weight = sum(
+        weights.get(check.key, 0) for check in checks if check.status in {"pass", "review"}
+    )
     return round((passing_weight / total_weight) * 100)
 
 
@@ -7926,12 +7953,15 @@ def _full_fail_recommendation(
 def _policy_not_enforced_recommendation() -> SourceRecommendation:
     return SourceRecommendation(
         type="policy_not_enforced",
-        severity="warning",
-        title="Policy not enforced",
-        detail="Some failed mail was accepted because the applied DMARC disposition was none.",
+        severity="info",
+        title="Receiver override observed",
+        detail=(
+            "A receiver reported disposition none for some failing mail. This can be a local "
+            "override and does not mean the domain's published DMARC policy is p=none."
+        ),
         action=(
-            "After legitimate sources are passing consistently, move the domain policy "
-            "toward quarantine or reject."
+            "Review the report's override reason and fix legitimate SPF or DKIM failures; "
+            "do not change the published policy based on this disposition alone."
         ),
     )
 
@@ -8001,6 +8031,50 @@ async def _safe_ptr_lookup_result(provider: Any, ip: str, timeout: float = 3.0):
     return await lookup_ptr_with_fallbacks(provider, ip, timeout=timeout, use_cache=True)
 
 
+async def _source_ptr_results_by_ip(
+    provider: Any,
+    ips: List[str],
+    settings: Any,
+) -> Dict[str, PtrLookupResult]:
+    """Resolve a bounded unique-IP set without making the source page wait indefinitely."""
+    unique_ips = list(dict.fromkeys(str(ip) for ip in ips))
+    max_ips = max(0, int(settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS))
+    selected_ips = unique_ips[:max_ips]
+    resolved: Dict[str, PtrLookupResult] = {}
+    semaphore = asyncio.Semaphore(20)
+
+    async def _lookup(ip: str) -> None:
+        async with semaphore:
+            resolved[ip] = await _safe_ptr_lookup_result(provider, ip, timeout=1.5)
+
+    try:
+        request_timeout = min(
+            2.0,
+            max(0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS)),
+        )
+        await asyncio.wait_for(
+            asyncio.gather(*[_lookup(ip) for ip in selected_ips]),
+            timeout=request_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.info("PTR enrichment exceeded its request budget for domain sources")
+
+    for ip in selected_ips:
+        resolved.setdefault(
+            ip,
+            PtrLookupResult(
+                status="timeout",
+                detail="request budget exhausted; lookup will retry",
+            ),
+        )
+    for ip in unique_ips[max_ips:]:
+        resolved[ip] = PtrLookupResult(
+            status="unavailable",
+            detail="not enriched in this request because the source limit was reached",
+        )
+    return resolved
+
+
 async def _source_networks_by_ip(
     db: Session,
     provider: Any,
@@ -8010,16 +8084,23 @@ async def _source_networks_by_ip(
     if not settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
         return {}
     try:
-        return await lookup_sources_network_cached(
-            db,
-            provider,
-            ips,
-            ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
-            max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
-            timeout_seconds=max(
-                0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS)
-            ),
+        detail_timeout = min(
+            2.0,
+            max(0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS)),
         )
+        return await asyncio.wait_for(
+            lookup_sources_network_cached(
+                db,
+                provider,
+                ips,
+                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+                timeout_seconds=detail_timeout,
+            ),
+            timeout=detail_timeout + 1.0,
+        )
+    except asyncio.TimeoutError:
+        logger.info("Source network enrichment exceeded its request budget")
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Source network enrichment failed for domain sources: %s",
@@ -8051,19 +8132,33 @@ async def _source_reputations_by_ip(
                 days=days,
                 refresh=refresh,
             ),
-            timeout=max(
-                0.5,
-                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * (2 if refresh else 1),
+            timeout=(
+                max(0.5, float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * 2)
+                if refresh
+                else min(
+                    1.0,
+                    max(0.5, float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS)),
+                )
             ),
         )
         return source_reputation_by_ip(reputation_result)
     except asyncio.TimeoutError:
         logger.info("Source reputation enrichment timed out for domain sources")
+        if refresh:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Source reputation could not be refreshed within the request budget.",
+            ) from None
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Source reputation enrichment failed for domain sources: %s",
             type(exc).__name__,
         )
+        if refresh:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Source reputation could not be refreshed.",
+            ) from exc
     return {}
 
 
@@ -8088,13 +8183,26 @@ async def get_domain_sources(
     settings = get_settings()
 
     ips = [s.get("source_ip", "unknown") for s in sources]
-    ptr_task = asyncio.gather(*[_safe_ptr_lookup_result(provider, ip) for ip in ips])
-    network_task = asyncio.create_task(_source_networks_by_ip(db, provider, ips, settings))
-    ptr_results, networks_by_ip = await asyncio.gather(ptr_task, network_task)
-    hostnames = [result.hostname for result in ptr_results]
     ptr_by_ip = {
-        str(ip): result for ip, result in zip(ips, ptr_results, strict=True)
+        str(source.get("source_ip") or "unknown"): snapshot
+        for source in sources
+        if (snapshot := ptr_from_source_evidence(source.get("source_evidence"))) is not None
     }
+    networks_by_ip = {
+        str(source.get("source_ip") or "unknown"): snapshot
+        for source in sources
+        if (snapshot := network_from_source_evidence(source.get("source_evidence"))) is not None
+    }
+    missing_ptr_ips = [str(ip) for ip in ips if str(ip) not in ptr_by_ip]
+    missing_network_ips = [str(ip) for ip in ips if str(ip) not in networks_by_ip]
+    ptr_task = asyncio.create_task(_source_ptr_results_by_ip(provider, missing_ptr_ips, settings))
+    network_task = asyncio.create_task(
+        _source_networks_by_ip(db, provider, missing_network_ips, settings)
+    )
+    live_ptr, live_networks = await asyncio.gather(ptr_task, network_task)
+    ptr_by_ip.update(live_ptr)
+    networks_by_ip.update(live_networks)
+    hostnames = [ptr_by_ip[str(ip)].hostname for ip in ips]
     geo_by_ip = {
         str(source.get("source_ip") or "unknown"): merge_network_into_geo(
             source_geo_for(str(source.get("source_ip") or "unknown"), source),
@@ -8167,6 +8275,10 @@ async def get_domain_sources(
                 hostname=hostname,
                 ptr_status=(ptr_by_ip.get(ip).status if ptr_by_ip.get(ip) else None),
                 ptr_detail=(ptr_by_ip.get(ip).detail if ptr_by_ip.get(ip) else None),
+                evidence_captured_at=str(
+                    (source.get("source_evidence") or {}).get("captured_at") or ""
+                )
+                or None,
                 sender=SenderIdentity(**sender),
                 geo=SourceGeo(
                     **(
@@ -8254,7 +8366,13 @@ async def get_domain_source_intelligence(
     provider = get_default_provider(db)
     settings = get_settings()
     ips = [str(source.get("source_ip") or "unknown") for source in sources]
-    networks_by_ip = await _source_networks_by_ip(db, provider, ips, settings)
+    networks_by_ip = {
+        str(source.get("source_ip") or "unknown"): snapshot
+        for source in sources
+        if (snapshot := network_from_source_evidence(source.get("source_evidence"))) is not None
+    }
+    missing_network_ips = [ip for ip in ips if ip not in networks_by_ip]
+    networks_by_ip.update(await _source_networks_by_ip(db, provider, missing_network_ips, settings))
     geo_by_ip = {
         str(source.get("source_ip") or "unknown"): merge_network_into_geo(
             source_geo_for(str(source.get("source_ip") or "unknown"), source),

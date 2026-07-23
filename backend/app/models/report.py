@@ -90,6 +90,8 @@ class ReportRecord(Base):
     spf_auth_details = Column(Text, nullable=True)  # JSON array of SPF results
     policy_override_reasons = Column(Text, nullable=True)  # JSON array of policy reasons
     record_extensions = Column(Text, nullable=True)  # JSON object of extension values
+    # Point-in-time PTR, network, and reputation evidence captured after ingestion.
+    source_evidence = Column(Text, nullable=True)
 
     # Relationships
     report = relationship("DMARCReport", back_populates="records")

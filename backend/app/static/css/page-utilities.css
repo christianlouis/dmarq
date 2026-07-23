@@ -99,7 +99,7 @@
     }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1400px) {
     .sending-source-auth {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }

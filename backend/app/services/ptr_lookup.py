@@ -114,11 +114,7 @@ def _cache_get(ip: str) -> Optional[PtrLookupResult]:
 def _cache_put(ip: str, result: PtrLookupResult) -> None:
     if not result.cacheable:
         return
-    ttl = (
-        _POSITIVE_CACHE_TTL_SECONDS
-        if result.hostname
-        else _NXDOMAIN_CACHE_TTL_SECONDS
-    )
+    ttl = _POSITIVE_CACHE_TTL_SECONDS if result.hostname else _NXDOMAIN_CACHE_TTL_SECONDS
     _PTR_RESULT_CACHE[_cache_key(ip)] = (result, time.monotonic() + ttl)
 
 
@@ -386,6 +382,7 @@ async def lookup_ptr_with_fallbacks(  # noqa: C901
 
     candidates = dns_fallback_candidates(provider)
     last_result = PtrLookupResult(status=_STATUS_UNAVAILABLE, detail="no resolver candidates")
+    authoritative_negative: Optional[PtrLookupResult] = None
     for candidate in candidates:
         result = await _lookup_candidate(candidate, ip, timeout=timeout)
         last_result = result
@@ -394,9 +391,10 @@ async def lookup_ptr_with_fallbacks(  # noqa: C901
                 _cache_put(ip, result)
             return result
         if result.authoritative_negative:
+            authoritative_negative = result
             continue
 
-    preferred = last_result
+    preferred = authoritative_negative or last_result
     if use_cache and preferred.cacheable:
         _cache_put(ip, preferred)
     return preferred

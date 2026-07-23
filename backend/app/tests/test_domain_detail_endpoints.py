@@ -19,14 +19,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.services.ptr_lookup import PtrLookupResult
 from app.models.domain import Domain
 from app.models.setting import Setting
 from app.models.webhook import WebhookDelivery
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
+from app.services.bimi import BIMIResult
 from app.services.health_score_snapshots import upsert_health_score_snapshot
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_store import ReportStore
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import (
@@ -43,6 +44,22 @@ from app.services.workspaces import get_or_create_default_workspace
 # ---------------------------------------------------------------------------
 # Helpers / constants
 # ---------------------------------------------------------------------------
+
+
+def test_bimi_warning_is_not_presented_as_an_unqualified_pass():
+    result = BIMIResult(
+        status="pass",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=;",
+        warnings=["No BIMI certificate URL is published."],
+    )
+
+    check = domains_endpoint._bimi_check(
+        result, dmarc_ready=True
+    )  # pylint: disable=protected-access
+
+    assert check.status == "review"
+    assert "certificate URL" in check.message
+
 
 DOMAIN = "example.com"
 
@@ -2736,7 +2753,9 @@ def test_get_domain_sources_returns_recommendations(
     """Endpoint includes actionable guidance for common failure patterns."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return PtrLookupResult(hostname="sender.example.net", status="ok", detail="PTR record found")
+        return PtrLookupResult(
+            hostname="sender.example.net", status="ok", detail="PTR record found"
+        )
 
     monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     report = {
@@ -2762,6 +2781,12 @@ def test_get_domain_sources_returns_recommendations(
     source = response.json()["sources"][0]
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert {"unknown_sender", "full_fail", "policy_not_enforced"}.issubset(recommendation_types)
+    override = next(
+        item for item in source["recommendations"] if item["type"] == "policy_not_enforced"
+    )
+    assert override["title"] == "Receiver override observed"
+    assert "does not mean" in override["detail"]
+    assert "do not change the published policy" in override["action"]
     assert source["sender"]["name"] == "Unknown sender"
     assert source["sender"]["status"] == "unknown"
     assert source["spf_fix_hint"] is None
@@ -2998,6 +3023,67 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert source["reputation"]["listings"] == ["Spamhaus Zen"]
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert "source_reputation" in recommendation_types
+
+
+def test_get_domain_sources_prefers_ingestion_evidence_over_live_lookup(
+    seeded_client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+):
+    source_ip = "93.184.216.34"
+    workspace = get_or_create_default_workspace(db_session)
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-snapshotted-source-evidence",
+        "records": [
+            {
+                "source_ip": source_ip,
+                "count": 4,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": DOMAIN,
+            }
+        ],
+        "summary": {"total_count": 4, "passed_count": 4, "failed_count": 0},
+    }
+    saved, _ = report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.flush()
+    saved.records[0].source_evidence = json.dumps(
+        {
+            "captured_at": "2026-07-23T12:00:00Z",
+            "ptr": {"hostname": "edge.example.net", "status": "ok", "detail": "stored"},
+            "network": {
+                "ip": source_ip,
+                "asn": "AS15133",
+                "as_name": "Edgecast Inc.",
+                "country_code": "US",
+                "country": "United States",
+                "source": "team-cymru",
+                "checked_at": "2026-07-23T12:00:00Z",
+            },
+        }
+    )
+    db_session.commit()
+
+    async def reject_snapshot_ptr(_provider, ip, timeout=1.5):
+        if ip == source_ip:
+            raise AssertionError("stored PTR evidence must avoid a live lookup")
+        return PtrLookupResult(status="unavailable", detail="stubbed")
+
+    async def reject_snapshot_network(_db, _provider, ips, **_kwargs):
+        assert source_ip not in ips
+        return {}
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", reject_snapshot_ptr)
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", reject_snapshot_network)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
+    assert source["hostname"] == "edge.example.net"
+    assert source["geo"]["asn"] == "AS15133"
+    assert source["geo"]["country_code"] == "US"
+    assert source["evidence_captured_at"] == "2026-07-23T12:00:00Z"
 
 
 def test_get_domain_sources_continues_when_enrichment_times_out(
@@ -3335,6 +3421,36 @@ async def test_source_networks_by_ip_handles_disabled_and_failed_enrichment(
 
 
 @pytest.mark.asyncio
+async def test_source_ptr_results_are_deduplicated_capped_and_time_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+
+    async def fake_ptr(_provider, ip, timeout=1.5):  # pylint: disable=unused-argument
+        calls.append(ip)
+        if ip.endswith(".2"):
+            await asyncio.sleep(1)
+        return PtrLookupResult(hostname=f"mx-{ip}.example", status="ok")
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr)
+    settings = SimpleNamespace(
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS=2,
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS=0.01,
+    )
+
+    result = await domains_endpoint._source_ptr_results_by_ip(  # pylint: disable=protected-access
+        object(),
+        ["8.8.8.1", "8.8.8.1", "8.8.8.2", "8.8.8.3"],
+        settings,
+    )
+
+    assert calls.count("8.8.8.1") == 1
+    assert result["8.8.8.1"].hostname == "mx-8.8.8.1.example"
+    assert result["8.8.8.2"].status == "timeout"
+    assert "source limit" in result["8.8.8.3"].detail
+
+
+@pytest.mark.asyncio
 async def test_source_reputations_by_ip_handles_failed_enrichment(
     db_session,
     monkeypatch: pytest.MonkeyPatch,
@@ -3349,6 +3465,36 @@ async def test_source_reputations_by_ip_handles_failed_enrichment(
         "build_source_reputation_cached",
         failing_reputation_lookup,
     )
+
+
+@pytest.mark.asyncio
+async def test_source_reputation_refresh_surfaces_provider_failure(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def failing_reputation_lookup(*_args, **_kwargs):
+        raise RuntimeError("reputation provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "build_source_reputation_cached",
+        failing_reputation_lookup,
+    )
+
+    with pytest.raises(domains_endpoint.HTTPException) as exc_info:
+        await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            [],
+            [],
+            {},
+            {},
+            30,
+            True,
+            SimpleNamespace(SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS=1.0),
+        )
+
+    assert exc_info.value.status_code == 503
 
     assert (
         await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access

@@ -407,7 +407,7 @@
                                 <div class="flex items-center justify-between gap-2">
                                     <h3 class="font-semibold text-[#07071f]" x-text="item.label"></h3>
                                     <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
-                                          :class="item.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                          :class="coverageStatusClass(item.status)"
                                           x-text="item.status"></span>
                                 </div>
                                 <p class="mt-2 text-xs text-[#5f5c78]" x-text="item.message"></p>
@@ -528,6 +528,10 @@
                        x-cloak
                        class="mt-4 rounded border border-[#d8ebe8] bg-[#f2fbf9] px-3 py-2 text-sm font-semibold text-[#1f7c83]"
                        x-text="remediationQueueRefreshMessage"></p>
+                    <p x-show="remediationQueueEnrichmentNotice"
+                       x-cloak
+                       class="mt-4 rounded border border-[#d9d5ea] bg-[#f7f5ff] px-3 py-2 text-sm text-[#504b70]"
+                       x-text="remediationQueueEnrichmentNotice"></p>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && (remediationQueue.verified_items || []).length > 0">
                         <div class="mt-4 rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-3">
                             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -2493,9 +2497,6 @@
                                         <template x-if="!source.hostname">
                                             <span class="text-xs text-muted-foreground" x-text="ptrStatusLabel(source)"></span>
                                         </template>
-                                        <template x-if="source.geo">
-                                            <span class="text-xs text-muted-foreground" x-text="sourceGeoSummary(source)"></span>
-                                        </template>
                                         <template x-if="pathValue(source, 'anomalies.length', 0)">
                                             <span class="mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
                                                   :class="sourceAnomalyClass(source)"
@@ -2547,7 +2548,7 @@
                                             </div>
                                         </div>
                                         <details x-show="pathValue(source, 'volume_history.length', 0)" class="rounded border border-base-300 bg-base-100 px-2 py-1.5 text-xs">
-                                            <summary class="cursor-pointer font-medium text-base-content"><span>Recent volume</span><span class="ml-1 text-muted-foreground" x-text="sourceVolumeSummary(source)"></span></summary>
+                                            <summary class="cursor-pointer font-medium text-base-content"><span>Recent volume · </span><span class="text-muted-foreground" x-text="sourceVolumeSummary(source)"></span></summary>
                                             <div class="mt-2 divide-y divide-base-200">
                                                 <template x-for="point in sourceVolumeHistory(source)" :key="point.date"><div class="flex items-center justify-between gap-2 py-1"><span class="text-muted-foreground" x-text="point.date"></span><span><span x-text="formatLargeNumber(point.count) + ' emails'"></span><span x-show="point.failed" class="ml-1 text-error" x-text="formatLargeNumber(point.failed) + ' failed'"></span></span></div></template>
                                             </div>
@@ -2693,6 +2694,7 @@
                                         </template>
                                     </summary>
                                     <div class="mt-2 space-y-2">
+                                        <p class="text-muted-foreground" x-text="evidenceCapturedLabel(source)"></p>
                                         <div class="flex flex-wrap gap-1.5">
                                             <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
                                                 <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>

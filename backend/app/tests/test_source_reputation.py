@@ -6,8 +6,8 @@ from app.services.source_reputation import (
     build_source_reputation,
     build_source_reputation_cached,
     reputation_presentation,
-    source_reputation_cache_key,
     source_reputation_by_ip,
+    source_reputation_cache_key,
 )
 from app.services.source_reputation_feeds import FeedLookupEvidence, IPFeedReputation
 
@@ -214,7 +214,7 @@ def test_reputation_presentation_distinguishes_local_only_from_checked_feeds():
 
     local_view = reputation_presentation(local_result.sources[0])
 
-    assert local_view.status_label == "Clean"
+    assert local_view.status_label == "No local risk signals"
     assert local_view.feed_status == "local_only"
     assert "local DMARC evidence" in local_view.feed_summary
 
@@ -240,10 +240,12 @@ def test_reputation_presentation_distinguishes_local_only_from_checked_feeds():
     checked_source = checked_result.sources[0]
     checked_view = reputation_presentation(checked_source)
 
-    assert checked_view.status_label == "Clean"
+    assert checked_view.status_label == "No listings found"
     assert checked_view.feed_status == "checked"
     assert "checked without listings" in checked_view.feed_summary
-    assert any(item.source == "external" and item.value == "clean" for item in checked_source.evidence)
+    assert any(
+        item.source == "external" and item.value == "clean" for item in checked_source.evidence
+    )
 
 
 def test_reputation_presentation_summarizes_external_feed_states():
@@ -292,10 +294,7 @@ def test_reputation_presentation_summarizes_external_feed_states():
         },
     )
 
-    views = {
-        source.ip: reputation_presentation(source)
-        for source in result.sources
-    }
+    views = {source.ip: reputation_presentation(source) for source in result.sources}
 
     suspicious_source = source_reputation_by_ip(result)["8.8.8.8"]
     assert suspicious_source.risk_score == 20

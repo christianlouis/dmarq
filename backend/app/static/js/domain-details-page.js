@@ -1970,6 +1970,9 @@ function domainDetailsApp(domainId = '') {
         },
 
         sourceSenderRemediationHint(source) {
+            const status = this.sourceSenderStatus(source);
+            const hasAction = Array.isArray(source?.recommendations) && source.recommendations.length > 0;
+            if (!hasAction || !['unknown', 'ambiguous', 'suspicious'].includes(status)) return '';
             return source?.sender?.remediation_hint || '';
         },
 
@@ -2045,7 +2048,7 @@ function domainDetailsApp(domainId = '') {
                 return parts.join(' · ');
             }
             if (geo.enrichment_mode === 'tokenless-fallback') {
-                return 'Tokenless ASN lookup pending or partial';
+                return geo.network_error || 'Tokenless ASN lookup returned no match';
             }
             if (geo.enrichment_mode === 'unavailable') {
                 return geo.network_error || 'Geo unavailable';
@@ -2060,7 +2063,15 @@ function domainDetailsApp(domainId = '') {
                 : (geo.country_code && geo.country_code !== 'ZZ' ? geo.country_code : null);
             const asn = geo.asn || null;
             if (country || asn) return [country, asn].filter(Boolean).join(' · ');
-            return geo.network_error ? 'Network lookup pending' : 'Network context unavailable';
+            if (geo.network_error) return 'Network data pending';
+            if (geo.enrichment_mode === 'tokenless-fallback') return 'No tokenless network match';
+            return 'Network data not available';
+        },
+
+        coverageStatusClass(status) {
+            if (status === 'pass') return 'bg-green-100 text-green-700';
+            if (status === 'review') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-red-100 text-red-700';
         },
 
         geoAvailabilityHint(source) {
@@ -2106,6 +2117,14 @@ function domainDetailsApp(domainId = '') {
                 return `PTR unavailable — ${detail}`;
             }
             return 'PTR unavailable';
+        },
+
+        evidenceCapturedLabel(source) {
+            const capturedAt = source?.evidence_captured_at;
+            if (!capturedAt) return 'Current evidence fallback';
+            const date = new Date(capturedAt);
+            if (Number.isNaN(date.getTime())) return 'Evidence captured during report processing';
+            return `Captured during processing · ${date.toLocaleString()}`;
         },
 
         formatLargeNumber(value) {

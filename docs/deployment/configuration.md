@@ -304,6 +304,11 @@ answer "is this IP listed or risky according to a configured provider?"
 | `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached sender-IP network enrichment for ASN, BGP prefix, location, and operator metadata. | `true` | `false` |
 | `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
 | `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
+| `SOURCE_EVIDENCE_PREWARM_ENABLED` | Capture PTR, network, country, and configured reputation-feed evidence for recent sender IPs in the background. | `true` | `false` |
+| `SOURCE_EVIDENCE_PREWARM_LIMIT` | Maximum recent unique sender IPs processed per background cycle. | `250` | `500` |
+| `SOURCE_EVIDENCE_PREWARM_CONCURRENCY` | Maximum concurrent PTR/network lookups in one background cycle. | `8` | `12` |
+| `SOURCE_EVIDENCE_PREWARM_TIMEOUT_SECONDS` | Total network-enrichment budget for one background cycle. | `20` | `30` |
+| `SOURCE_EVIDENCE_PREWARM_INTERVAL_SECONDS` | Delay between background cycles. Values below 30 seconds are clamped. | `300` | `600` |
 | `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `https://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `https://geoip.internal/v1/lookup?ip={ip}` |
 | `GEOIP_CUSTOM_AUTH_HEADER` | Optional single request header for the custom provider, written as `Header-Name: value`. | - | `Authorization: Bearer op://...` |
 | `GEOIP_CUSTOM_TIMEOUT_SECONDS` | Custom GeoIP provider timeout. | `2` | `2` |
@@ -325,6 +330,13 @@ endpoint returns a JSON object with `country_code`, `country`, `asn`, and
 custom provider or API keys, DMARQ falls back to Team Cymru DNS for ASN and
 prefix metadata. Disable enrichment for deployments that do not want observed
 source IPs sent to any metadata service.
+
+Sender evidence is captured as a point-in-time snapshot on report records after
+ingestion. Domain and report pages prefer this stored evidence and therefore do
+not wait for live network calls. **Refresh reputation** performs an explicit
+current check; it does not rewrite the historical snapshot attached to an older
+report. Optional provider tokens add detail; they are not required for basic
+network ownership.
 
 Use HTTPS for the custom endpoint by default. Plain HTTP is appropriate only
 for an explicitly trusted, isolated internal network.

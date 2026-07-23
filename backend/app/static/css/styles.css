@@ -254,14 +254,3 @@ h1, h2, h3, h4, h5, h6 {
 .enforcement-gauge-bg {
   background: conic-gradient(#2f9da5 0deg, #2f9da5 180deg, #e8e8e8 180deg, #e8e8e8 360deg);
 }
-
-/* Text status colors for compliance status */
-.text-success {
-  color: #16a34a; /* Green color for compliant status */
-  font-weight: 500;
-}
-
-.text-error {
-  color: #dc2626; /* Red color for non-compliant status */
-  font-weight: 500;
-}

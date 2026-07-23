@@ -263,6 +263,7 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
                 "spf": _loads_json_list(record.spf_auth_details) or [],
                 "policy_override_reasons": (_loads_json_list(record.policy_override_reasons) or []),
                 "extensions": _loads_json_dict(record.record_extensions) or {},
+                "source_evidence": _loads_json_dict(record.source_evidence) or {},
             }
         )
 

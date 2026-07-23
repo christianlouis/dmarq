@@ -16,7 +16,7 @@ if (typeof document !== 'undefined') {
                 timeZone: dmarqAppTimezone(),
             }).format(date);
         } catch (_error) {
-            return date.toLocaleString();
+            return date.toLocaleString(undefined, { timeZone: 'UTC' });
         }
     };
 

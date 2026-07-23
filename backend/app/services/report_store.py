@@ -58,6 +58,7 @@ def _new_source_stats() -> Dict[str, Any]:
         "header_from_domains": [],
         "envelope_from_domains": [],
         "extensions": {},
+        "source_evidence": {},
         "first_seen": None,
         "last_seen": None,
         "active_days": 0,
@@ -82,6 +83,11 @@ def _merge_source_metadata(source: Dict[str, Any], record: Dict[str, Any]) -> No
     for key, value in (record.get("extensions") or {}).items():
         if key not in source["extensions"] and value is not None:
             source["extensions"][str(key)] = str(value)
+    evidence = record.get("source_evidence") or {}
+    captured_at = str(evidence.get("captured_at") or "")
+    current_at = str((source.get("source_evidence") or {}).get("captured_at") or "")
+    if evidence and captured_at >= current_at:
+        source["source_evidence"] = evidence
 
 
 def _timestamp_from_value(value: Any) -> Optional[int]:

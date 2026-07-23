@@ -37,8 +37,8 @@ from app.middleware.security import SecurityHeadersMiddleware
 from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
-from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.demo_data import build_demo_mail_sources
+from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
@@ -64,6 +64,7 @@ from app.services.runtime_status import (
     mark_scheduler_stopped,
     mark_scheduler_success,
 )
+from app.services.source_evidence_prewarm import scheduled_source_evidence_prewarm
 from app.services.summary_notifications import send_due_scheduled_summaries
 from app.services.support_sessions import support_session_from_request
 from app.services.webhook_events import deliver_due_webhooks
@@ -76,6 +77,7 @@ settings = get_settings()
 # Global variables for background task management
 background_task = None
 dns_prewarm_task = None
+source_evidence_prewarm_task = None
 last_check_time = None
 
 
@@ -554,7 +556,7 @@ def _initialize_synthetic_load_data() -> None:
 
 def _start_background_tasks() -> None:
     """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
-    global background_task, dns_prewarm_task  # pylint: disable=global-statement
+    global background_task, dns_prewarm_task, source_evidence_prewarm_task  # pylint: disable=global-statement
 
     if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
         logger.info("Skipping external mailbox polling for the relational provider demo")
@@ -563,6 +565,7 @@ def _start_background_tasks() -> None:
         mark_scheduler_started()
         background_task = asyncio.create_task(_scheduled_imap_polling_after_startup())
     dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
+    source_evidence_prewarm_task = asyncio.create_task(scheduled_source_evidence_prewarm())
 
 
 def create_app() -> FastAPI:
@@ -683,10 +686,12 @@ def create_app() -> FastAPI:
     @application.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
-        global dns_prewarm_task  # pylint: disable=global-statement
+        global dns_prewarm_task, source_evidence_prewarm_task  # pylint: disable=global-statement
 
         await _cancel_background_task(dns_prewarm_task, "DNS prewarm")
         dns_prewarm_task = None
+        await _cancel_background_task(source_evidence_prewarm_task, "sender evidence prewarm")
+        source_evidence_prewarm_task = None
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

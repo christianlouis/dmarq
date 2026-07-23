@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import time
 import zipfile
 from contextlib import contextmanager
@@ -22,11 +23,11 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import OrganizationPlanLimitError
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
-from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.source_network import SourceNetworkIntelligence
-from app.services.ptr_lookup import PtrLookupResult
+from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
@@ -1259,15 +1260,21 @@ def test_safe_ptr_lookup_uses_independent_resolver_fallback(monkeypatch: pytest.
         async def lookup_ptr(self, _ip):
             raise LookupError("primary resolver timed out")
 
-    class WorkingProvider:
-        async def lookup_ptr(self, _ip):
-            return "mail.example.test."
-
     primary = FailingProvider()
+
+    async def fake_lookup(_provider, ip, **_kwargs):
+        assert ip == "8.8.8.8"
+        return reports_endpoint.PtrLookupResult(
+            hostname="mail.example.test",
+            status="ok",
+            detail="Resolved by test fallback.",
+            provider="test-fallback",
+        )
+
     monkeypatch.setattr(
         reports_endpoint,
-        "dns_fallback_candidates",
-        lambda _provider: [primary, WorkingProvider()],
+        "lookup_ptr_with_fallbacks",
+        fake_lookup,
     )
 
     assert asyncio.run(reports_endpoint._safe_ptr_lookup(primary, "8.8.8.8")) == "mail.example.test"
@@ -1313,7 +1320,9 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
 ):
     """Report detail must perform at most one PTR lookup per unique source IP."""
     workspace = get_or_create_default_workspace(db_session)
-    fixture = _large_report_fixture(report_id="large-ptr-dedupe-report", record_count=300, unique_ips=25)
+    fixture = _large_report_fixture(
+        report_id="large-ptr-dedupe-report", record_count=300, unique_ips=25
+    )
     _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
 
     ptr_calls: list[str] = []
@@ -1362,6 +1371,69 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     assert elapsed < 2.0
 
 
+def test_report_detail_prefers_point_in_time_source_evidence(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    fixture = _large_report_fixture(
+        report_id="snapshotted-source-report", record_count=2, unique_ips=1
+    )
+    for row in fixture["records"]:
+        row["source_ip"] = "93.184.216.34"
+    _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
+    evidence = json.dumps(
+        {
+            "captured_at": "2026-07-23T12:00:00Z",
+            "ptr": {"hostname": "stored.example.net", "status": "ok", "detail": "stored"},
+            "network": {
+                "ip": "93.184.216.34",
+                "asn": "AS64500",
+                "country_code": "DE",
+                "country": "Germany",
+                "source": "snapshot",
+                "checked_at": "2026-07-23T12:00:00Z",
+            },
+        }
+    )
+    for record in db_session.query(ReportRecord).all():
+        record.source_evidence = evidence
+    db_session.commit()
+
+    async def unexpected_ptr(*_args, **_kwargs):
+        raise AssertionError("report detail must not live-resolve snapshotted PTR evidence")
+
+    async def unexpected_network(*_args, **_kwargs):
+        raise AssertionError("report detail must not live-resolve snapshotted network evidence")
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain="example.com",
+                status="unknown",
+                checked_at="2026-07-23T12:00:00Z",
+                sources=[],
+                summary={"total_sources": 0},
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", unexpected_ptr)
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", unexpected_network)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    response = authed_client.get("/api/v1/reports/snapshotted-source-report")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enrichment"]["ptr"] == "complete"
+    assert body["enrichment"]["network"] == "complete"
+    assert body["records"][0]["source_details"]["hostname"] == "stored.example.net"
+    assert body["records"][0]["source_details"]["asn"] == "AS64500"
+
+
 def test_report_ptr_enrichment_is_capped_and_preserves_completed_lookups(monkeypatch):
     calls: list[str] = []
 
@@ -1398,6 +1470,14 @@ def test_report_ptr_enrichment_is_capped_and_preserves_completed_lookups(monkeyp
     assert calls == ["203.0.113.1", "203.0.113.2"]
     assert resolved["203.0.113.1"].hostname == "resolved.example.net"
     assert ptr_status == "pending"
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [(0, 0.5), (0.75, 0.75), (5, 1.0)],
+)
+def test_initial_report_enrichment_timeout_is_tightly_bounded(configured, expected):
+    assert reports_endpoint._initial_enrichment_timeout(configured) == expected
 
 
 def test_get_report_by_id_bounds_slow_network_enrichment(

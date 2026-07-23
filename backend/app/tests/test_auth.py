@@ -1059,18 +1059,15 @@ class TestCallbackEndpoint:
         """After a successful callback the user is redirected to the stored next URL."""
         claims = self._make_mock_claims()
         mock_client = self._mock_client(claims=claims)
-        next_cookie = _create_next_cookie("/dashboard")
         with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
             real_settings = get_settings()
             mock_settings.logto_configured = True
             mock_settings.SECRET_KEY = real_settings.SECRET_KEY
             mock_settings.ALGORITHM = real_settings.ALGORITHM
+            next_cookie = _create_next_cookie("/dashboard")
             with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
-                res = client.get(
-                    "/api/v1/auth/callback?code=good",
-                    cookies={"logto_next": next_cookie},
-                    follow_redirects=False,
-                )
+                client.cookies.set("logto_next", next_cookie)
+                res = client.get("/api/v1/auth/callback?code=good", follow_redirects=False)
         assert res.status_code == 302
         assert res.headers["location"] == "/dashboard"
 

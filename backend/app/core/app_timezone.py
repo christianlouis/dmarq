@@ -14,7 +14,7 @@ DEFAULT_APP_TIMEZONE = "UTC"
 
 def resolve_app_timezone_name(value: Optional[str]) -> str:
     """Return a valid IANA timezone name, falling back to UTC when invalid."""
-    raw = (value or "").strip() or DEFAULT_APP_TIMEZONE
+    raw = str(value or "").strip() or DEFAULT_APP_TIMEZONE
     try:
         ZoneInfo(raw)
     except (ZoneInfoNotFoundError, ValueError, TypeError, KeyError):

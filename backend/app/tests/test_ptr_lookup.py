@@ -133,12 +133,44 @@ async def test_nxdomain_is_cached_but_timeout_alone_is_not(monkeypatch):
     assert calls["count"] == 2  # cached after authoritative negative
 
 
+@pytest.mark.asyncio
+async def test_authoritative_negative_wins_over_later_transient_failure(monkeypatch):
+    calls = {"count": 0}
+
+    async def nxdomain_then_timeout(provider, ip):  # pylint: disable=unused-argument
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return PtrLookupResult(
+                status="nxdomain",
+                detail="authoritative NXDOMAIN",
+                provider="Primary",
+                authoritative_negative=True,
+            )
+        return PtrLookupResult(status="timeout", detail="timed out", provider="Fallback")
+
+    monkeypatch.setattr(ptr_lookup, "_provider_ptr", nxdomain_then_timeout)
+    monkeypatch.setattr(
+        ptr_lookup,
+        "dns_fallback_candidates",
+        lambda provider: [provider, object()],
+    )
+
+    result = await lookup_ptr_with_fallbacks(_PrimaryTimeoutProvider(), _GLOBAL_IP)
+
+    assert result.status == "nxdomain"
+    assert result.authoritative_negative is True
+
+
 def test_classify_dnspython_exc_maps_known_failure_modes():
-    nx = ptr_lookup._classify_dnspython_exc(dns.resolver.NXDOMAIN())  # pylint: disable=protected-access
+    nx = ptr_lookup._classify_dnspython_exc(
+        dns.resolver.NXDOMAIN()
+    )  # pylint: disable=protected-access
     assert nx.status == "nxdomain"
     assert nx.authoritative_negative is True
 
-    timeout = ptr_lookup._classify_dnspython_exc(dns.exception.Timeout())  # pylint: disable=protected-access
+    timeout = ptr_lookup._classify_dnspython_exc(
+        dns.exception.Timeout()
+    )  # pylint: disable=protected-access
     assert timeout.status == "timeout"
 
     refused = ptr_lookup._classify_dnspython_exc(  # pylint: disable=protected-access
