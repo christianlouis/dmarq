@@ -792,6 +792,8 @@ async def _report_ptrs_by_ip(
     provider: Any,
     unique_ips: List[str],
     settings: Any,
+    *,
+    hydrate: bool = False,
 ) -> tuple[Dict[str, PtrLookupResult], str]:
     """Cap and time-box PTR enrichment while retaining completed lookups."""
     max_ips = max(0, int(settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS))
@@ -802,8 +804,12 @@ async def _report_ptrs_by_ip(
     try:
         await asyncio.wait_for(
             _ptr_lookups_by_ip(provider, selected_ips, results=resolved),
-            timeout=_initial_enrichment_timeout(
-                settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS
+            timeout=(
+                max(0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS))
+                if hydrate
+                else _initial_enrichment_timeout(
+                    settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS
+                )
             ),
         )
     except asyncio.TimeoutError:
@@ -817,27 +823,33 @@ async def _report_networks_by_ip(
     provider: Any,
     unique_ips: List[str],
     settings: Any,
+    *,
+    hydrate: bool = False,
 ) -> tuple[Dict[str, SourceNetworkIntelligence], str]:
     """Batch network enrichment with a hard detail-path timeout."""
     if not settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
         return {}, "disabled"
     try:
-        networks = await asyncio.wait_for(
-            lookup_sources_network_cached(
-                db,
-                provider,
-                unique_ips,
-                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
-                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
-            ),
-            timeout=_initial_enrichment_timeout(
+        timeout_seconds = (
+            max(0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS))
+            if hydrate
+            else _initial_enrichment_timeout(
                 settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS
-            ),
+            )
         )
-        return networks, "complete"
-    except asyncio.TimeoutError:
-        logger.info("Report source network enrichment timed out for report detail")
-        return {}, "timed_out"
+        networks = await lookup_sources_network_cached(
+            db,
+            provider,
+            unique_ips,
+            ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+            max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            timeout_seconds=timeout_seconds,
+        )
+        expected = min(
+            len(set(unique_ips)),
+            max(0, int(settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS)),
+        )
+        return networks, "complete" if len(networks) >= expected else "pending"
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Report source network enrichment failed for report detail: %s",
@@ -855,6 +867,7 @@ async def _report_reputations_by_ip(
     *,
     refresh: bool,
     settings: Any,
+    hydrate: bool = False,
 ) -> tuple[Optional[DomainReputation], Dict[str, SourceReputation], str]:
     """Build reputation evidence with a hard detail-path timeout."""
     try:
@@ -871,7 +884,7 @@ async def _report_reputations_by_ip(
             ),
             timeout=(
                 max(0.5, float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * 2)
-                if refresh
+                if refresh or hydrate
                 else _initial_enrichment_timeout(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS)
             ),
         )
@@ -1160,6 +1173,7 @@ def _source_details(
 async def get_report_by_id(
     report_id: str,
     refresh_reputation: bool = Query(False, title="Refresh cached source reputation evidence"),
+    hydrate_enrichment: bool = Query(False, title="Allow the progressive enrichment budget"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -1206,9 +1220,22 @@ async def get_report_by_id(
 
     missing_ptr_ips = [ip for ip in unique_ips if ip not in ptr_by_ip]
     missing_network_ips = [ip for ip in unique_ips if ip not in networks_by_ip]
-    ptr_task = asyncio.create_task(_report_ptrs_by_ip(provider, missing_ptr_ips, settings))
+    ptr_task = asyncio.create_task(
+        _report_ptrs_by_ip(
+            provider,
+            missing_ptr_ips,
+            settings,
+            hydrate=hydrate_enrichment,
+        )
+    )
     network_task = asyncio.create_task(
-        _report_networks_by_ip(db, provider, missing_network_ips, settings)
+        _report_networks_by_ip(
+            db,
+            provider,
+            missing_network_ips,
+            settings,
+            hydrate=hydrate_enrichment,
+        )
     )
     (live_ptr, ptr_status), (live_networks, network_status) = await asyncio.gather(
         ptr_task, network_task
@@ -1244,6 +1271,7 @@ async def get_report_by_id(
         sender_by_ip,
         refresh=refresh_reputation,
         settings=settings,
+        hydrate=hydrate_enrichment,
     )
 
     # Normalize records

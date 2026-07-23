@@ -372,7 +372,7 @@ async def lookup_ptr_with_fallbacks(  # noqa: C901
         parsed_ip = ipaddress.ip_address(ip)
     except ValueError:
         return PtrLookupResult(status=_STATUS_INVALID, detail="invalid IP address")
-    if not parsed_ip.is_global:
+    if not parsed_ip.is_global and not isinstance(provider, DemoDNSProvider):
         return PtrLookupResult(status=_STATUS_SKIPPED, detail="non-global IP")
 
     if use_cache:

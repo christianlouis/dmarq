@@ -1495,12 +1495,13 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
     _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
 
     network_calls: list[str] = []
+    network_timeouts: list[float] = []
 
-    async def slow_networks(_db, _provider, source_ips, **_kwargs):
+    async def slow_networks(_db, _provider, source_ips, **kwargs):
         unique = list(dict.fromkeys(str(ip) for ip in source_ips))
-        for ip in unique:
-            network_calls.append(ip)
-            await asyncio.sleep(0.25)
+        network_calls.extend(unique)
+        network_timeouts.append(kwargs["timeout_seconds"])
+        await asyncio.sleep(0.01)
         return {}
 
     async def fake_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
@@ -1527,7 +1528,7 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
         SOURCE_NETWORK_ENRICHMENT_ENABLED = True
         SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS = 86_400
         SOURCE_NETWORK_ENRICHMENT_MAX_IPS = 100
-        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS = 0.6
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS = 4.0
         SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS = 4.0
 
     monkeypatch.setattr(reports_endpoint, "get_settings", lambda: _Settings())
@@ -1540,12 +1541,18 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
     body = response.json()
     assert len(body["records"]) == 320
     assert body["records"][0]["source_ip"].startswith("203.0.113.")
-    assert body["enrichment"]["network"] == "timed_out"
+    assert body["enrichment"]["network"] == "pending"
     assert body["enrichment"]["pending"] is True
     assert body["enrichment"]["status"] == "partial"
-    # Unbounded sequential enrichment (~40 * 0.25s) would take ~10s; bound stays near timeout.
     assert elapsed < 3.0
     assert len(set(network_calls)) <= 40
+    assert network_timeouts == [1.0]
+
+    hydrated = authed_client.get(
+        "/api/v1/reports/large-network-timeout-report?hydrate_enrichment=true"
+    )
+    assert hydrated.status_code == 200
+    assert network_timeouts == [1.0, 4.0]
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):

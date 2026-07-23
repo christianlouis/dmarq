@@ -196,7 +196,7 @@ function reportDetailApp(reportId = '') {
             const timeout = window.setTimeout(() => controller.abort(), 15000);
             try {
                 const response = await fetch(
-                    `/api/v1/reports/${encodeURIComponent(this.reportId)}`,
+                    `/api/v1/reports/${encodeURIComponent(this.reportId)}?hydrate_enrichment=true`,
                     { signal: controller.signal }
                 );
                 if (!response.ok) {

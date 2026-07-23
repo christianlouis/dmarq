@@ -7,7 +7,7 @@ import dns.resolver
 import pytest
 
 from app.services import ptr_lookup
-from app.services.dns_resolver import BaseDNSProvider
+from app.services.dns_resolver import BaseDNSProvider, DemoDNSProvider
 from app.services.ptr_lookup import (
     PtrLookupResult,
     clear_ptr_lookup_cache,
@@ -32,6 +32,14 @@ def _reset_ptr_cache():
     clear_ptr_lookup_cache()
     yield
     clear_ptr_lookup_cache()
+
+
+@pytest.mark.asyncio
+async def test_demo_ptr_map_accepts_documentation_addresses():
+    result = await lookup_ptr_with_fallbacks(DemoDNSProvider(), "203.0.113.10")
+
+    assert result.status == "ok"
+    assert result.hostname == "primary-saas.mail.dmarq.org"
 
 
 @pytest.mark.asyncio
