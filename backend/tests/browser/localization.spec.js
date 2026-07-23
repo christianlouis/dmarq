@@ -73,14 +73,33 @@ test('German dashboard remains responsive while Alpine renders translated data',
       empty_domains_hidden: 0,
     }),
   }));
+  await page.route('**/api/v1/stats/dashboard?*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      total_domains: 1,
+      total_emails: 10,
+      compliant_emails: 9,
+      compliance_rate: 90,
+      reports_processed: 1,
+      top_sources: [],
+      compliance_trend: [],
+      change_summary: [],
+    }),
+  }));
+  const domainResponse = page.waitForResponse(
+    response => response.url().includes('/api/v1/domains/summary?') && response.ok(),
+  );
   const statsResponse = page.waitForResponse(
     response => response.url().includes('/api/v1/stats/dashboard?') && response.ok(),
   );
 
   await page.goto('/?lang=de');
+  await domainResponse;
   await statsResponse;
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await expect(page.getByRole('link', { name: 'Übersicht' }).first()).toBeVisible();
-  await expect(page.getByText('DMARC-Konformitätsrate').first()).toBeAttached();
+  await page.locator('[data-dashboard-analytics]').evaluate(element => { element.open = true; });
+  await expect(page.locator('#total-emails')).toHaveText('10');
+  await expect(page.getByText('DMARC-Konformitätsrate').first()).toBeVisible();
 });
