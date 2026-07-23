@@ -8015,21 +8015,16 @@ async def _source_networks_by_ip(
     if not settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
         return {}
     try:
-        return await asyncio.wait_for(
-            lookup_sources_network_cached(
-                db,
-                provider,
-                ips,
-                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
-                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
-            ),
-            timeout=max(
-                0.5,
-                float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+        return await lookup_sources_network_cached(
+            db,
+            provider,
+            ips,
+            ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+            max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            timeout_seconds=max(
+                0.5, float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS)
             ),
         )
-    except asyncio.TimeoutError:
-        logger.info("Source network enrichment timed out for domain sources")
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Source network enrichment failed for domain sources: %s",

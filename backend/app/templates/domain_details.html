@@ -2473,8 +2473,8 @@
                         {% call tr() %}
                             {% call th('w-[14%] align-top') %}Source IP / Hostname{% endcall %}
                             {% call th('w-[13%] align-top') %}Sender{% endcall %}
-                            {% call th('w-[17%] align-top') %}IP Intelligence{% endcall %}
-                            {% call th('w-[10%] align-top') %}Total Emails{% endcall %}
+                            {% call th('w-[17%] align-top') %}Trust signals{% endcall %}
+                            {% call th('w-[10%] align-top') %}Observed mail{% endcall %}
                             {% call th('w-[7%] align-top') %}SPF{% endcall %}
                             {% call th('w-[7%] align-top') %}DKIM{% endcall %}
                             {% call th('w-[7%] align-top') %}DMARC{% endcall %}
@@ -2555,105 +2555,52 @@
                                     </div>
                                 {% endcall %}
                                 {% call td('align-top') %}
-                                    <div class="min-w-0 break-words space-y-2 text-xs">
+                                    <div class="min-w-0 space-y-2 text-xs">
                                         <div class="flex flex-wrap gap-1.5">
-                                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
-                                                <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>
-                                                <span class="mx-1">·</span>
-                                                <span x-text="pathValue(source, 'geo.country') && pathValue(source, 'geo.country') !== 'Unknown' ? pathValue(source, 'geo.country') : (pathValue(source, 'geo.country_code') && pathValue(source, 'geo.country_code') !== 'ZZ' ? pathValue(source, 'geo.country_code') : 'Country unknown')"></span>
-                                            </span>
-                                            <template x-if="pathValue(source, 'geo.enrichment_mode') === 'tokenless-fallback'">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/70">Tokenless ASN; geo may be partial</span>
+                                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="sourceNetworkSummary(source)"></span>
+                                            <template x-if="source.reputation">
+                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold" :class="reputationStatusClass(source.reputation.status)" x-text="reputationRiskLabel(source.reputation)"></span>
                                             </template>
-                                            <template x-if="pathValue(source, 'geo.asn')">
-                                                <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-800" x-text="source.geo.asn"></span>
-                                            </template>
-                                            <template x-if="pathValue(source, 'geo.network')">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.network"></span>
-                                            </template>
-                                            <template x-if="pathValue(source, 'geo.bgp_prefix')">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-mono font-medium text-base-content/80" x-text="source.geo.bgp_prefix"></span>
-                                            </template>
-                                            <template x-if="pathValue(source, 'geo.city')">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.city"></span>
-                                            </template>
-                                            <template x-if="pathValue(source, 'geo.registry')">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium uppercase text-base-content/70" x-text="source.geo.registry"></span>
+                                            <template x-if="!source.reputation">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/70">Reputation pending</span>
                                             </template>
                                         </div>
-                                        <template x-if="pathValue(source, 'geo.allocated') || pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source')">
-                                            <p class="text-muted-foreground">
-                                                <span x-show="pathValue(source, 'geo.allocated')">Allocated <span x-text="pathValue(source, 'geo.allocated')"></span></span>
-                                                <span x-show="pathValue(source, 'geo.allocated') && (pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source'))"> · </span>
-                                                <span x-show="pathValue(source, 'geo.organization')" x-text="pathValue(source, 'geo.organization')"></span>
-                                                <span x-show="pathValue(source, 'geo.organization') && pathValue(source, 'geo.domain')"> · </span>
-                                                <span x-show="pathValue(source, 'geo.domain')" x-text="pathValue(source, 'geo.domain')"></span>
-                                                <span x-show="(pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain')) && pathValue(source, 'geo.network_source')"> · </span>
-                                                <span x-show="pathValue(source, 'geo.network_source')">Network data: <span x-text="pathValue(source, 'geo.network_source')"></span></span>
-                                            </p>
-                                        </template>
-                                        <template x-if="pathValue(source, 'geo.radar_url')">
-                                            <a class="text-xs font-medium text-primary hover:underline"
-                                               :href="source.geo.radar_url"
-                                               target="_blank"
-                                               rel="noopener noreferrer">Open in Cloudflare Radar</a>
-                                        </template>
-                                        <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')">
-                                            <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
-                                        </template>
-                                        <template x-if="pathValue(source, 'geo.config_hint')">
-                                            <p class="text-muted-foreground" x-text="geoAvailabilityHint(source)"></p>
-                                        </template>
                                         <template x-if="source.reputation">
-                                            <div class="space-y-1.5">
-                                                <div class="flex flex-wrap items-center gap-1.5">
-                                                    <span
-                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold"
-                                                        :class="reputationStatusClass(source.reputation.status)"
-                                                        x-text="reputationLabel(source.reputation)"
-                                                    ></span>
-                                                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="reputationRiskLabel(source.reputation)"></span>
-                                                    <span
-                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-medium"
-                                                        :class="reputationFeedClass(source.reputation.feed_status)"
-                                                        x-text="source.reputation.feed_summary || 'Local reputation evidence only'"
-                                                    ></span>
-                                                </div>
-                                                <p class="text-muted-foreground" x-text="source.reputation.status_detail || source.reputation.summary"></p>
-                                                <p class="text-muted-foreground">
-                                                    <span x-text="reputationCheckedLabel(source.reputation)"></span>
-                                                    <span> · </span>
-                                                    <span x-text="reputationAgeLabel(source.reputation)"></span>
-                                                </p>
-                                                <template x-if="pathValue(source, 'reputation.listings.length', 0)">
-                                                    <p class="font-medium text-[#ff6f3c]">
-                                                        <span>Listed on </span>
-                                                        <span x-text="source.reputation.listings.slice(0, 2).join(', ')"></span>
-                                                        <span x-show="source.reputation.listings.length > 2" x-text="' +' + (source.reputation.listings.length - 2)"></span>
+                                            <p class="text-muted-foreground" x-text="reputationLabel(source.reputation) + ' · ' + reputationAgeLabel(source.reputation)"></p>
+                                        </template>
+                                        <details class="rounded border border-base-300 bg-base-100 px-2 py-1.5 text-muted-foreground">
+                                            <summary class="cursor-pointer font-medium text-base-content">Network &amp; reputation evidence</summary>
+                                            <div class="mt-2 space-y-2 break-words">
+                                                <p x-text="sourceGeoSummary(source)"></p>
+                                                <template x-if="pathValue(source, 'geo.allocated') || pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source')">
+                                                    <p>
+                                                        <span x-show="pathValue(source, 'geo.allocated')">Allocated <span x-text="pathValue(source, 'geo.allocated')"></span></span>
+                                                        <span x-show="pathValue(source, 'geo.network_source')"> · Network data: <span x-text="pathValue(source, 'geo.network_source')"></span></span>
                                                     </p>
                                                 </template>
-                                                <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(source.reputation).length">
-                                                    <template x-for="item in reputationEvidencePreview(source.reputation)" :key="item.label + item.value">
-                                                        <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
-                                                            <span class="font-medium" x-text="item.label"></span>
-                                                            <span class="px-1">·</span>
-                                                            <span class="truncate" x-text="item.value"></span>
-                                                        </span>
-                                                    </template>
-                                                </div>
+                                                <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')"><p x-text="source.geo.network_error"></p></template>
+                                                <template x-if="pathValue(source, 'geo.config_hint')"><p x-text="geoAvailabilityHint(source)"></p></template>
+                                                <template x-if="source.reputation">
+                                                    <div class="space-y-1">
+                                                        <p x-text="source.reputation.status_detail || source.reputation.summary"></p>
+                                                        <p x-text="reputationCheckedLabel(source.reputation)"></p>
+                                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 font-medium" :class="reputationFeedClass(source.reputation.feed_status)" x-text="source.reputation.feed_summary || 'Local reputation evidence only'"></span>
+                                                        <template x-if="pathValue(source, 'reputation.listings.length', 0)"><p class="font-medium text-[#ff6f3c]">Listed on <span x-text="source.reputation.listings.join(', ')"></span></p></template>
+                                                        <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(source.reputation).length">
+                                                            <template x-for="item in reputationEvidencePreview(source.reputation)" :key="item.label + item.value"><span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px]"><span class="font-medium" x-text="item.label"></span><span class="px-1">·</span><span class="truncate" x-text="item.value"></span></span></template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!source.reputation"><p>Reputation has not been calculated yet. Use Refresh reputation to recalculate cached IP evidence.</p></template>
+                                                <template x-if="pathValue(source, 'geo.radar_url')"><a class="font-medium text-primary hover:underline" :href="source.geo.radar_url" target="_blank" rel="noopener noreferrer">Open in Cloudflare Radar</a></template>
                                             </div>
-                                        </template>
-                                        <template x-if="!source.reputation">
-                                            <p class="text-muted-foreground">Reputation has not been calculated for this source yet. Use Refresh reputation to recalculate cached IP evidence.</p>
-                                        </template>
-                                        <template x-if="!pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network') && !source.reputation">
-                                            <p class="text-muted-foreground">No ASN or reputation evidence available yet.</p>
-                                        </template>
+                                        </details>
                                     </div>
                                 {% endcall %}
                                 {% call td('align-top') %}
                                     <div class="min-w-0 space-y-2">
-                                        <div class="font-semibold" x-text="formatLargeNumber(source.count)"></div>
+                                        <div class="font-semibold" x-text="formatLargeNumber(source.count) + ' observed'"></div>
+                                        <div class="text-xs" :class="source.dmarc_fail_count ? 'text-error' : 'text-success'" x-text="source.dmarc_fail_count ? formatLargeNumber(source.dmarc_fail_count) + ' DMARC failed' : 'No DMARC failures'"></div>
                                         <div class="space-y-0.5 text-xs text-muted-foreground">
                                             <div>
                                                 <span>Last sent </span>
@@ -2669,22 +2616,12 @@
                                                 <span x-show="source.report_count" x-text="source.report_count + ' report' + (source.report_count === 1 ? '' : 's')"></span>
                                             </div>
                                         </div>
-                                        <div class="flex h-8 gap-0.5" x-show="pathValue(source, 'volume_history.length', 0)" role="img" aria-label="Recent sending volume">
-                                            <template x-for="point in sourceVolumeBars(source)" :key="point.date">
-                                                <svg class="h-8 flex-1 overflow-visible" :viewBox="'0 0 ' + point.width + ' 100'" preserveAspectRatio="none" aria-hidden="true">
-                                                    <rect
-                                                         x="0"
-                                                         :y="point.y"
-                                                         :width="point.width"
-                                                         :height="point.height"
-                                                         rx="1.5"
-                                                         class="fill-current"
-                                                         :class="point.failed > 0 ? 'text-error' : 'text-success'">
-                                                        <title x-text="point.label"></title>
-                                                    </rect>
-                                                </svg>
-                                            </template>
-                                        </div>
+                                        <details x-show="pathValue(source, 'volume_history.length', 0)" class="rounded border border-base-300 bg-base-100 px-2 py-1.5 text-xs">
+                                            <summary class="cursor-pointer font-medium text-base-content"><span>Recent volume</span><span class="ml-1 text-muted-foreground" x-text="sourceVolumeSummary(source)"></span></summary>
+                                            <div class="mt-2 divide-y divide-base-200">
+                                                <template x-for="point in sourceVolumeHistory(source)" :key="point.date"><div class="flex items-center justify-between gap-2 py-1"><span class="text-muted-foreground" x-text="point.date"></span><span><span x-text="formatLargeNumber(point.count) + ' emails'"></span><span x-show="point.failed" class="ml-1 text-error" x-text="formatLargeNumber(point.failed) + ' failed'"></span></span></div></template>
+                                            </div>
+                                        </details>
                                     </div>
                                 {% endcall %}
                                 {% call td('align-top') %}

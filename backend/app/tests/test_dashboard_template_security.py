@@ -453,7 +453,7 @@ def test_domain_details_nested_values_are_csp_safe_without_hiding_features():
     assert ".filter(Boolean)" not in template
     assert "pathValue(remediationQueue, 'loop.next_action'" in template
     assert "pathValue(migrationImport, 'preview.sample_rows', [])" in template
-    assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
+    assert "sourceNetworkSummary(source)" in template
 
 
 def test_dashboard_exposes_workspace_health_history():
@@ -2514,15 +2514,14 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     template = _domain_details_template()
     script = _domain_details_script()
 
-    assert "IP Intelligence" in template
+    assert "Trust signals" in template
     assert "PTR unavailable" in template
     assert "sourceGeoSummary(source)" in script
     assert "geoAvailabilityHint" in script
-    assert "Tokenless ASN; geo may be partial" in template
+    assert "sourceNetworkSummary(source)" in template
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
-    assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
-    assert "pathValue(source, 'geo.country')" in template
+    assert "sourceNetworkSummary(source)" in template
     assert "source.geo?.region" in script
     assert "source.geo?.asn" in script
     assert "source.geo?.network" in script
@@ -2548,7 +2547,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "if (!options.preserveOnFailure || !hasExistingSources) {" in script
     assert "if (options.preserveOnFailure && hasExistingSources) {" in script
     assert "sourceSeenLabel" in script
-    assert "sourceVolumeBars" in script
+    assert "sourceVolumeHistory" in script
+    assert "sourceVolumeSummary" in script
     assert "source.reputation.status" in template
     assert "source.reputation.feed_status" in template
     assert "source.reputation.feed_summary" in template
@@ -2575,12 +2575,11 @@ def test_domain_details_keeps_sending_source_authentication_columns_visible_on_d
     assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
-    assert 'aria-label="Recent sending volume"' in template
-    assert ":viewBox=\"'0 0 ' + point.width + ' 100'\"" in template
-    assert '<template x-for="point in sourceVolumeBars(source)"' in template
-    assert "point.y" in template
-    assert "point.width" in template
-    assert '<svg class="h-8 w-full overflow-visible"' not in template
+    assert "Network &amp; reputation evidence" in template
+    assert "Recent volume" in template
+    assert '<template x-for="point in sourceVolumeHistory(source)"' in template
+    assert "DMARC failed" in template
+    assert "sourceVolumeBars" not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
 
@@ -2711,7 +2710,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "sourceActivityLabel(source)" in template
     assert "sourceActivityClass(source)" in template
     assert "reputationAgeLabel(source.reputation)" in template
-    assert "Math.log10(count + 1)" in script
+    assert "sourceVolumeSummary(source)" in template
     assert (
         "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"
         in template

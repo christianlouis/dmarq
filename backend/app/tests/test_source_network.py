@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from urllib.error import URLError
@@ -768,6 +769,37 @@ async def test_lookup_sources_network_cached_filters_invalid_and_non_global_ips(
     assert list(results) == ["8.8.8.8"]
     assert results["8.8.8.8"].asn == "AS15169"
     assert provider.queries == ["8.8.8.8.origin.asn.cymru.com"]
+
+
+async def test_lookup_sources_network_cached_returns_completed_results_on_timeout(
+    db_session, monkeypatch
+):
+    """A slow sender must not hide other resolved sender network evidence."""
+
+    async def fake_lookup(_provider, ip):
+        if ip == "1.1.1.1":
+            await asyncio.sleep(0.2)
+        return SourceNetworkIntelligence(
+            ip=ip,
+            asn="AS15169",
+            as_name="Example network",
+            country_code="US",
+            country="United States",
+            source="team-cymru",
+        )
+
+    monkeypatch.setattr("app.services.source_network.lookup_source_network", fake_lookup)
+
+    results = await lookup_sources_network_cached(
+        db_session,
+        FakeProvider(),
+        ["8.8.8.8", "1.1.1.1"],
+        concurrency=2,
+        timeout_seconds=0.03,
+    )
+
+    assert list(results) == ["8.8.8.8"]
+    assert results["8.8.8.8"].country == "United States"
 
 
 def test_merge_network_into_geo_preserves_report_metadata_and_adds_prefix():
