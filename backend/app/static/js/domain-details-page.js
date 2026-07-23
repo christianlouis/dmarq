@@ -2124,12 +2124,17 @@ function domainDetailsApp(domainId = '') {
             if (!capturedAt) return 'Current evidence fallback';
             const date = new Date(capturedAt);
             if (Number.isNaN(date.getTime())) return 'Evidence captured during report processing';
-            return `Captured during processing · ${date.toLocaleString()}`;
+            const formatted = window.dmarqFormatDateTime
+                ? window.dmarqFormatDateTime(date)
+                : date.toLocaleString();
+            return `${window.dmarqT ? window.dmarqT('Captured during processing') : 'Captured during processing'} · ${formatted}`;
         },
 
         formatLargeNumber(value) {
             const number = Number(value || 0);
-            return new Intl.NumberFormat().format(number);
+            return window.dmarqFormatNumber
+                ? window.dmarqFormatNumber(number)
+                : new Intl.NumberFormat().format(number);
         },
 
         sourceSeenLabel(timestamp) {
@@ -2143,7 +2148,9 @@ function domainDetailsApp(domainId = '') {
                 if (diffDays === 1) return 'yesterday';
                 if (diffDays < 90) return `${diffDays} days ago`;
             }
-            return date.toLocaleDateString();
+            return window.dmarqFormatDate
+                ? window.dmarqFormatDate(date)
+                : date.toLocaleDateString();
         },
 
         sourceVolumeHistory(source) {

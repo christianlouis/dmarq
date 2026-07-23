@@ -107,6 +107,18 @@ class TestWorkspaceUiMode:
         }
 
 
+class TestDefaultLocale:
+    def test_language_controls_default_locale(self):
+        assert Settings(LANGUAGE="de_DE").default_locale == "de"
+
+    def test_locale_override_takes_precedence(self):
+        settings = Settings(LANGUAGE="en", DMARQ_DEFAULT_LOCALE="de")
+        assert settings.default_locale == "de"
+
+    def test_unsupported_language_falls_back_to_english(self):
+        assert Settings(LANGUAGE="fr").default_locale == "en"
+
+
 class TestMakeSyncDbUrl:
     """Tests for the _make_sync_db_url() URL normalization helper."""
 

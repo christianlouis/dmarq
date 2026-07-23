@@ -90,6 +90,25 @@
         </aside>
         <div class="min-w-0 space-y-6">
 
+    <section id="language-settings" class="scroll-mt-28">
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Language{% endcall %}
+                {% call card_description() %}Choose the language used for navigation, guidance, dates, and numbers in this browser.{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="form-control max-w-sm">
+                    <label class="label" for="settings-language-selector"><span class="label-text font-medium">Language</span></label>
+                    <select id="settings-language-selector" class="select select-bordered w-full" data-language-selector>
+                        <option value="en" {{ 'selected' if locale == 'en' else '' }}>English</option>
+                        <option value="de" {{ 'selected' if locale == 'de' else '' }}>German</option>
+                    </select>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Your explicit choice is kept in this browser and takes precedence over the instance default.</span></label>
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </section>
+
     <!-- ── Account/Auth Milestone ───────────────────────────────────────── -->
     <details id="account-readiness-settings" class="scroll-mt-28" {{ 'open' if effective_multi_workspace_ui else '' }}>
         <summary class="cursor-pointer rounded-lg border border-[#dfdfdf] bg-white p-4 text-sm font-semibold text-[#120d36] shadow-sm">

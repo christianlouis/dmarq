@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host="127.0.0.1",
+        host=os.environ.get("DMARQ_BROWSER_SMOKE_HOST", "127.0.0.1"),
         port=int(os.environ.get("DMARQ_BROWSER_SMOKE_PORT", "18080")),
         log_level="warning",
     )

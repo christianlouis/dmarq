@@ -1,5 +1,17 @@
 # Settings
 
+## Language
+
+DMARQ supports English and German for the product interface. Choose the
+language in **Settings > Language** or in the account menu. The choice is kept
+in the current browser and overrides the instance default. Administrators can
+set `LANGUAGE=en` or `LANGUAGE=de` to control the initial language for new
+browsers.
+
+The selected locale also controls visible date and number formatting. Imported
+DMARC values, DNS records, hostnames, API fields, and audit evidence stay in
+their original machine-readable form.
+
 This guide covers the various settings and configuration options available in DMARQ.
 
 ## General Settings

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added real English and German product localization with a persistent browser
+  preference, `LANGUAGE`/`DMARQ_DEFAULT_LOCALE` instance defaults, English
+  fallback, localized client-rendered states, and locale-aware date and number
+  formatting across the primary DMARC workflows.
 - Added an opt-in custom HTTP GeoIP provider for self-hosted and air-gapped
   installations. A configured local endpoint receives sender IPs using the
   documented response contract and suppresses all public enrichment fallbacks.
