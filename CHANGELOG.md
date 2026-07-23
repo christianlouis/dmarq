@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Preserved ASN, country, network, and reputation snapshots when reverse DNS
+  returns a transient error. PTR remains retryable in the background without
+  blocking the rest of the historical sender evidence.
 - Made sender-evidence backfill drain the complete historical report backlog.
   Each background cycle now selects only rows still missing a snapshot, so
   recent enriched senders cannot starve older reports behind the batch limit.
