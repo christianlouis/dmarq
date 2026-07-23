@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Kept localized dashboards responsive by preventing translation and Alpine
+  rendering from repeatedly rewriting the same text nodes. Language choices in
+  the asynchronously rendered account menu now apply and persist after reload.
 - Preserved ASN, country, network, and reputation snapshots when reverse DNS
   returns a transient error. PTR remains retryable in the background without
   blocking the rest of the historical sender evidence.

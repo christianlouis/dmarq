@@ -54,6 +54,16 @@
         window.location.replace(nextUrl.toString());
     };
 
+    const syncLanguageSelectors = (rootNode = document) => {
+        if (rootNode instanceof Element && rootNode.matches('[data-language-selector]')) {
+            rootNode.value = locale;
+        }
+        if (typeof rootNode.querySelectorAll !== 'function') return;
+        rootNode.querySelectorAll('[data-language-selector]').forEach((selector) => {
+            selector.value = locale;
+        });
+    };
+
     window.dmarqLocale = locale;
     window.dmarqT = translate;
     window.dmarqFormatNumber = (value, options = {}) =>
@@ -66,17 +76,24 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         translateTree(document.body);
-        document.querySelectorAll('[data-language-selector]').forEach((selector) => {
-            selector.value = locale;
-            selector.addEventListener('change', (event) => chooseLocale(event.target.value));
+        syncLanguageSelectors();
+        document.addEventListener('change', (event) => {
+            if (!(event.target instanceof Element)) return;
+            const selector = event.target.closest('[data-language-selector]');
+            if (selector) chooseLocale(selector.value);
         });
 
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
-                if (mutation.type === 'characterData') translateTextNode(mutation.target);
-                mutation.addedNodes.forEach(translateTree);
+                mutation.addedNodes.forEach((node) => {
+                    translateTree(node);
+                    syncLanguageSelectors(node);
+                });
             });
         });
-        observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+        // Alpine owns existing text nodes. Observing characterData here causes a
+        // feedback loop when Alpine restores source text after it is translated.
+        // Added nodes still cover asynchronously rendered menus and status copy.
+        observer.observe(document.body, {childList: true, subtree: true});
     });
 })();
