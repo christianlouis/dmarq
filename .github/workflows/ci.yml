@@ -138,10 +138,27 @@ jobs:
     needs: lint
     permissions:
       contents: read
+    env:
+      DOCKER_COMPOSE_VERSION: v5.1.4
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Docker Compose CLI plugin
+        run: |
+          case "$(uname -m)" in
+            x86_64) compose_arch="x86_64" ;;
+            aarch64|arm64) compose_arch="aarch64" ;;
+            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          plugin_dir="$HOME/.docker/cli-plugins"
+          mkdir -p "$plugin_dir"
+          curl --fail --location --retry 3 \
+            "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${compose_arch}" \
+            --output "$plugin_dir/docker-compose"
+          chmod +x "$plugin_dir/docker-compose"
+          docker compose version
 
       - name: Validate and render a new standalone environment
         run: |

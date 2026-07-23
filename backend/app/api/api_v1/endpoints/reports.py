@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
+from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import get_default_provider
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import (
@@ -713,15 +714,27 @@ def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
-    """Return reverse DNS for an IP without letting enrichment break report loading."""
+    """Return reverse DNS without letting enrichment break report loading.
+
+    Sender rows use the same independent resolver fallback policy as the
+    domain Sources view.  A transient failure from one recursive resolver is
+    not evidence that an address has no PTR record.
+    """
     try:
         ipaddress.ip_address(ip)
     except ValueError:
         return None
-    try:
-        return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
-    except Exception:
-        return None
+    candidates = dns_fallback_candidates(provider)
+    for candidate in candidates:
+        try:
+            hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            continue
+        if hostname:
+            return str(hostname).rstrip(".")
+    return None
 
 
 def _raise_refresh_reputation_failure(refresh_reputation: bool, exc: Exception) -> None:
@@ -945,6 +958,9 @@ def _source_details(
         "network_source": geo.get("network_source"),
         "network_checked_at": geo.get("network_checked_at"),
         "network_error": geo.get("network_error"),
+        "enrichment_mode": geo.get("enrichment_mode"),
+        "field_availability": geo.get("field_availability") or {},
+        "config_hint": geo.get("config_hint"),
         "geo_source": geo.get("source"),
     }
 
@@ -990,20 +1006,23 @@ async def get_report_by_id(
     provider = get_default_provider(db)
     settings = get_settings()
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
+    unique_ips = list(dict.fromkeys(ips))
     ptr_semaphore = asyncio.Semaphore(20)
 
     async def _bounded_ptr_lookup(ip: str) -> Optional[str]:
         async with ptr_semaphore:
             return await _safe_ptr_lookup(provider, ip)
 
-    hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in ips])
+    unique_hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in unique_ips])
+    hostnames_by_ip = dict(zip(unique_ips, unique_hostnames, strict=True))
+    hostnames = [hostnames_by_ip.get(ip) for ip in ips]
     networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
     if settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
         try:
             networks_by_ip = await lookup_sources_network_cached(
                 db,
                 provider,
-                ips,
+                unique_ips,
                 ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
                 max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
             )

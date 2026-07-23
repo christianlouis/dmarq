@@ -15,13 +15,14 @@ module.exports = {
     themes: [
       {
         dmarqlight: {
+          // Surface ladder (canvas < section < card) for operational scanability.
           primary: '#272a5f',
           secondary: '#2f9da5',
           accent: '#ff6f3c',
           neutral: '#07071f',
           'base-100': '#ffffff',
-          'base-200': '#f4f3f2',
-          'base-300': '#dfdfdf',
+          'base-200': '#e5e3ec',
+          'base-300': '#bdb9c8',
           'base-content': '#07071f',
           info: '#2f9da5',
           success: '#1f9d67',

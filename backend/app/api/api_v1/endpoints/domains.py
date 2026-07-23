@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import SessionLocal, get_db
+from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
@@ -1470,6 +1471,8 @@ class RemediationQueueResponse(BaseModel):
     items: List[RemediationQueueItem]
     verified_items: List[Dict[str, Any]] = Field(default_factory=list)
     verified_items_total: int = 0
+    enrichment_pending: bool = False
+    enrichment_detail: Optional[str] = None
 
 
 class RemediationNotificationAuditRequest(BaseModel):
@@ -1913,6 +1916,9 @@ class SourceGeo(BaseModel):
     network_source: Optional[str] = None
     network_checked_at: Optional[str] = None
     network_error: Optional[str] = None
+    enrichment_mode: Optional[str] = None
+    field_availability: Dict[str, str] = Field(default_factory=dict)
+    config_hint: Optional[str] = None
     source: str
 
 
@@ -6319,40 +6325,103 @@ async def _build_domain_remediation_queue_for_workspace(
     domain_id: str,
     refresh: bool = False,
 ) -> Dict[str, Any]:
-    """Build the current remediation queue for an authorized workspace."""
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
-    try:
-        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
-    except HTTPException as exc:
-        if (
-            exc.status_code != status.HTTP_404_NOT_FOUND
-            or _stored_domain_exists(db, domain_id)
-            or not _allows_legacy_report_only_fallback(db)
-        ):
-            raise
-        hydrate_report_store_from_db(db, store)
-        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    """Build the current remediation queue for an authorized workspace.
 
-    domain_health = await _build_domain_health_grade(
-        db,
-        domain_name,
-        store,
-        refresh=refresh,
+    Expensive DNS/reputation enrichment is bounded so the Next remediation
+    panel never waits unbounded for live lookups.
+    """
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    settings = get_settings()
+    timeout_seconds = max(
+        1.0,
+        float(getattr(settings, "REMEDIATION_QUEUE_TIMEOUT_SECONDS", 8.0) or 8.0),
     )
-    guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
     available_providers = _configured_dns_write_provider_ids(db)
+
+    async def _enrich() -> tuple[Dict[str, Any], Dict[str, Any]]:
+        return await asyncio.gather(
+            _build_domain_health_grade(
+                db,
+                domain_name,
+                store,
+                refresh=refresh,
+            ),
+            _build_domain_dns_guidance(
+                db,
+                store,
+                domain_name,
+                refresh=refresh,
+            ),
+        )
+
+    try:
+        domain_health, guidance = await asyncio.wait_for(
+            _enrich(),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.info(
+            "Remediation queue enrichment timed out for %s; returning bounded empty queue",
+            sanitize_for_log(domain_name),
+        )
+        summary = store.get_domain_summary(domain_name) or {}
+        domain_health = {
+            "domain": domain_name,
+            "grade": "unknown",
+            "score": 0,
+            "actions": [],
+            "summary": summary,
+            "enrichment_pending": True,
+        }
+        guidance = {
+            "findings": [],
+            "change_plans": [],
+            "target_records": [],
+            "dns_provider": None,
+            "enrichment_pending": True,
+        }
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.info(
+            "Remediation queue enrichment failed for %s: %s",
+            sanitize_for_log(domain_name),
+            type(exc).__name__,
+        )
+        domain_health = {
+            "domain": domain_name,
+            "grade": "unknown",
+            "score": 0,
+            "actions": [],
+            "enrichment_pending": True,
+        }
+        guidance = {
+            "findings": [],
+            "change_plans": [],
+            "target_records": [],
+            "dns_provider": None,
+            "enrichment_pending": True,
+        }
+
     recommended_provider = _recommended_dns_write_provider(
         guidance.get("dns_provider"),
         available_providers,
     )
-    return build_remediation_queue(
+    queue = build_remediation_queue(
         domain=domain_name,
         health=domain_health,
         dns_guidance=guidance,
         available_write_providers=available_providers,
         recommended_provider=recommended_provider,
     )
+    if guidance.get("enrichment_pending") or domain_health.get("enrichment_pending"):
+        queue = {
+            **queue,
+            "enrichment_pending": True,
+            "enrichment_detail": (
+                "DNS/posture enrichment timed out or failed; "
+                "showing any evidence already available without blocking the panel."
+            ),
+        }
+    return queue
 
 
 @router.get("/{domain_id}/remediation", response_model=RemediationQueueResponse)

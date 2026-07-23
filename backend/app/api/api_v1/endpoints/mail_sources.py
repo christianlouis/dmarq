@@ -27,6 +27,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import present_datetime
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
@@ -143,6 +144,8 @@ class MailSourceResponse(MailSourceBase):
     last_checked: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Presentation timezone applied to timestamp fields (storage remains UTC).
+    application_timezone: str = "UTC"
     # Mask the stored password in responses
     password: Optional[str] = None
     # Gmail: show the authorised email address but not tokens
@@ -650,6 +653,7 @@ def _source_to_response(
 ) -> MailSourceResponse:
     """Convert ORM row to response schema, masking the stored password."""
     connection_state = _connection_state_for_source(source, latest_import)
+    app_timezone = get_settings().APP_TIMEZONE
     return MailSourceResponse(
         id=source.id,
         name=source.name,
@@ -662,9 +666,10 @@ def _source_to_response(
         folder=source.folder or "INBOX",
         polling_interval=source.polling_interval or 60,
         enabled=source.enabled if source.enabled is not None else True,
-        last_checked=source.last_checked,
-        created_at=source.created_at,
-        updated_at=source.updated_at,
+        last_checked=present_datetime(source.last_checked, tz_name=app_timezone),
+        created_at=present_datetime(source.created_at, tz_name=app_timezone),
+        updated_at=present_datetime(source.updated_at, tz_name=app_timezone),
+        application_timezone=app_timezone,
         gmail_client_id=source.gmail_client_id,
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,

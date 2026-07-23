@@ -1,3 +1,48 @@
 [x-cloak] {
     display: none !important;
 }
+
+/*
+ * DMARQ surface tokens (issue #812).
+ * Perceptible hierarchy: page canvas → section surfaces → cards → form controls.
+ * Loaded after app.css so these remain the runtime source of truth for contrast.
+ */
+[data-theme="dmarqlight"] {
+    --dmarq-canvas: #dcd9e6;
+    --dmarq-surface-section: #f0eef5;
+    --dmarq-surface-card: #ffffff;
+    --dmarq-surface-control: #ffffff;
+    --dmarq-border-strong: #bdb9c8;
+    --dmarq-text: #07071f;
+    --dmarq-status-success: #1f9d67;
+    --dmarq-status-warning: #d97706;
+    --dmarq-status-error: #dc2626;
+}
+
+.dmarq-canvas {
+    background-color: var(--dmarq-canvas);
+    color: var(--dmarq-text);
+}
+
+.surface-section {
+    background-color: var(--dmarq-surface-section);
+    border: 1px solid var(--dmarq-border-strong);
+}
+
+.surface-card {
+    background-color: var(--dmarq-surface-card);
+    border: 1px solid var(--dmarq-border-strong);
+    color: var(--dmarq-text);
+}
+
+.input.input-bordered,
+.select.select-bordered,
+.textarea.textarea-bordered {
+    background-color: var(--dmarq-surface-control);
+    border-color: var(--dmarq-border-strong);
+    color: var(--dmarq-text);
+}
+
+.card.bg-base-100 {
+    border: 1px solid var(--dmarq-border-strong);
+}

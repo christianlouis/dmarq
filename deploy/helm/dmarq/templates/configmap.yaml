@@ -10,6 +10,7 @@ data:
   ENVIRONMENT: {{ .Values.config.environment | quote }}
   PUBLIC_BASE_URL: {{ .Values.config.publicBaseUrl | quote }}
   LANGUAGE: {{ .Values.config.language | quote }}
+  APP_TIMEZONE: {{ .Values.config.appTimezone | default "UTC" | quote }}
   AUTH_MODE: {{ .Values.config.authMode | quote }}
   AUTH_DISABLED: {{ eq .Values.config.authMode "disabled" | quote }}
   ALLOW_AUTH_DISABLED_IN_PRODUCTION: {{ .Values.config.allowAuthDisabledInProduction | quote }}

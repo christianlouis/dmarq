@@ -1306,6 +1306,7 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "visibleVerifiedItems()" in template
     assert "data-domain-detail-remediation-refresh" in template
     assert "data-domain-detail-verified-repairs-toggle" in template
+    assert "fetchRemediationQueue()" in script
     assert "fetchRemediationQueue({ refresh: true })" in script
     assert "remediationQueueRefreshing" in script
     assert "remediationQueueRefreshError" in script
@@ -2516,6 +2517,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "IP Intelligence" in template
     assert "PTR unavailable" in template
     assert "sourceGeoSummary(source)" in script
+    assert "geoAvailabilityHint" in script
+    assert "Tokenless ASN; geo may be partial" in template
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
     assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
@@ -2555,6 +2558,20 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
+
+
+def test_domain_details_keeps_sending_source_authentication_columns_visible_on_desktop():
+    """Sending-source evidence must not force the operational columns off-screen."""
+    template = _domain_details_template()
+
+    assert "min-w-[960px] xl:min-w-0 xl:table-fixed xl:w-full" in template
+    assert "w-[7%] align-top') %}SPF" in template
+    assert "w-[7%] align-top') %}DKIM" in template
+    assert "w-[7%] align-top') %}DMARC" in template
+    assert "w-[16%] align-top') %}Recommendations" in template
+    assert "min-w-52" not in template
+    assert "min-w-60" not in template
+    assert "min-w-72" not in template
     assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
@@ -2566,6 +2583,15 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert '<svg class="h-8 w-full overflow-visible"' not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
+
+
+def test_domain_details_explains_bounded_remediation_enrichment():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert "remediationQueueEnrichmentNotice" in template
+    assert "enrichment_pending" in script
+    assert "enrichment_detail" in script
 
 
 def test_domain_details_distinguishes_loading_error_and_empty_states():
@@ -2628,9 +2654,13 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
+    assert "Next remediation could not be loaded." in script
     assert "No remediation queued" in template
     assert "remediationStateLabel(primaryRemediationItem.state)" in template
     assert "remediationStateLabel(item.state)" in template
+    assert "?refresh=true" in script
+    assert "refresh ? 20000 : 15000" in script
+    assert "fetchRemediationQueue()" in script
     assert "primaryRemediationItem.state.split('_').join(' ')" not in template
     assert "item.state.split('_').join(' ')" not in template
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
@@ -2665,7 +2695,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert 'href="#remediation-queue"' in template
     assert 'id="remediation-queue"' in template
     assert "Loading remediation queue..." in template
-    assert "Remediation queue could not be loaded." in script
+    assert "Next remediation could not be loaded." in script
     assert "Retry remediation queue" in template
     assert "data-domain-detail-remediation-retry" in template
     assert 'x-show="!remediationQueueLoading && !remediationQueueError"' in template

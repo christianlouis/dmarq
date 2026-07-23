@@ -40,6 +40,7 @@ config:
   environment: development
   publicBaseUrl: http://dmarq.local
   language: en
+  appTimezone: UTC
   profile: single-user
   authMode: disabled
   allowAuthDisabledInProduction: false

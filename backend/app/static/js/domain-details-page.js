@@ -125,6 +125,7 @@ function domainDetailsApp(domainId = '') {
         remediationQueueError: '',
         remediationQueueRefreshError: '',
         remediationQueueRefreshMessage: '',
+        remediationQueueEnrichmentNotice: '',
         showAllVerifiedRemediationItems: false,
         showAllRemediationQueueItems: false,
         remediationQueueLoadedAt: '',
@@ -462,7 +463,7 @@ function domainDetailsApp(domainId = '') {
             window.setTimeout(() => {
                 Promise.allSettled([
                     this.fetchPosture(),
-                    this.fetchRemediationQueue({ refresh: true }),
+                    this.fetchRemediationQueue(),
                     this.fetchHealthHistory(),
                     this.fetchMtaSts(),
                     this.fetchBimi()
@@ -2031,11 +2032,37 @@ function domainDetailsApp(domainId = '') {
             const isKnown = (value) => value && String(value).trim().toLowerCase() !== 'unknown';
             const region = isKnown(geo.region) ? geo.region : null;
             const country = isKnown(geo.country) ? geo.country : null;
+            const countryCode = geo.country_code && geo.country_code !== 'ZZ' ? geo.country_code : null;
             const network = isKnown(geo.network) ? geo.network : null;
             const asn = isKnown(geo.asn) ? geo.asn : null;
             const prefix = isKnown(geo.bgp_prefix) ? geo.bgp_prefix : null;
-            const parts = [region, country, [asn, network, prefix].filter(Boolean).join(' · ')].filter(Boolean);
-            return parts.length ? parts.join(' · ') : 'Geo unavailable';
+            const parts = [
+                region,
+                country || countryCode,
+                [asn, network, prefix].filter(Boolean).join(' · '),
+            ].filter(Boolean);
+            if (parts.length) {
+                return parts.join(' · ');
+            }
+            if (geo.enrichment_mode === 'tokenless-fallback') {
+                return 'Tokenless ASN lookup pending or partial';
+            }
+            if (geo.enrichment_mode === 'unavailable') {
+                return geo.network_error || 'Geo unavailable';
+            }
+            return 'Geo unavailable';
+        },
+
+        geoAvailabilityHint(source) {
+            const geo = source?.geo || source || {};
+            if (geo.config_hint) {
+                return geo.config_hint;
+            }
+            const availability = geo.field_availability || {};
+            if (availability.city === 'requires_optional_provider') {
+                return 'City/org detail needs an optional geo token; ASN can still come from Team Cymru without tokens.';
+            }
+            return '';
         },
 
         formatLargeNumber(value) {
@@ -2406,6 +2433,7 @@ function domainDetailsApp(domainId = '') {
             this.remediationQueueLoadedAt = '';
             this.remediationQueueRefreshError = '';
             this.remediationQueueRefreshMessage = '';
+            this.remediationQueueEnrichmentNotice = '';
             this.remediationQueue = {
                 status: 'unavailable',
                 loop: {
@@ -2481,11 +2509,15 @@ function domainDetailsApp(domainId = '') {
             this.remediationQueueError = '';
             this.remediationQueueRefreshError = '';
             this.remediationQueueRefreshMessage = '';
+            this.remediationQueueEnrichmentNotice = '';
             this.showAllVerifiedRemediationItems = false;
             this.showAllRemediationQueueItems = false;
             try {
+                const query = refresh ? '?refresh=true' : '';
                 const response = await this.fetchWithTimeout(
-                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation${query}`,
+                    {},
+                    refresh ? 20000 : 15000
                 );
                 if (!response.ok) {
                     console.error('Error fetching remediation queue:', {
@@ -2496,13 +2528,17 @@ function domainDetailsApp(domainId = '') {
                     if (keepExistingQueueVisible) {
                         this.remediationQueueRefreshError = 'Remediation queue refresh failed. Keeping the current queue visible.';
                     } else {
-                        this.remediationQueueError = 'Remediation queue could not be loaded.';
+                        this.remediationQueueError = 'Next remediation could not be loaded.';
                         this.resetRemediationQueue();
                     }
                     return;
                 }
                 this.remediationQueue = await response.json();
                 this.remediationQueueLoadedAt = new Date().toISOString();
+                this.remediationQueueEnrichmentNotice = this.remediationQueue?.enrichment_pending
+                    ? (this.remediationQueue?.enrichment_detail
+                        || 'Some DNS and health evidence is still being prepared. Refresh the queue in a moment for the complete view.')
+                    : '';
                 if (refresh) {
                     const total = Number(this.remediationQueue?.summary?.total || 0);
                     this.remediationQueueRefreshMessage = total
@@ -2511,10 +2547,15 @@ function domainDetailsApp(domainId = '') {
                 }
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
+                const timedOut = String(error?.message || '').toLowerCase().includes('timed out');
                 if (keepExistingQueueVisible) {
-                    this.remediationQueueRefreshError = error.message || 'Remediation queue refresh failed. Keeping the current queue visible.';
+                    this.remediationQueueRefreshError = timedOut
+                        ? 'Remediation refresh timed out. Keeping the current queue visible.'
+                        : (error.message || 'Remediation queue refresh failed. Keeping the current queue visible.');
                 } else {
-                    this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
+                    this.remediationQueueError = timedOut
+                        ? 'Next remediation could not be loaded.'
+                        : (error.message || 'Next remediation could not be loaded.');
                     this.resetRemediationQueue();
                 }
             } finally {

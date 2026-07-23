@@ -1851,9 +1851,11 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     workspace = get_or_create_default_workspace(db_session)
     captured = {}
 
-    def fake_hydrate(db, store_arg, workspace_id=None):
-        captured["workspace_id"] = workspace_id
-        return 1
+    def fake_single_domain_store(db, domain_id, workspace_arg):
+        captured["workspace_id"] = workspace_arg.id
+        captured["domain_id"] = domain_id
+        store = ReportStore()
+        return DOMAIN, store
 
     async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
         return {
@@ -1874,7 +1876,11 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
             "change_plans": [],
         }
 
-    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_single_domain_report_store_for_read",
+        fake_single_domain_store,
+    )
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
     monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
@@ -1883,7 +1889,67 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
 
     assert response.status_code == 200
     assert captured["workspace_id"] == workspace.id
+    assert captured["domain_id"] == DOMAIN
     assert response.json()["domain"] == DOMAIN
+
+
+def test_domain_remediation_queue_bounds_slow_enrichment(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Slow DNS/health enrichment must not hang the Next remediation panel."""
+
+    async def slow_grade(*_args, **_kwargs):
+        await asyncio.sleep(2.0)
+        return {
+            "domain": DOMAIN,
+            "score": 50,
+            "grade": "C",
+            "status": "needs_attention",
+            "factors": {},
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "high",
+                    "title": "should not appear after timeout",
+                    "detail": "slow",
+                    "action": "investigate",
+                }
+            ],
+        }
+
+    async def slow_guidance(*_args, **_kwargs):
+        await asyncio.sleep(2.0)
+        return {
+            "domain": DOMAIN,
+            "status": "needs_attention",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", slow_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", slow_guidance)
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
+
+    class _Settings:
+        DEMO_MODE = False
+        REMEDIATION_QUEUE_TIMEOUT_SECONDS = 1
+
+    monkeypatch.setattr(domains_endpoint, "get_settings", lambda: _Settings())
+
+    import time
+
+    started = time.monotonic()
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["domain"] == DOMAIN
+    assert body["enrichment_pending"] is True
+    assert body["items"] == []
+    assert elapsed < 2.0
 
 
 def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
@@ -1944,8 +2010,8 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     hydrate_calls = []
     seen_domains = []
 
-    def fake_hydrate(db, store_arg, workspace_id=None):
-        hydrate_calls.append(workspace_id)
+    def fake_hydrate_domain(db, store_arg, domain_name, workspace_id=None):
+        hydrate_calls.append((domain_name, workspace_id))
         return 1
 
     async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
@@ -1969,7 +2035,9 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
             "change_plans": [],
         }
 
-    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(
+        domains_endpoint, "hydrate_domain_report_store_from_db", fake_hydrate_domain
+    )
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
     monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
@@ -1978,7 +2046,8 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
 
     assert response.status_code == 200
     assert len(hydrate_calls) == 1
-    assert hydrate_calls[0] is not None
+    assert hydrate_calls[0][0] == DOMAIN
+    assert hydrate_calls[0][1] is not None
     assert seen_domains == [DOMAIN, DOMAIN]
     assert response.json()["domain"] == DOMAIN
 

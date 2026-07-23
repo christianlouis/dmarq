@@ -1213,6 +1213,25 @@ def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
     assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "192.0.2.55")) is None
 
 
+def test_safe_ptr_lookup_uses_independent_resolver_fallback(monkeypatch: pytest.MonkeyPatch):
+    class FailingProvider:
+        async def lookup_ptr(self, _ip):
+            raise LookupError("primary resolver timed out")
+
+    class WorkingProvider:
+        async def lookup_ptr(self, _ip):
+            return "mail.example.test."
+
+    primary = FailingProvider()
+    monkeypatch.setattr(
+        reports_endpoint,
+        "dns_fallback_candidates",
+        lambda _provider: [primary, WorkingProvider()],
+    )
+
+    assert asyncio.run(reports_endpoint._safe_ptr_lookup(primary, "8.8.8.8")) == "mail.example.test"
+
+
 def test_get_report_by_id_not_found(authed_client: TestClient):
     """GET /api/v1/reports/{report_id} returns 404 when report does not exist."""
     response = authed_client.get("/api/v1/reports/no-such-report-id")
