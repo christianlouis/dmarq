@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from starlette.requests import Request
 
 from app.core.localization import (
@@ -59,3 +61,11 @@ def test_template_context_exposes_one_catalog_and_translator():
 
 def test_english_catalog_translates_legacy_provider_copy():
     assert translate("Kundenkonten", "en") == "Customer accounts"
+
+
+def test_base_template_passes_resolved_locale_to_browser_catalog():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
+    ).read_text(encoding="utf-8")
+
+    assert '/ui/localization-catalog.js?lang={{ locale }}' in template

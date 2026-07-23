@@ -21,6 +21,11 @@ test('German preference translates the core product and formats with de locale',
 
 test('language selector persists an explicit English choice', async ({ page }) => {
   await page.goto('/settings?lang=de');
+
+  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.getByRole('link', { name: 'Übersicht' }).first()).toBeVisible();
+  await expect(page.locator('#settings-language-selector')).toHaveValue('de');
+
   await page.locator('#settings-language-selector').selectOption('en');
   await page.waitForLoadState('domcontentloaded');
 
