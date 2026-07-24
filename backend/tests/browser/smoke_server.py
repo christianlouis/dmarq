@@ -22,6 +22,8 @@ os.environ.setdefault("SOURCE_NETWORK_ENRICHMENT_ENABLED", "false")
 os.environ.setdefault("SOURCE_REPUTATION_FEEDS_ENABLED", "false")
 
 from app.main import app  # noqa: E402
+from app.core.database import SessionLocal  # noqa: E402
+from app.models.domain import Domain  # noqa: E402
 from app.services.report_store import ReportStore  # noqa: E402
 
 
@@ -95,6 +97,23 @@ def seed_store() -> None:
 
 
 seed_store()
+
+
+@app.on_event("startup")
+async def seed_persisted_domains() -> None:
+    """Persist page-route domains; API data stays mocked by the browser suite."""
+    db = SessionLocal()
+    try:
+        for name, policy in (("cklnet.com", "reject"), ("dmarq.org", "quarantine")):
+            domain = db.query(Domain).filter(Domain.name == name).first()
+            if domain is None:
+                domain = Domain(name=name)
+                db.add(domain)
+            domain.dmarc_policy = policy
+            domain.active = True
+        db.commit()
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
