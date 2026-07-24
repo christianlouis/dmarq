@@ -1,5 +1,8 @@
 function domainsApp() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
         domains: [],
         emptyDomainsCount: 0,
         emptyDomainsHidden: 0,
@@ -328,18 +331,18 @@ function domainsApp() {
         },
 
         dmarcStatusText(domain) {
-            if (domain.dns_pending) return 'Pending DNS refresh';
-            return domain.dmarc_policy || 'Not configured';
+            if (domain.dns_pending) return this.t('Pending DNS refresh');
+            return domain.dmarc_policy || this.t('Not configured');
         },
 
         dnsStateLabel(domain) {
-            if (domain.dns_pending) return 'DNS queued';
-            if (domain.dns_lookup_status === 'failed') return 'DNS failed';
-            if (domain.dns_lookup_status === 'stale_cache') return 'Last known DNS';
-            if (domain.dns_lookup_status === 'fallback') return 'Fallback DNS';
-            if (domain.dns_lookup_status === 'partial') return 'Partial DNS';
-            if (domain.dns_cached) return 'Cached DNS';
-            if (domain.dns_checked_at) return 'Fresh DNS';
+            if (domain.dns_pending) return this.t('DNS queued');
+            if (domain.dns_lookup_status === 'failed') return this.t('DNS failed');
+            if (domain.dns_lookup_status === 'stale_cache') return this.t('Last known DNS');
+            if (domain.dns_lookup_status === 'fallback') return this.t('Fallback DNS');
+            if (domain.dns_lookup_status === 'partial') return this.t('Partial DNS');
+            if (domain.dns_cached) return this.t('Cached DNS');
+            if (domain.dns_checked_at) return this.t('Fresh DNS');
             return '';
         },
 
@@ -357,7 +360,10 @@ function domainsApp() {
             if (!domain.dns_checked_at) return '';
             const date = new Date(domain.dns_checked_at);
             if (Number.isNaN(date.getTime())) return '';
-            return `checked ${date.toLocaleString()}`;
+            const formatted = typeof window.dmarqFormatDate === 'function'
+                ? window.dmarqFormatDate(date, { dateStyle: 'medium', timeStyle: 'short' })
+                : date.toLocaleString();
+            return this.t('Checked {value}', { value: formatted });
         },
 
         visibleDomains() {

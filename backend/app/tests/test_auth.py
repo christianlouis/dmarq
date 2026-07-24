@@ -1210,6 +1210,20 @@ class TestAuthDisabled:
             res = client.get("/settings", follow_redirects=False)
             assert res.status_code != 302
 
+    def test_middleware_preserves_locale_when_redirecting_to_setup(self, client: TestClient):
+        """A fresh install must not discard an explicit language selection."""
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_cfg = MagicMock()
+            mock_cfg.AUTH_DISABLED = False
+            mock_cfg.active_auth_provider = "logto"
+            mock_cfg.auth_configured = False
+            mock_get_settings.return_value = mock_cfg
+
+            res = client.get("/domains?lang=de", follow_redirects=False)
+
+        assert res.status_code == 302
+        assert res.headers["location"] == "/setup?lang=de"
+
 
 # ── Static asset bypass ───────────────────────────────────────────────────────
 

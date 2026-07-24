@@ -643,7 +643,8 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert "job.recognized_reports != null" in script
     assert "job.skipped_attachments != null" in script
     assert "Server / Account" not in template
-    assert "status_summary" in template
+    assert "backfillStatusSummary(latestBackfill(source))" in template
+    assert "backfillStatusSummary" in script
     assert "progress_percent" in script
     assert "can_cancel" in script
     assert "can_retry" in script

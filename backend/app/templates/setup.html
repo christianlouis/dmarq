@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dmarqlight">
+<html lang="{{ locale }}" data-app-locale="{{ locale }}" data-theme="dmarqlight">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,6 +12,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="/static/css/app.css" rel="stylesheet" type="text/css"/>
     <script src="/static/js/pages.js"></script>
+    <script src="/ui/localization-catalog.js?lang={{ locale }}"></script>
+    <script defer src="/static/js/localization.js"></script>
     <script defer src="/static/js/setup-page.js"></script>
     <script defer src="/static/js/vendor/alpine.min.js"></script>
     <link href="/static/css/page-utilities.css" rel="stylesheet" type="text/css"/>
@@ -240,7 +242,7 @@
                         </li>
                     </ul>
                     <div x-show="mailboxRecoveryHint" class="mt-4 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm">
-                        <div class="font-semibold text-base-content" x-text="mailboxRecoveryHint?.summary"></div>
+                        <div class="font-semibold text-base-content" x-text="mailboxRecoveryHint && mailboxRecoveryHint.summary"></div>
                         <ul class="mt-2 list-disc space-y-1 pl-5 text-base-content/70" x-show="hasMailboxRecoverySteps">
                             <template x-for="step in mailboxRecoverySteps" :key="step">
                                 <li x-text="step"></li>

@@ -1,5 +1,8 @@
 function reportsApp() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
         filters: {
             domain: '',
             dateRange: '30',
@@ -98,21 +101,21 @@ function reportsApp() {
         },
 
         get primaryReportCtaLabel() {
-            if (this.failingReports.length) return 'Open first failing report';
-            if (this.visibleReports.length) return 'Open latest report';
-            return 'Connect report mailbox';
+            if (this.failingReports.length) return this.t('Open first failing report');
+            if (this.visibleReports.length) return this.t('Open latest report');
+            return this.t('Connect report mailbox');
         },
 
         get emptyStateTitle() {
-            if (this.reports.length > 0) return 'No reports match this filter';
-            return 'No DMARC reports imported yet';
+            if (this.reports.length > 0) return this.t('No reports match this filter');
+            return this.t('No DMARC reports imported yet');
         },
 
         get emptyStateText() {
             if (this.reports.length > 0) {
-                return 'Change the filters or reset them to get back to imported reports.';
+                return this.t('Change the filters or reset them to get back to imported reports.');
             }
-            return 'Connect Gmail, IMAP, or another report source so DMARQ can import aggregate XML reports.';
+            return this.t('Connect Gmail, IMAP, or another report source so DMARQ can import aggregate XML reports.');
         },
 
         get filteredReports() {
