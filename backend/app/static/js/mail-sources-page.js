@@ -1,5 +1,8 @@
 function mailSourcesApp() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
         sources: [],
         showForm: false,
         editingId: null,
@@ -453,7 +456,7 @@ function mailSourcesApp() {
         },
 
         lastCheckedLabel(source) {
-            return source && source.last_checked ? this.formatDate(source.last_checked) : 'Never';
+            return source && source.last_checked ? this.formatDate(source.last_checked) : this.t('Never');
         },
 
         isFetching(source) {
@@ -474,7 +477,7 @@ function mailSourcesApp() {
 
         importErrorLabel(entry) {
             const count = Number(entry && entry.error_count ? entry.error_count : 0);
-            return `${count} error${count === 1 ? '' : 's'}`;
+            return this.t(count === 1 ? '{count} error' : '{count} errors', { count });
         },
 
         detailKey(detail) {
@@ -485,7 +488,7 @@ function mailSourcesApp() {
         },
 
         detailMailboxFolder(detail) {
-            return `${detail.mailbox || 'mailbox'} / ${detail.folder || 'folder'}`;
+            return `${detail.mailbox || this.t('mailbox')} / ${detail.folder || this.t('folder')}`;
         },
 
         detailSuffix(value) {
@@ -501,7 +504,7 @@ function mailSourcesApp() {
                 return source.gmail_email || '—';
             }
             if (source.method === 'M365_GRAPH') {
-                return source.m365_mailbox || source.m365_email || 'authorized account';
+                return source.m365_mailbox || source.m365_email || this.t('authorized account');
             }
             return source.server ? `${source.server}:${source.port}` : '—';
         },
@@ -509,7 +512,7 @@ function mailSourcesApp() {
         sourceTargetLabel(source) {
             if (!source) return '—';
             if (source.method === 'M365_GRAPH') {
-                const mailbox = source.m365_mailbox || source.m365_email || 'authorized account';
+                const mailbox = source.m365_mailbox || source.m365_email || this.t('authorized account');
                 return `${mailbox} / ${source.folder || 'INBOX'}`;
             }
             return this.sourceAccountLabel(source);
@@ -520,14 +523,16 @@ function mailSourcesApp() {
                 return source.connection_action_label;
             }
             if (source.method === 'GMAIL_API') {
-                return source.gmail_connected ? 'Connected' : 'Not authorised';
+                return source.gmail_connected ? this.t('Connected') : this.t('Not authorised');
             }
             if (source.method === 'M365_GRAPH') {
-                if (source.m365_connected) return 'Connected';
+                if (source.m365_connected) return this.t('Connected');
                 if (source.m365_auth_mode === 'application' && source.m365_configured) {
-                    return 'Ready to test';
+                    return this.t('Ready to test');
                 }
-                return source.m365_auth_mode === 'application' ? 'Needs configuration' : 'Not authorised';
+                return source.m365_auth_mode === 'application'
+                    ? this.t('Needs configuration')
+                    : this.t('Not authorised');
             }
             return source.username || '—';
         },
@@ -576,18 +581,20 @@ function mailSourcesApp() {
 
         backfillStatusLabel(status) {
             const labels = {
-                queued: 'Queued',
-                running: 'Running',
-                backoff: 'Backoff',
-                failed: 'Failed',
-                cancelled: 'Cancelled',
-                completed: 'Completed',
+                queued: this.t('Queued'),
+                running: this.t('Running'),
+                backoff: this.t('Backoff'),
+                failed: this.t('Failed'),
+                cancelled: this.t('Cancelled'),
+                completed: this.t('Completed'),
             };
-            return labels[status] || status || 'Unknown';
+            return labels[status] || status || this.t('Unknown');
         },
 
         backfillRetryLabel(job) {
-            return job && job.next_retry_at ? `Retry ${this.formatDate(job.next_retry_at)}` : '';
+            return job && job.next_retry_at
+                ? this.t('Retry {value}', { value: this.formatDate(job.next_retry_at) })
+                : '';
         },
 
         backfillBadgeClass(status) {
@@ -632,12 +639,67 @@ function mailSourcesApp() {
         backfillWindowLabel(job) {
             if (job && job.requested_window_days) {
                 const days = Number(job.requested_window_days);
-                return `${days} day${days === 1 ? '' : 's'}`;
+                return this.t(days === 1 ? '{count} day' : '{count} days', { count: days });
             }
-            if (!job || !job.requested_start || !job.requested_end) return 'Default search window';
-            const start = new Date(job.requested_start).toLocaleDateString();
-            const end = new Date(job.requested_end).toLocaleDateString();
+            if (!job || !job.requested_start || !job.requested_end) return this.t('Default search window');
+            const formatDate = (value) => {
+                if (typeof window.dmarqFormatDate === 'function') {
+                    return window.dmarqFormatDate(value, { dateStyle: 'medium' });
+                }
+                return new Date(value).toLocaleDateString();
+            };
+            const start = formatDate(job.requested_start);
+            const end = formatDate(job.requested_end);
             return `${start} – ${end}`;
+        },
+
+        backfillStatusSummary(job) {
+            if (!job) return '';
+            const window = this.backfillWindowLabel(job).toLowerCase();
+            const processed = Number(job.processed || 0);
+            const recognized = this.backfillRecognized(job);
+            const fresh = Number(job.reports_found || 0);
+            const existing = Number(job.duplicate_reports || 0);
+            const skipped = this.backfillSkipped(job);
+
+            if (job.status === 'queued') {
+                return this.t('Queued to scan {window}.', { window });
+            }
+            if (job.status === 'running') {
+                return this.t('Scanning {window}; {processed} messages checked and {recognized} reports recognized.', {
+                    window,
+                    processed,
+                    recognized,
+                });
+            }
+            if (job.status === 'backoff') {
+                return this.t('Retry scheduled after {errors} error(s); attempt {attempt} of {maxAttempts}.', {
+                    errors: Number(job.error_count || 1),
+                    attempt: Number(job.attempt_count || 0),
+                    maxAttempts: Number(job.max_attempts || 0),
+                });
+            }
+            if (job.status === 'completed') {
+                const summary = this.t('Completed {window}; {recognized} reports recognized ({fresh} new, {existing} already imported).', {
+                    window,
+                    recognized,
+                    fresh,
+                    existing,
+                });
+                return skipped
+                    ? `${summary} ${this.t('{count} unrelated attachment(s) ignored.', { count: skipped })}`
+                    : summary;
+            }
+            if (job.status === 'failed') {
+                return this.t('Failed after attempt {attempt} of {maxAttempts}.', {
+                    attempt: Number(job.attempt_count || 0),
+                    maxAttempts: Number(job.max_attempts || 0),
+                });
+            }
+            if (job.status === 'cancelled') {
+                return this.t('Cancelled after checking {processed} messages.', { processed });
+            }
+            return job.status_summary || this.t('Backfill status is available.');
         },
 
         canCancelBackfill(job) {

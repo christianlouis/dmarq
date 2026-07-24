@@ -163,7 +163,7 @@
                                             </div>
                                             <progress class="progress progress-primary h-1.5 w-full"
                                                 :value="backfillProgress(latestBackfill(source))" max="100"></progress>
-                                            <p class="text-sm text-muted-foreground" x-text="latestBackfill(source).status_summary || ''"></p>
+                                            <p class="text-sm text-muted-foreground" x-text="backfillStatusSummary(latestBackfill(source))"></p>
                                             <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-5">
                                                 <div><dt class="text-muted-foreground">Checked</dt><dd class="font-semibold" x-text="latestBackfill(source).processed"></dd></div>
                                                 <div><dt class="text-muted-foreground">Recognized</dt><dd class="font-semibold" x-text="backfillRecognized(latestBackfill(source))"></dd></div>

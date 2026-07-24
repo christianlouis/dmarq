@@ -1,5 +1,8 @@
 function dashboardApp() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
         hasDomainData: false,
         hasReportData: false,
         volumeTrendChart: null,
@@ -172,20 +175,20 @@ function dashboardApp() {
         get dashboardNextAction() {
             if (this.intakeState.reauthSources > 0) {
                 return {
-                    eyebrow: 'Report intake blocked',
-                    title: 'Reconnect the report mailbox',
-                    detail: 'A connected mailbox needs authorization before scheduled imports can continue.',
-                    label: 'Review mail source',
+                    eyebrow: this.t('Report intake blocked'),
+                    title: this.t('Reconnect the report mailbox'),
+                    detail: this.t('A connected mailbox needs authorization before scheduled imports can continue.'),
+                    label: this.t('Review mail source'),
                     href: '/mail-sources',
                     severity: 'high',
                 };
             }
             if (this.intakeState.attentionSources > 0) {
                 return {
-                    eyebrow: 'Report intake needs attention',
-                    title: 'Resolve the mailbox connection warning',
-                    detail: 'DMARQ cannot rely on fresh evidence until the affected source succeeds again.',
-                    label: 'Review mail source',
+                    eyebrow: this.t('Report intake needs attention'),
+                    title: this.t('Resolve the mailbox connection warning'),
+                    detail: this.t('DMARQ cannot rely on fresh evidence until the affected source succeeds again.'),
+                    label: this.t('Review mail source'),
                     href: '/mail-sources',
                     severity: 'high',
                 };
@@ -193,19 +196,19 @@ function dashboardApp() {
             const action = this.topHealthActions[0];
             if (action) {
                 return {
-                    eyebrow: `${action.severity || 'medium'} priority`,
-                    title: action.title || 'Review the highest-priority domain issue',
-                    detail: action.next_step || action.detail || 'Review current evidence before changing DNS or sender configuration.',
-                    label: 'Open remediation',
+                    eyebrow: this.t('{severity} priority', { severity: action.severity || this.t('medium') }),
+                    title: action.title || this.t('Review the highest-priority domain issue'),
+                    detail: action.next_step || action.detail || this.t('Review current evidence before changing DNS or sender configuration.'),
+                    label: this.t('Open remediation'),
                     href: this.domainActionHref(action),
                     severity: action.severity || 'medium',
                 };
             }
             return {
-                eyebrow: 'Monitoring',
-                title: 'No immediate remediation action',
-                detail: 'Keep report intake running and review new sender or DNS changes when they appear.',
-                label: 'Review reports',
+                eyebrow: this.t('Monitoring'),
+                title: this.t('No immediate remediation action'),
+                detail: this.t('Keep report intake running and review new sender or DNS changes when they appear.'),
+                label: this.t('Review reports'),
                 href: '/reports',
                 severity: 'info',
             };
@@ -219,8 +222,13 @@ function dashboardApp() {
 
         get dashboardScopeLabel() {
             const hidden = Number(this.hiddenEmptyDomainsCount || 0);
-            if (!hidden) return 'Report-backed domains only';
-            return `Report-backed domains only · ${hidden} empty domain${hidden === 1 ? '' : 's'} hidden`;
+            if (!hidden) return this.t('Report-backed domains only');
+            return this.t(
+                hidden === 1
+                    ? 'Report-backed domains only · {count} empty domain hidden'
+                    : 'Report-backed domains only · {count} empty domains hidden',
+                { count: hidden }
+            );
         },
 
         get configuredDomainCount() {
@@ -232,9 +240,9 @@ function dashboardApp() {
         },
 
         get intakeSchedulerLabel() {
-            if (this.triggerPollRunning) return 'Import running';
-            if (this.intakeState.schedulerActive) return 'Scheduled checks active';
-            return this.hasEnabledMailSources ? 'Scheduled checks stopped' : 'No source configured';
+            if (this.triggerPollRunning) return this.t('Import running');
+            if (this.intakeState.schedulerActive) return this.t('Scheduled checks active');
+            return this.hasEnabledMailSources ? this.t('Scheduled checks stopped') : this.t('No source configured');
         },
 
         get selectedDnsPolicyLabel() {
@@ -499,15 +507,17 @@ function dashboardApp() {
                 if (attentionCount > 0) {
                     statusIcon.classList.remove('bg-green-500');
                     statusIcon.classList.add('bg-red-500');
-                    statusText.textContent = 'Needs attention';
+                    statusText.textContent = this.t('Needs attention');
                 } else if (data.is_running && (data.enabled_sources || 0) > 0) {
                     statusIcon.classList.remove('bg-red-500');
                     statusIcon.classList.add('bg-green-500');
-                    statusText.textContent = 'Scheduled checks active';
+                    statusText.textContent = this.t('Scheduled checks active');
                 } else {
                     statusIcon.classList.remove('bg-green-500');
                     statusIcon.classList.add('bg-red-500');
-                    statusText.textContent = (data.enabled_sources || 0) > 0 ? 'Stopped' : 'No enabled sources';
+                    statusText.textContent = (data.enabled_sources || 0) > 0
+                        ? this.t('Stopped')
+                        : this.t('No enabled sources');
                 }
                 
                 const lastCheckValue = data.latest_source_check || data.last_check;
