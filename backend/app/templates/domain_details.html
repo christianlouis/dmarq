@@ -1769,19 +1769,19 @@
         </section>
         </details>
 
-        <!-- DNS Records -->
+        <!-- Email authentication -->
         <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm">
         <summary class="cursor-pointer p-4 text-sm font-semibold text-[#120d36]">
-            DNS and authentication
+            Email authentication and DNS fixes
         </summary>
         <section id="dns-records">
         {% call card() %}
             {% call card_header() %}
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        {% call card_title() %}DNS Records{% endcall %}
+                        {% call card_title() %}Email authentication{% endcall %}
                         {% call card_description() %}
-                            Email authentication DNS records for this domain
+                            Check the DNS records that let receivers verify mail from this domain, then review the next safe fix.
                         {% endcall %}
                     </div>
                     <button type="button"
@@ -1795,7 +1795,11 @@
             {% endcall %}
             {% call card_content() %}
                 <div class="grid gap-4">
-                    <div class="rounded-md border border-[#e6e3e1] bg-[#f9f8f7] p-4">
+                    <details class="rounded-md border border-[#e6e3e1] bg-[#f9f8f7]">
+                        <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#07071f]">
+                            DNS provider and safe repair access
+                        </summary>
+                        <div class="border-t border-[#e6e3e1] p-4">
                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div class="min-w-0">
                                 <p class="text-xs font-semibold uppercase text-[#5f5c78]">Detected DNS provider</p>
@@ -1812,8 +1816,13 @@
                                 <p class="mt-1 font-mono text-xs text-[#5f5c78] break-all" x-text="dnsNameserverText"></p>
                             </div>
                         </div>
-                    </div>
-                    <div class="rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4">
+                        </div>
+                    </details>
+                    <details class="rounded-md border border-[#d8ebe8] bg-[#f2fbf9]">
+                        <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#07071f]">
+                            Provider connection and repair permissions
+                        </summary>
+                        <div class="border-t border-[#d8ebe8] p-4">
                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div class="min-w-0">
                                 <div class="flex flex-wrap items-center gap-2">
@@ -1844,12 +1853,27 @@
                                :href="providerContextCtaHref"
                                x-text="providerContextCtaLabel"></a>
                         </div>
-                    </div>
+                        </div>
+                    </details>
                     <div x-show="!dnsRecordsLoading && dnsLookupNoticeVisible"
                          class="rounded border px-3 py-2 text-sm"
                          :class="dnsLookupNoticeClass">
                         <span x-text="dnsLookupNoticeText"></span>
                     </div>
+                    <template x-if="dnsGuidance.change_plans && dnsGuidance.change_plans.length">
+                        <div class="rounded-md border border-[#b8deda] bg-[#f2fbf9] p-4">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div class="min-w-0">
+                                    <p class="text-xs font-semibold uppercase text-[#0f766e]">Next safe DNS change</p>
+                                    <h3 class="mt-1 font-semibold text-[#07071f]"
+                                        x-text="dnsGuidance.change_plans[0].name"></h3>
+                                    <p class="mt-1 text-sm text-[#45505f]"
+                                       x-text="dnsGuidance.change_plans[0].rationale"></p>
+                                </div>
+                                <a href="#dns-change-plan" class="btn btn-sm btn-primary shrink-0">Review change plan</a>
+                            </div>
+                        </div>
+                    </template>
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">DMARC Record</span>
@@ -1870,6 +1894,11 @@
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordText(dns.spfRecord, 'No SPF record found', 'Checking SPF record...')">-</div>
                     </div>
+                    <details class="rounded-md border border-base-300 bg-base-100">
+                        <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">
+                            Optional transport and brand protection (MTA-STS and BIMI)
+                        </summary>
+                        <div class="grid gap-4 border-t border-base-300 p-3">
                     <div id="mta-sts-posture">
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">MTA-STS</span>
@@ -1918,6 +1947,8 @@
                             </div>
                         </div>
                     </div>
+                        </div>
+                    </details>
                     <!-- DKIM Selectors — live check result -->
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
@@ -1935,8 +1966,11 @@
                        class="rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
                        x-text="dnsRecordsError"></p>
                     <!-- DKIM Selector Management -->
-                    <div class="border rounded-lg p-4">
-                        <h3 class="font-semibold mb-3">DKIM Selectors</h3>
+                    <details class="rounded-lg border border-base-300 bg-base-100">
+                        <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#272a5f]">
+                            Manage DKIM selectors and selector evidence
+                        </summary>
+                        <div class="border-t border-base-300 p-4">
                         <p class="text-sm text-muted-foreground mb-3">
                             Manually configure selectors to check. Selectors seen in received DMARC
                             reports and common well-known selectors are checked automatically.
@@ -2010,11 +2044,12 @@
                             >Add</button>
                         </div>
                         <p x-show="selectorError" x-text="selectorError" class="text-red-500 text-xs mt-1"></p>
-                    </div>
+                        </div>
+                    </details>
                     <div id="dns-guidance" class="border rounded-lg p-4">
                         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <h3 class="font-semibold">DNS Guidance</h3>
+                                <h3 class="font-semibold">What needs attention</h3>
                                 <p class="text-xs text-base-content/60"
                                    x-text="'Automation path: ' + dnsProviderAction"></p>
                             </div>
@@ -2022,7 +2057,16 @@
                                   :class="dnsGuidanceStatusClass"
                                   x-text="dnsGuidance.status || 'checking'"></span>
                         </div>
-                        <div class="mt-3 space-y-2">
+                        <p class="mt-3 text-sm text-base-content/70">
+                            Review the proposed change plan below before changing DNS. Detailed lint evidence remains available when you need to investigate.
+                        </p>
+                        <details class="mt-3 rounded-md border border-base-300 bg-base-100">
+                            <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">
+                                View detailed inspection findings
+                                <span class="font-normal text-base-content/60"
+                                      x-text="'(' + (dnsGuidance.findings || []).length + ')' "></span>
+                            </summary>
+                            <div class="mt-3 space-y-2 border-t border-base-300 p-3">
                             <template x-if="dnsGuidance.findings.length === 0">
                                 <p class="text-sm text-base-content/70">No DNS lint findings.</p>
                             </template>
@@ -2063,9 +2107,13 @@
                                     </div>
                                 </div>
                             </template>
-                        </div>
-                        <div id="mail-auth-wizard" class="mt-4">
-                            <div class="rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-4">
+                            </div>
+                        </details>
+                        <details id="mail-auth-wizard" class="mt-4 rounded-lg border border-[#d8ebe8] bg-[#f2fbf9]">
+                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#07071f]">
+                                Step-by-step authentication implementation guide
+                            </summary>
+                            <div class="border-t border-[#d8ebe8] p-4">
                                 <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                     <div>
                                         <h4 class="text-sm font-semibold text-[#07071f]">Mail authentication wizard</h4>
@@ -2104,9 +2152,13 @@
                                     </template>
                                 </div>
                             </div>
-                        </div>
-                        <div class="mt-4">
-                            <h4 class="text-sm font-semibold">Optional transport and branding records</h4>
+                            </div>
+                        </details>
+                        <details class="mt-4 rounded-lg border border-base-300 bg-base-100">
+                            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#272a5f]">
+                                Optional transport and branding records
+                            </summary>
+                            <div class="border-t border-base-300 p-4">
                             <div class="mt-2 grid gap-2">
                                 <template x-for="record in optionalTransportTargetRecords" :key="record.code">
                                     <div class="rounded border border-base-300 p-3">
@@ -2131,12 +2183,13 @@
                                     </div>
                                 </template>
                             </div>
-                        </div>
+                            </div>
+                        </details>
                         <template x-if="dnsGuidance.change_plans && dnsGuidance.change_plans.length">
-                            <div class="mt-4 border-t border-base-300 pt-4">
+                            <div id="dns-change-plan" class="mt-4 border-t border-base-300 pt-4">
                                 <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
-                                        <h4 class="font-semibold">Proposed DNS change plan</h4>
+                                        <h4 class="font-semibold">Next safe DNS change</h4>
                                         <p class="text-xs text-base-content/60">Provider writes require explicit review and approval.</p>
                                         <p x-show="dnsGuidance.recommended_provider"
                                            class="mt-1 text-xs text-base-content/60">

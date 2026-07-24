@@ -395,7 +395,9 @@ def test_dashboard_and_domain_overview_use_progressive_disclosure_for_dense_work
     assert "Filter and sort queue" in domain_details
     assert "Technical workflow details" in domain_details
     assert "Evidence and workflow details" in domain_details
-    assert "DNS and authentication" in domain_details
+    assert "Email authentication and DNS fixes" in domain_details
+    assert "DNS provider and safe repair access" in domain_details
+    assert "View detailed inspection findings" in domain_details
     assert "Source intelligence" in domain_details
     assert "Sending sources" in domain_details
     assert "Health history" in domain_details
