@@ -51,6 +51,9 @@ class DMARCReport(Base):
     __table_args__ = (
         # Composite index for domain and date range queries (common dashboard queries)
         Index("ix_dmarc_reports_domain_dates", "domain_id", "begin_date", "end_date"),
+        # Read paths commonly select a domain and then bound or sort by the
+        # report end time. Keep that query indexable without scanning history.
+        Index("ix_dmarc_reports_domain_end_date", "domain_id", "end_date"),
         # Index for finding reports by policy
         Index("ix_dmarc_reports_policy", "policy"),
         # Index for finding recent reports (dashboard statistics)
