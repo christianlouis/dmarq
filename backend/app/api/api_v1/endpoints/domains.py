@@ -8257,7 +8257,12 @@ async def get_domain_sources(
     and SPF fix hints for sources that fail authentication.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=days,
+    )
 
     source_days = days if days is not None else 30
     sources = store.get_domain_sources(domain_name, days=days)
@@ -8398,7 +8403,12 @@ async def get_domain_source_reputation(
 ):
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=days,
+    )
 
     reports = store.get_domain_reports(domain_name, days=days)
     sources = store.get_domain_sources(domain_name, days=days)
@@ -8447,7 +8457,12 @@ async def get_domain_source_intelligence(
 ):
     """Return region summaries and source anomaly hints for a domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=days,
+    )
 
     sources = store.get_domain_sources(domain_name, days=days)
     provider = get_default_provider(db)

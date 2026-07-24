@@ -373,7 +373,11 @@ def hydrate_domain_report_store_from_db(
     if workspace_id is not None:
         query = query.filter(Domain.workspace_id == workspace_id)
     if days is not None:
-        cutoff = datetime.utcnow() - timedelta(days=max(1, int(days)))
+        # DMARCReport.end_date is persisted as a Unix timestamp.  Comparing it
+        # to a datetime happens to be permissive in SQLite but fails in
+        # PostgreSQL and prevents every time-scoped domain read from using its
+        # database filter.
+        cutoff = int((datetime.utcnow() - timedelta(days=max(1, int(days)))).timestamp())
         query = query.filter(DMARCReport.end_date >= cutoff)
     reports = query.order_by(DMARCReport.end_date.desc()).all()
     for report in reports:

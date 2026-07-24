@@ -11,7 +11,7 @@ the use of begin_timestamp/end_timestamp integers for date fields.
 import asyncio
 import csv
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
 
@@ -3321,6 +3321,18 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydrate)
     monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
+    hydrated_windows = []
+    original_hydrate_domain = domains_endpoint.hydrate_domain_report_store_from_db
+
+    def track_domain_hydrate(*args, **kwargs):
+        hydrated_windows.append(kwargs.get("days"))
+        return original_hydrate_domain(*args, **kwargs)
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "hydrate_domain_report_store_from_db",
+        track_domain_hydrate,
+    )
 
     sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=3650")
     intelligence = authed_client.get(
@@ -3334,6 +3346,7 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     assert intelligence.json()["summary"]["messages"] == 4
     assert reputation.status_code == 200
     assert reputation.json()["domain"] == "fast-sources.example"
+    assert hydrated_windows == [3650, 3650, 3650]
 
 
 def test_source_recommendations_cover_common_cases():
@@ -3644,6 +3657,67 @@ def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):
     """The 'days' query parameter is accepted without raising a TypeError."""
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=7")
     assert response.status_code == 200
+
+
+def test_source_reads_hydrate_only_the_selected_window(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Sources and source intelligence do not hydrate unrelated history."""
+    hydrated_windows = []
+    original_hydrate = domains_endpoint.hydrate_domain_report_store_from_db
+
+    def track_hydrate(*args, **kwargs):
+        hydrated_windows.append(kwargs.get("days"))
+        return original_hydrate(*args, **kwargs)
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_domain_report_store_from_db", track_hydrate)
+
+    sources_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=90")
+    intelligence_response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/source-intelligence?days=7"
+    )
+
+    assert sources_response.status_code == 200
+    assert intelligence_response.status_code == 200
+    assert hydrated_windows == [90, 7]
+
+
+def test_hydrate_domain_report_store_filters_unix_timestamp_windows(db_session):
+    """PostgreSQL-compatible timestamp filtering keeps historical rows out."""
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id, active=True))
+    db_session.commit()
+
+    now = int(datetime.utcnow().timestamp())
+    old_report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "historic-source-window",
+        "begin_timestamp": now - int(timedelta(days=91).total_seconds()),
+        "end_timestamp": now - int(timedelta(days=90).total_seconds()),
+    }
+    recent_report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "recent-source-window",
+        "begin_timestamp": now - int(timedelta(days=2).total_seconds()),
+        "end_timestamp": now - int(timedelta(days=1).total_seconds()),
+    }
+    report_persistence.save_parsed_report(db_session, old_report, workspace_id=workspace.id)
+    report_persistence.save_parsed_report(db_session, recent_report, workspace_id=workspace.id)
+    db_session.commit()
+
+    store = ReportStore()
+    loaded = report_persistence.hydrate_domain_report_store_from_db(
+        db_session,
+        store,
+        DOMAIN,
+        workspace_id=workspace.id,
+        days=30,
+    )
+
+    assert loaded == 1
+    assert [report["report_id"] for report in store.get_domain_reports(DOMAIN)] == [
+        "recent-source-window"
+    ]
 
 
 def test_get_domain_sources_unknown_domain_returns_404(authed_client: TestClient):
