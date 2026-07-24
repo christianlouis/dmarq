@@ -452,12 +452,15 @@ function domainDetailsApp(domainId = '') {
         },
 
         async loadInitialData() {
-            await Promise.allSettled([
-                this.fetchDomainStats(),
-                this.fetchReports(),
+            const projectedDataLoads = Promise.allSettled([
                 this.fetchSources({ preserveOnFailure: true }),
                 this.fetchSourceIntelligence({ preserveOnFailure: true })
             ]);
+            await Promise.allSettled([
+                this.fetchDomainStats(),
+                this.fetchReports()
+            ]);
+            void projectedDataLoads;
 
             window.setTimeout(() => {
                 Promise.allSettled([
@@ -3161,12 +3164,7 @@ function domainDetailsApp(domainId = '') {
                 this.lastComplianceTimeline = Array.isArray(data.compliance_timeline)
                     ? data.compliance_timeline
                     : [];
-                try {
-                    this.initComplianceChart(this.lastComplianceTimeline);
-                } catch (chartError) {
-                    // Report rows remain useful even when an optional chart cannot render.
-                    console.error('Error rendering compliance chart:', chartError);
-                }
+                this.renderComplianceChartSafely(this.lastComplianceTimeline);
             } catch (error) {
                 this.reports = [];
                 this.reportsError = error.message || 'Recent reports could not be loaded.';
@@ -3182,7 +3180,16 @@ function domainDetailsApp(domainId = '') {
             this.volumeScale = scale;
             this.persistVolumeScale(scale);
             if (this.lastComplianceTimeline.length) {
-                this.initComplianceChart(this.lastComplianceTimeline);
+                this.renderComplianceChartSafely(this.lastComplianceTimeline);
+            }
+        },
+
+        renderComplianceChartSafely(timeline) {
+            try {
+                this.initComplianceChart(timeline);
+            } catch (chartError) {
+                // Report rows remain useful even when an optional chart cannot render.
+                console.error('Error rendering compliance chart:', chartError);
             }
         },
 
@@ -3269,7 +3276,9 @@ function domainDetailsApp(domainId = '') {
                     ...data,
                     regions: Array.isArray(data.regions) ? data.regions : [],
                     anomalies: Array.isArray(data.anomalies) ? data.anomalies : [],
-                    summary: data.summary && typeof data.summary === 'object' ? data.summary : {},
+                    summary: data.summary && typeof data.summary === 'object' && !Array.isArray(data.summary)
+                        ? data.summary
+                        : {},
                     loading: false,
                     error: ''
                 };

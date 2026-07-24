@@ -105,8 +105,12 @@ async def seed_persisted_domains() -> None:
     db = SessionLocal()
     try:
         for name, policy in (("cklnet.com", "reject"), ("dmarq.org", "quarantine")):
-            if db.query(Domain).filter(Domain.name == name).first() is None:
-                db.add(Domain(name=name, dmarc_policy=policy, active=True))
+            domain = db.query(Domain).filter(Domain.name == name).first()
+            if domain is None:
+                domain = Domain(name=name)
+                db.add(domain)
+            domain.dmarc_policy = policy
+            domain.active = True
         db.commit()
     finally:
         db.close()
