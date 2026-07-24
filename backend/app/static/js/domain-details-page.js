@@ -310,6 +310,9 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-refresh-reputation]')) {
                     event.preventDefault();
                     this.refreshSourceReputation();
+                } else if (button.matches('[data-domain-detail-health-history-capture]')) {
+                    event.preventDefault();
+                    this.fetchHealthHistory({ captureCurrent: true });
                 } else if (button.matches('[data-domain-detail-delete]')) {
                     event.preventDefault();
                     this.deleteDomain();
@@ -2852,11 +2855,20 @@ function domainDetailsApp(domainId = '') {
             }
         },
 
-        async fetchHealthHistory() {
+        async fetchHealthHistory(options = {}) {
             this.healthHistory.loading = true;
             this.healthHistory.error = '';
             try {
-                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/history?capture_current=false&limit=30`);
+                const captureCurrent = options.captureCurrent !== false;
+                const params = new URLSearchParams({
+                    capture_current: captureCurrent ? 'true' : 'false',
+                    limit: '30'
+                });
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/history?${params.toString()}`,
+                    {},
+                    45000
+                );
                 if (!response.ok) {
                     throw new Error('Health score history could not be loaded.');
                 }

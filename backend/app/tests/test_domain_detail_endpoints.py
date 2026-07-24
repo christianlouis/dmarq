@@ -769,6 +769,48 @@ def test_domain_health_history_capture_current_snapshot(
     assert data["top_drivers"][0]["title"] == "Keep monitoring"
 
 
+def test_domain_health_history_does_not_recalculate_an_existing_daily_snapshot(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Opening the history repeatedly keeps the daily capture cheap and idempotent."""
+    calls = {"dns": 0, "health": 0}
+
+    async def fake_dns_health(*_args, **_kwargs):
+        calls["dns"] += 1
+        return domains_endpoint.DNSHealthResponse(
+            status="healthy",
+            policy="reject",
+            compliance_rate=100.0,
+            total_emails=10,
+            failed_emails=0,
+            checks=[],
+            recommendations=[],
+        )
+
+    async def fake_domain_grade(_db, domain_id, _store, refresh=False):
+        calls["health"] += 1
+        return {
+            "domain": domain_id,
+            "score": 96,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+
+    first = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+    second = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(second.json()["points"]) == 1
+    assert calls == {"dns": 1, "health": 1}
+
+
 def test_domain_health_evidence_export_capture_current_snapshot(
     seeded_client: TestClient,
     monkeypatch,
