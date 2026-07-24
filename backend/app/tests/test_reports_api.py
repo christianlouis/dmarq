@@ -27,6 +27,7 @@ from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.source_read_projection import (
+    _acquire_source_projection_write_lock,
     backfill_source_projections,
     load_domain_source_read_projection,
 )
@@ -152,6 +153,32 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
 
     assert db_session.query(DomainSourceDailyProjection).count() == 1
     assert db_session.get(DMARCReport, report.id).source_projection_at is not None
+
+
+def test_projection_write_lock_serializes_postgres_writers():
+    """Production writers use one transaction-scoped lock for daily aggregates."""
+
+    class FakeSession:
+        def __init__(self, dialect_name):
+            self._bind = SimpleNamespace(dialect=SimpleNamespace(name=dialect_name))
+            self.calls = []
+
+        def get_bind(self):
+            return self._bind
+
+        def execute(self, statement, params):
+            self.calls.append((str(statement), params))
+
+    postgres = FakeSession("postgresql")
+    _acquire_source_projection_write_lock(postgres)
+
+    assert len(postgres.calls) == 1
+    assert "pg_advisory_xact_lock" in postgres.calls[0][0]
+
+    sqlite = FakeSession("sqlite")
+    _acquire_source_projection_write_lock(sqlite)
+
+    assert sqlite.calls == []
 
 
 def test_projection_window_uses_report_end_time(db_session, monkeypatch):

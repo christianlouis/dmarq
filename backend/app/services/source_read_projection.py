@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -16,6 +17,21 @@ from app.core.database import SessionLocal
 from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
 
 logger = logging.getLogger(__name__)
+
+# The daily projection key spans reports, so locking individual report rows is
+# insufficient when two workers handle reports for the same sender/day.
+_SOURCE_PROJECTION_ADVISORY_LOCK_KEY = 1_144_591_954
+
+
+def _acquire_source_projection_write_lock(db: Session) -> None:
+    """Serialize PostgreSQL projection writers while preserving SQLite support."""
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": _SOURCE_PROJECTION_ADVISORY_LOCK_KEY},
+    )
 
 
 def _int(value: Any) -> int:
@@ -152,6 +168,7 @@ def materialize_source_projection(
     db_report: DMARCReport,
 ) -> None:
     """Upsert sender facts for a newly persisted aggregate report."""
+    _acquire_source_projection_write_lock(db)
     first_seen, last_seen, observed_at = _observation_window(report)
     for source_ip, values in _projection_records(report.get("records") or []).items():
         projection = (
