@@ -62,8 +62,6 @@ from app.services.microsoft_graph_client import (
 )
 from app.services.provider_access import require_provider_operator_access
 from app.services.release_info import build_release_info
-from app.services.report_persistence import hydrate_report_store_from_db
-from app.services.report_store import ReportStore
 from app.services.runtime_status import (
     mark_scheduler_cycle_started,
     mark_scheduler_error,

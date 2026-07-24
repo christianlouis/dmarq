@@ -8552,7 +8552,6 @@ async def get_domain_source_intelligence(
         days=days,
     )
 
-    ips = [str(source.get("source_ip") or "unknown") for source in sources]
     networks_by_ip = {
         str(source.get("source_ip") or "unknown"): snapshot
         for source in sources
