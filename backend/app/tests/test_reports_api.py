@@ -4,7 +4,7 @@ import json
 import time
 import zipfile
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +18,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
-from app.models.report import DMARCReport, ReportRecord
+from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
@@ -26,6 +26,10 @@ from app.services.organizations import OrganizationPlanLimitError
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.source_read_projection import (
+    backfill_source_projections,
+    load_domain_source_read_projection,
+)
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.workspace_access import ROLE_ANALYST
@@ -85,6 +89,96 @@ def _parsed_report(
             }
         ],
     }
+
+
+def test_save_parsed_report_materializes_daily_sender_facts(db_session):
+    """A new report creates a bounded sender read model during ingestion."""
+    workspace = get_or_create_default_workspace(db_session)
+    report = _parsed_report(domain="projection.example", report_id="projection-report", count=7)
+    report["records"].append(
+        {
+            "source_ip": "192.0.2.55",
+            "count": 3,
+            "disposition": "reject",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "header_from": "projection.example",
+        }
+    )
+
+    saved, created = save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.commit()
+
+    projection = db_session.query(DomainSourceDailyProjection).one()
+    assert created is True
+    assert saved.source_projection_at is not None
+    assert projection.source_ip == "192.0.2.55"
+    assert projection.message_count == 10
+    assert projection.report_count == 1
+    assert projection.dmarc_pass_count == 7
+    assert projection.dmarc_fail_count == 3
+    assert json.loads(projection.disposition_counts) == {"none": 7, "reject": 3}
+
+
+def test_projection_backfill_materializes_unprojected_reports(db_session):
+    """Historic rows can be migrated without a dashboard request doing the work."""
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name="projection-backfill.example", workspace_id=workspace.id, active=True)
+    db_session.add(domain)
+    db_session.flush()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="projection-backfill-report",
+        org_name="receiver.example",
+        begin_date=1_704_067_200,
+        end_date=1_704_153_599,
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip="192.0.2.77",
+            count=11,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+        )
+    )
+    db_session.commit()
+
+    assert backfill_source_projections(db_session, limit=10) == 1
+    db_session.commit()
+
+    assert db_session.query(DomainSourceDailyProjection).count() == 1
+    assert db_session.get(DMARCReport, report.id).source_projection_at is not None
+
+
+def test_projection_window_uses_report_end_time(db_session, monkeypatch):
+    """A report remains visible until its actual DMARC reporting window ends."""
+    workspace = get_or_create_default_workspace(db_session)
+    report = _parsed_report(domain="projection-window.example", report_id="projection-window", count=4)
+    report["begin_timestamp"] = 1_704_146_400
+    report["end_timestamp"] = 1_704_239_999
+    report["begin_date"] = report["begin_timestamp"]
+    report["end_date"] = report["end_timestamp"]
+    saved, _ = save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.commit()
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(1_704_240_000, tz or timezone.utc)
+
+    monkeypatch.setattr("app.services.source_read_projection.datetime", FrozenDateTime)
+    sources, _ = load_domain_source_read_projection(
+        db_session,
+        domain_id=saved.domain_id,
+        domain_name="projection-window.example",
+        days=1,
+    )
+
+    assert sources[0]["count"] == 4
 
 
 def _add_user(db_session, email: str, *, is_superuser: bool = False) -> User:
@@ -762,6 +856,7 @@ def test_delete_report_success(authed_client: TestClient, db_session):
     data = response.json()
     assert data["success"] is True
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+    assert db_session.query(DomainSourceDailyProjection).count() == 0
 
     # Domain should be gone now
     assert authed_client.get("/api/v1/reports/domain/example.com/summary").status_code == 404

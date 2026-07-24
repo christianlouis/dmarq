@@ -3082,7 +3082,7 @@ def test_sources_endpoint_includes_hostname(authed_client: TestClient):
     store.add_report(FAILING_SOURCE_REPORT)
 
     with _mock_provider(hostname="mail.example.com"):
-        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources?refresh=true")
 
     assert response.status_code == 200
     sources = response.json()["sources"]

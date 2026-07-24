@@ -122,6 +122,8 @@ from app.services.remediation_readiness import (
     repair_readiness_for_stage,
 )
 from app.services.report_persistence import (
+    domain_reports_and_timeline_from_db,
+    domain_summary_from_db,
     domain_summaries_from_db,
     hydrate_domain_report_store_from_db,
     hydrate_report_store_from_db,
@@ -136,6 +138,10 @@ from app.services.sender_intelligence import (
 from app.services.source_evidence_prewarm import (
     network_from_source_evidence,
     ptr_from_source_evidence,
+)
+from app.services.source_read_projection import (
+    load_domain_source_read_projection,
+    source_projection_is_complete,
 )
 from app.services.source_network import (
     SourceNetworkIntelligence,
@@ -3400,6 +3406,43 @@ def _single_domain_report_store_for_read(
     return domain_name, store
 
 
+def _domain_source_read_model_for_read(
+    db: Session,
+    domain_id: str,
+    workspace: Workspace,
+    *,
+    days: Optional[int],
+) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Read projected sender facts when ingestion/backfill has completed."""
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE and source_projection_is_complete(
+        db,
+        domain_id=domain.id,
+        days=days,
+    ):
+        sources, reports = load_domain_source_read_projection(
+            db,
+            domain_id=domain.id,
+            domain_name=str(domain.name),
+            days=days,
+        )
+        return str(domain.name), sources, reports
+
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=days,
+    )
+    return (
+        domain_name,
+        store.get_domain_sources(domain_name, days=days),
+        store.get_domain_reports(domain_name, days=days),
+    )
+
+
 def _record_evidence(
     label: str, value: Optional[str], href: str = "#dns-records"
 ) -> DNSHealthEvidence:
@@ -5615,6 +5658,18 @@ async def get_domain_stats(
     Get detailed statistics for a specific domain
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE:
+        summary = domain_summary_from_db(db, domain_id=domain.id)
+        return DomainStatsResponse(
+            complianceRate=summary["compliance_rate"],
+            totalEmails=summary["total_count"],
+            failedEmails=summary["failed_count"],
+            reportCount=summary["reports_processed"],
+        )
+
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
     summary = store.get_domain_summary(domain_name)
     total_count = summary.get("total_count", 0)
@@ -6352,33 +6407,27 @@ async def _build_domain_posture_dashboard_for_workspace(
     capture_snapshot: bool = True,
 ) -> PostureDashboardResponse:
     """Build a posture dashboard, optionally persisting the current health snapshot."""
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    health = await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
+    health = await _build_domain_dns_health(db, store, domain_name, refresh=refresh)
     domain_health = await _build_domain_health_grade(
         db,
-        domain_id,
+        domain_name,
         store,
         refresh=refresh,
     )
-    summary = store.get_domain_summary(domain_id)
+    summary = store.get_domain_summary(domain_name)
     if capture_snapshot:
         _record_health_snapshot_from_posture(
             db,
             workspace_id=workspace.id,
-            domain_id=domain_id,
+            domain_id=domain_name,
             dns_health=health,
             domain_health=domain_health,
             report_count=int(summary.get("reports_processed", 0) or 0),
         )
-    changes = list_dns_record_changes(db, domain_id, limit=10)
-    return _build_posture_dashboard(domain_id, health, domain_health, changes)
+    changes = list_dns_record_changes(db, domain_name, limit=10)
+    return _build_posture_dashboard(domain_name, health, domain_health, changes)
 
 
 async def _build_domain_remediation_queue_for_workspace(
@@ -7268,6 +7317,37 @@ async def get_domain_reports(
     Get recent DMARC reports for a specific domain, along with compliance timeline
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE:
+        reports, timeline = domain_reports_and_timeline_from_db(
+            db,
+            domain_id=domain.id,
+            limit=limit,
+        )
+        report_entries = []
+        for report in reports:
+            summary = report.get("summary") or {}
+            policy_val = report.get("policy", "none")
+            if isinstance(policy_val, dict):
+                policy_val = policy_val.get("p", "none")
+            report_entries.append(
+                ReportEntry(
+                    id=report.get("report_id", "unknown"),
+                    org_name=report.get("org_name", "Unknown Organization"),
+                    begin_date=report.get("begin_timestamp", 0),
+                    end_date=report.get("end_timestamp", 0),
+                    total_emails=summary.get("total_count", report.get("total_count", 0)),
+                    pass_rate=summary.get("pass_rate", report.get("pass_rate", 0.0)),
+                    policy=policy_val,
+                )
+            )
+        return DomainReportsResponse(
+            reports=report_entries,
+            compliance_timeline=[TimelinePoint(**point) for point in timeline],
+        )
+
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
     # Get reports for this domain
@@ -8257,16 +8337,14 @@ async def get_domain_sources(
     and SPF fix hints for sources that fail authentication.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
     source_days = days if days is not None else 30
-    sources = store.get_domain_sources(domain_name, days=days)
-    reports = store.get_domain_reports(domain_name, days=days)
     provider = get_default_provider(db)
     settings = get_settings()
 
@@ -8283,14 +8361,15 @@ async def get_domain_sources(
     }
     missing_ptr_ips = [str(ip) for ip in ips if str(ip) not in ptr_by_ip]
     missing_network_ips = [str(ip) for ip in ips if str(ip) not in networks_by_ip]
-    ptr_task = asyncio.create_task(_source_ptr_results_by_ip(provider, missing_ptr_ips, settings))
-    network_task = asyncio.create_task(
-        _source_networks_by_ip(db, provider, missing_network_ips, settings)
-    )
-    live_ptr, live_networks = await asyncio.gather(ptr_task, network_task)
-    ptr_by_ip.update(live_ptr)
-    networks_by_ip.update(live_networks)
-    hostnames = [ptr_by_ip[str(ip)].hostname for ip in ips]
+    if refresh:
+        ptr_task = asyncio.create_task(_source_ptr_results_by_ip(provider, missing_ptr_ips, settings))
+        network_task = asyncio.create_task(
+            _source_networks_by_ip(db, provider, missing_network_ips, settings)
+        )
+        live_ptr, live_networks = await asyncio.gather(ptr_task, network_task)
+        ptr_by_ip.update(live_ptr)
+        networks_by_ip.update(live_networks)
+    hostnames = [ptr_by_ip.get(str(ip), PtrLookupResult(status="pending")).hostname for ip in ips]
     geo_by_ip = {
         str(source.get("source_ip") or "unknown"): merge_network_into_geo(
             source_geo_for(str(source.get("source_ip") or "unknown"), source),
@@ -8312,19 +8391,30 @@ async def get_domain_sources(
     source_context = []
     for source, hostname in zip(sources, hostnames):
         ip = source.get("source_ip", "unknown")
-        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_name)
+        ptr_result = ptr_by_ip.get(ip)
+        sender_by_ip[ip] = identify_sender(
+            ip,
+            source,
+            hostname=hostname,
+            domain=domain_name,
+            ptr_lookup_pending=bool(ptr_result and ptr_result.status == "pending"),
+        )
         source_context.append((source, hostname, sender_by_ip[ip]))
 
-    reputations_by_ip = await _source_reputations_by_ip(
-        db,
-        domain_name,
-        reports,
-        sources,
-        sender_by_ip,
-        anomalies_by_ip,
-        source_days,
-        refresh,
-        settings,
+    reputations_by_ip = (
+        await _source_reputations_by_ip(
+            db,
+            domain_name,
+            reports,
+            sources,
+            sender_by_ip,
+            anomalies_by_ip,
+            source_days,
+            refresh,
+            settings,
+        )
+        if refresh
+        else {}
     )
 
     for source, hostname, sender in source_context:
@@ -8403,15 +8493,13 @@ async def get_domain_source_reputation(
 ):
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
-    reports = store.get_domain_reports(domain_name, days=days)
-    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
         domain_name,
         reports,
@@ -8457,24 +8545,18 @@ async def get_domain_source_intelligence(
 ):
     """Return region summaries and source anomaly hints for a domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
-    sources = store.get_domain_sources(domain_name, days=days)
-    provider = get_default_provider(db)
-    settings = get_settings()
-    ips = [str(source.get("source_ip") or "unknown") for source in sources]
     networks_by_ip = {
         str(source.get("source_ip") or "unknown"): snapshot
         for source in sources
         if (snapshot := network_from_source_evidence(source.get("source_evidence"))) is not None
     }
-    missing_network_ips = [ip for ip in ips if ip not in networks_by_ip]
-    networks_by_ip.update(await _source_networks_by_ip(db, provider, missing_network_ips, settings))
     geo_by_ip = {
         str(source.get("source_ip") or "unknown"): merge_network_into_geo(
             source_geo_for(str(source.get("source_ip") or "unknown"), source),
@@ -8484,7 +8566,7 @@ async def get_domain_source_intelligence(
     }
     intelligence = build_source_intelligence(
         domain_name,
-        store.get_domain_reports(domain_name, days=days),
+        reports,
         sources,
         period_days=days,
         geo_by_ip=geo_by_ip,

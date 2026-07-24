@@ -42,6 +42,7 @@ class DMARCReport(Base):
     report_extensions = Column(Text, nullable=True)
     processed_at = Column(DateTime, default=datetime.utcnow)
     raw_data = Column(Text, nullable=True)  # Original XML content (optional)
+    source_projection_at = Column(DateTime, nullable=True, index=True)
 
     # Relationships
     domain = relationship("Domain", back_populates="reports")
@@ -109,6 +110,55 @@ class ReportRecord(Base):
 
     def __repr__(self):
         return f"<ReportRecord {self.id} ({self.source_ip})>"
+
+
+class DomainSourceDailyProjection(Base):
+    """Read-optimized daily sender facts derived during report ingestion."""
+
+    __tablename__ = "domain_source_daily_projections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=False, index=True)
+    source_ip = Column(String, nullable=False, index=True)
+    observed_at = Column(Integer, nullable=False, index=True)
+    first_seen = Column(Integer, nullable=True)
+    last_seen = Column(Integer, nullable=True)
+    message_count = Column(Integer, nullable=False, default=0)
+    report_count = Column(Integer, nullable=False, default=0)
+    spf_pass_count = Column(Integer, nullable=False, default=0)
+    spf_fail_count = Column(Integer, nullable=False, default=0)
+    spf_unknown_count = Column(Integer, nullable=False, default=0)
+    dkim_pass_count = Column(Integer, nullable=False, default=0)
+    dkim_fail_count = Column(Integer, nullable=False, default=0)
+    dkim_unknown_count = Column(Integer, nullable=False, default=0)
+    dmarc_pass_count = Column(Integer, nullable=False, default=0)
+    dmarc_fail_count = Column(Integer, nullable=False, default=0)
+    disposition_counts = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    source_evidence = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "domain_id",
+            "source_ip",
+            "observed_at",
+            name="uq_domain_source_daily_projection",
+        ),
+        Index(
+            "ix_domain_source_daily_projection_window",
+            "domain_id",
+            "observed_at",
+            "source_ip",
+        ),
+        Index(
+            "ix_domain_source_daily_projection_last_seen",
+            "domain_id",
+            "last_seen",
+            "source_ip",
+        ),
+    )
 
 
 class ForensicReport(Base):

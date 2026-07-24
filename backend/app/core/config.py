@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     SOURCE_EVIDENCE_PREWARM_CONCURRENCY: int = 8
     SOURCE_EVIDENCE_PREWARM_TIMEOUT_SECONDS: float = 20.0
     SOURCE_EVIDENCE_PREWARM_INTERVAL_SECONDS: int = 300
+    # Convert existing aggregate reports into indexed sender facts outside UI
+    # requests. New reports are projected synchronously during persistence.
+    SOURCE_READ_PROJECTION_BACKFILL_ENABLED: bool = True
+    SOURCE_READ_PROJECTION_BACKFILL_LIMIT: int = 100
+    SOURCE_READ_PROJECTION_BACKFILL_INTERVAL_SECONDS: int = 30
     GEOIP_CUSTOM_URL: Optional[str] = None
     GEOIP_CUSTOM_AUTH_HEADER: Optional[str] = None
     GEOIP_CUSTOM_TIMEOUT_SECONDS: float = 2.0

@@ -62,8 +62,6 @@ from app.services.microsoft_graph_client import (
 )
 from app.services.provider_access import require_provider_operator_access
 from app.services.release_info import build_release_info
-from app.services.report_persistence import hydrate_report_store_from_db
-from app.services.report_store import ReportStore
 from app.services.runtime_status import (
     mark_scheduler_cycle_started,
     mark_scheduler_error,
@@ -72,6 +70,7 @@ from app.services.runtime_status import (
     mark_scheduler_success,
 )
 from app.services.source_evidence_prewarm import scheduled_source_evidence_prewarm
+from app.services.source_read_projection import scheduled_source_projection_backfill
 from app.services.summary_notifications import send_due_scheduled_summaries
 from app.services.support_sessions import support_session_from_request
 from app.services.webhook_events import deliver_due_webhooks
@@ -85,6 +84,7 @@ settings = get_settings()
 background_task = None
 dns_prewarm_task = None
 source_evidence_prewarm_task = None
+source_projection_backfill_task = None
 last_check_time = None
 
 
@@ -563,7 +563,8 @@ def _initialize_synthetic_load_data() -> None:
 
 def _start_background_tasks() -> None:
     """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
-    global background_task, dns_prewarm_task, source_evidence_prewarm_task  # pylint: disable=global-statement
+    global background_task, dns_prewarm_task, source_evidence_prewarm_task
+    global source_projection_backfill_task  # pylint: disable=global-statement
 
     if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
         logger.info("Skipping external mailbox polling for the relational provider demo")
@@ -573,6 +574,7 @@ def _start_background_tasks() -> None:
         background_task = asyncio.create_task(_scheduled_imap_polling_after_startup())
     dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
     source_evidence_prewarm_task = asyncio.create_task(scheduled_source_evidence_prewarm())
+    source_projection_backfill_task = asyncio.create_task(scheduled_source_projection_backfill())
 
 
 def create_app() -> FastAPI:
@@ -693,12 +695,18 @@ def create_app() -> FastAPI:
     @application.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
-        global dns_prewarm_task, source_evidence_prewarm_task  # pylint: disable=global-statement
+        global dns_prewarm_task, source_evidence_prewarm_task
+        global source_projection_backfill_task  # pylint: disable=global-statement
 
         await _cancel_background_task(dns_prewarm_task, "DNS prewarm")
         dns_prewarm_task = None
         await _cancel_background_task(source_evidence_prewarm_task, "sender evidence prewarm")
         source_evidence_prewarm_task = None
+        await _cancel_background_task(
+            source_projection_backfill_task,
+            "sender projection backfill",
+        )
+        source_projection_backfill_task = None
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()
@@ -810,26 +818,23 @@ async def domains(request: Request):
 @app.get("/domain/{domain_id}", response_class=HTMLResponse)
 async def domain_details(request: Request, domain_id: str):
     """View detailed reports for a specific domain"""
-    store = ReportStore.get_instance()
     db = SessionLocal()
     try:
-        hydrate_report_store_from_db(db, store)
         stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
+        if stored_domain is None and domain_id.isdigit():
+            stored_domain = db.get(Domain, int(domain_id))
         source_window_setting = db.get(Setting, "general.source_date_window_days")
         source_window_days = str(source_window_setting.value or "30") if source_window_setting else "30"
         if source_window_days not in {"7", "30", "90"}:
             source_window_days = "30"
     finally:
         db.close()
-    known_domains = store.get_domains()
 
-    if domain_id not in known_domains and stored_domain is None:
+    if stored_domain is None:
         # Domain not found, redirect to domains list
         return templates.TemplateResponse(
             request, "domains.html", {"error": f"Domain {domain_id} not found"}
         )
-
-    domain_summary = store.get_domain_summary(domain_id) if domain_id in known_domains else {}
 
     return templates.TemplateResponse(
         request,
@@ -838,14 +843,10 @@ async def domain_details(request: Request, domain_id: str):
             "domain_id": domain_id,
             "source_window_days": source_window_days,
             "domain": {
-                "name": domain_id,
-                "description": stored_domain.description if stored_domain else "",
+                "name": stored_domain.name,
+                "description": stored_domain.description or "",
                 "mail_service_context": mail_service_context_from_domain(stored_domain),
-                "policy": (
-                    domain_summary.get("policy")
-                    or (stored_domain.dmarc_policy if stored_domain else None)
-                    or "unknown"
-                ),
+                "policy": stored_domain.dmarc_policy or "unknown",
             },
         },
     )

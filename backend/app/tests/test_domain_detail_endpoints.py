@@ -35,6 +35,7 @@ from app.services.source_reputation import (
     ReputationEvidence,
     SourceReputation,
 )
+from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -2813,7 +2814,7 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     }
     ReportStore.get_instance().add_report(report)
 
-    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources?refresh=true")
 
     assert response.status_code == 200
     source = response.json()["sources"][0]
@@ -2903,7 +2904,7 @@ def test_get_domain_sources_returns_recommendations(
     }
     ReportStore.get_instance().add_report(report)
 
-    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources?refresh=true")
 
     assert response.status_code == 200
     source = response.json()["sources"][0]
@@ -2953,7 +2954,7 @@ def test_get_domain_sources_returns_sender_identity(
     }
     ReportStore.get_instance().add_report(report)
 
-    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources?refresh=true")
 
     assert response.status_code == 200
     source = response.json()["sources"][0]
@@ -3032,7 +3033,7 @@ def test_get_domain_source_intelligence_unknown_domain_returns_404(
 def test_get_domain_sources_includes_geo_and_anomaly_hints(seeded_client: TestClient):
     """Source rows carry coarse geo data and anomaly recommendations."""
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650&refresh=true")
 
     assert response.status_code == 200
     source = next(item for item in response.json()["sources"] if item["anomalies"])
@@ -3129,7 +3130,7 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
     db_session.commit()
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650&refresh=true")
 
     assert response.status_code == 200
     source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
@@ -3190,6 +3191,7 @@ def test_get_domain_sources_prefers_ingestion_evidence_over_live_lookup(
             },
         }
     )
+    sync_source_projection_evidence(db_session, saved.records)
     db_session.commit()
 
     async def reject_snapshot_ptr(_provider, ip, timeout=1.5):
@@ -3346,7 +3348,7 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     assert intelligence.json()["summary"]["messages"] == 4
     assert reputation.status_code == 200
     assert reputation.json()["domain"] == "fast-sources.example"
-    assert hydrated_windows == [3650, 3650, 3650]
+    assert hydrated_windows == []
 
 
 def test_source_recommendations_cover_common_cases():
@@ -3659,6 +3661,27 @@ def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):
     assert response.status_code == 200
 
 
+def test_default_source_reads_do_not_trigger_live_enrichment(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Normal operator reads use stored evidence and never wait on external providers."""
+
+    async def fail_live_lookup(*_args, **_kwargs):
+        raise AssertionError("normal source reads must not call a live enrichment provider")
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fail_live_lookup)
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", fail_live_lookup)
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fail_live_lookup)
+
+    sources = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
+    intelligence = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650"
+    )
+
+    assert sources.status_code == 200
+    assert intelligence.status_code == 200
+
+
 def test_source_reads_hydrate_only_the_selected_window(
     seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
@@ -3671,6 +3694,7 @@ def test_source_reads_hydrate_only_the_selected_window(
         return original_hydrate(*args, **kwargs)
 
     monkeypatch.setattr(domains_endpoint, "hydrate_domain_report_store_from_db", track_hydrate)
+    monkeypatch.setattr(domains_endpoint, "source_projection_is_complete", lambda *_args, **_kwargs: False)
 
     sources_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=90")
     intelligence_response = seeded_client.get(
