@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, distinct, func, or_
@@ -351,8 +351,14 @@ def hydrate_domain_report_store_from_db(
     domain_name: str,
     *,
     workspace_id: Optional[int] = None,
+    days: Optional[int] = None,
 ) -> int:
-    """Load persisted reports for one domain into a fresh ReportStore."""
+    """Load persisted reports for one domain into a fresh ReportStore.
+
+    ``days`` is used by interactive views that only need current evidence. It
+    prevents a large historic report archive from being hydrated just to show a
+    single domain decision.
+    """
     store = store or ReportStore()
     store.clear()
     query = (
@@ -366,6 +372,9 @@ def hydrate_domain_report_store_from_db(
     )
     if workspace_id is not None:
         query = query.filter(Domain.workspace_id == workspace_id)
+    if days is not None:
+        cutoff = datetime.utcnow() - timedelta(days=max(1, int(days)))
+        query = query.filter(DMARCReport.end_date >= cutoff)
     reports = query.order_by(DMARCReport.end_date.desc()).all()
     for report in reports:
         store.add_report(persisted_report_to_dict(report))

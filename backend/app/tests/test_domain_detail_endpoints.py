@@ -1869,9 +1869,10 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     workspace = get_or_create_default_workspace(db_session)
     captured = {}
 
-    def fake_single_domain_store(db, domain_id, workspace_arg):
+    def fake_single_domain_store(db, domain_id, workspace_arg, report_window_days=None):
         captured["workspace_id"] = workspace_arg.id
         captured["domain_id"] = domain_id
+        captured["report_window_days"] = report_window_days
         store = ReportStore()
         return DOMAIN, store
 
@@ -1908,6 +1909,7 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     assert response.status_code == 200
     assert captured["workspace_id"] == workspace.id
     assert captured["domain_id"] == DOMAIN
+    assert captured["report_window_days"] == 30
     assert response.json()["domain"] == DOMAIN
 
 
@@ -1970,6 +1972,57 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
     assert elapsed < 2.0
 
 
+def test_domain_remediation_queue_keeps_completed_evidence_when_one_task_times_out(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """A slow health calculation must not discard already-complete DNS guidance."""
+
+    async def slow_grade(*_args, **_kwargs):
+        await asyncio.sleep(2.0)
+        return {"domain": DOMAIN, "score": 50, "grade": "C", "status": "needs_attention"}
+
+    async def quick_guidance(*_args, **_kwargs):
+        return {
+            "domain": DOMAIN,
+            "status": "critical",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", slow_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", quick_guidance)
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
+
+    class _Settings:
+        DEMO_MODE = False
+        REMEDIATION_QUEUE_TIMEOUT_SECONDS = 1
+
+    monkeypatch.setattr(domains_endpoint, "get_settings", lambda: _Settings())
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enrichment_pending"] is True
+    assert any(item["id"] == "dns:dmarc-missing" for item in body["items"])
+
+
 def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
     authed_client: TestClient,
     monkeypatch,
@@ -2028,8 +2081,8 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     hydrate_calls = []
     seen_domains = []
 
-    def fake_hydrate_domain(db, store_arg, domain_name, workspace_id=None):
-        hydrate_calls.append((domain_name, workspace_id))
+    def fake_hydrate_domain(db, store_arg, domain_name, workspace_id=None, days=None):
+        hydrate_calls.append((domain_name, workspace_id, days))
         return 1
 
     async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
@@ -2066,6 +2119,7 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     assert len(hydrate_calls) == 1
     assert hydrate_calls[0][0] == DOMAIN
     assert hydrate_calls[0][1] is not None
+    assert hydrate_calls[0][2] == 30
     assert seen_domains == [DOMAIN, DOMAIN]
     assert response.json()["domain"] == DOMAIN
 

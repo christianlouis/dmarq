@@ -3362,6 +3362,8 @@ def _single_domain_report_store_for_read(
     db: Session,
     domain_id: str,
     workspace: Workspace,
+    *,
+    report_window_days: Optional[int] = None,
 ) -> tuple[str, ReportStore]:
     """Return a ReportStore containing only the requested domain's persisted reports."""
     store = ReportStore()
@@ -3375,6 +3377,7 @@ def _single_domain_report_store_for_read(
             store,
             domain_name,
             workspace_id=workspace.id,
+            days=report_window_days,
         )
         return domain_name, store
 
@@ -4080,8 +4083,11 @@ async def _build_domain_health_grade(
     summary = store.get_domain_summary(domain_id)
     live_policy = extract_dmarc_policy(dns.dmarc_record)
     reported_policy = _normalize_reported_policy(summary.get("policy", {}))
-    sources = store.get_domain_sources(domain_id)
-    reports = store.get_domain_reports(domain_id)
+    # Health and remediation should describe the current operating posture, not
+    # every sender ever observed. Keeping this bounded also prevents a large
+    # historic sender estate from blocking the domain detail request.
+    sources = store.get_domain_sources(domain_id, days=30)
+    reports = store.get_domain_reports(domain_id, days=30)
     intelligence = build_source_intelligence(
         domain_id,
         reports,
@@ -6379,7 +6385,12 @@ async def _build_domain_remediation_queue_for_workspace(
     Expensive DNS/reputation enrichment is bounded so the Next remediation
     panel never waits unbounded for live lookups.
     """
-    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=30,
+    )
     settings = get_settings()
     timeout_seconds = max(
         1.0,
@@ -6387,68 +6398,78 @@ async def _build_domain_remediation_queue_for_workspace(
     )
     available_providers = _configured_dns_write_provider_ids(db)
 
-    async def _enrich() -> tuple[Dict[str, Any], Dict[str, Any]]:
-        return await asyncio.gather(
+    summary = store.get_domain_summary(domain_name) or {}
+    domain_health: Dict[str, Any] = {
+        "domain": domain_name,
+        "grade": "unknown",
+        "score": 0,
+        "actions": [],
+        "summary": summary,
+        "enrichment_pending": True,
+    }
+    guidance: Dict[str, Any] = {
+        "findings": [],
+        "change_plans": [],
+        "target_records": [],
+        "dns_provider": None,
+        "enrichment_pending": True,
+    }
+    enrichment_tasks = {
+        "health": asyncio.create_task(
             _build_domain_health_grade(
                 db,
                 domain_name,
                 store,
                 refresh=refresh,
-            ),
+            )
+        ),
+        "guidance": asyncio.create_task(
             _build_domain_dns_guidance(
                 db,
                 store,
                 domain_name,
                 refresh=refresh,
-            ),
-        )
+            )
+        ),
+    }
+    completed, pending = await asyncio.wait(
+        set(enrichment_tasks.values()),
+        timeout=timeout_seconds,
+    )
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
-    try:
-        domain_health, guidance = await asyncio.wait_for(
-            _enrich(),
-            timeout=timeout_seconds,
-        )
-    except asyncio.TimeoutError:
+    enrichment_failures = []
+    for name, task in enrichment_tasks.items():
+        if task not in completed:
+            enrichment_failures.append(f"{name} timed out")
+            continue
+        try:
+            result = task.result()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.info(
+                "Remediation %s enrichment failed for %s: %s",
+                name,
+                sanitize_for_log(domain_name),
+                type(exc).__name__,
+            )
+            enrichment_failures.append(f"{name} failed")
+            continue
+        if name == "health":
+            domain_health = result
+        else:
+            guidance = result
+
+    if enrichment_failures:
         logger.info(
-            "Remediation queue enrichment timed out for %s; returning bounded empty queue",
+            "Remediation queue returned partial evidence for %s: %s",
             sanitize_for_log(domain_name),
+            ", ".join(enrichment_failures),
         )
-        summary = store.get_domain_summary(domain_name) or {}
-        domain_health = {
-            "domain": domain_name,
-            "grade": "unknown",
-            "score": 0,
-            "actions": [],
-            "summary": summary,
-            "enrichment_pending": True,
-        }
-        guidance = {
-            "findings": [],
-            "change_plans": [],
-            "target_records": [],
-            "dns_provider": None,
-            "enrichment_pending": True,
-        }
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.info(
-            "Remediation queue enrichment failed for %s: %s",
-            sanitize_for_log(domain_name),
-            type(exc).__name__,
-        )
-        domain_health = {
-            "domain": domain_name,
-            "grade": "unknown",
-            "score": 0,
-            "actions": [],
-            "enrichment_pending": True,
-        }
-        guidance = {
-            "findings": [],
-            "change_plans": [],
-            "target_records": [],
-            "dns_provider": None,
-            "enrichment_pending": True,
-        }
+        domain_health = {**domain_health, "enrichment_pending": True}
+        guidance = {**guidance, "enrichment_pending": True}
 
     recommended_provider = _recommended_dns_write_provider(
         guidance.get("dns_provider"),

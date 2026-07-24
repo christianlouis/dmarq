@@ -340,6 +340,9 @@ function domainDetailsApp(domainId = '') {
                     event.preventDefault();
                     this.remediationQueueFilter = button.dataset.domainDetailRemediationFilter || 'all';
                     this.showAllRemediationQueueItems = false;
+                } else if (button.matches('[data-domain-detail-source-filter]')) {
+                    event.preventDefault();
+                    this.setSourceSummaryFilter(button.dataset.domainDetailSourceFilter || 'all');
                 } else if (
                     button.matches('[data-domain-detail-remediation-retry]') ||
                     button.matches('[data-domain-detail-remediation-refresh]')
@@ -667,6 +670,34 @@ function domainDetailsApp(domainId = '') {
             if (filter === 'stale') return this.sourceActivityBucket(source) === 'stale';
             if (filter === 'clean') return source.reputation?.status === 'clean';
             return true;
+        },
+
+        setSourceSummaryFilter(filter) {
+            if (filter === 'all') {
+                this.filters.sourceRiskFilter = 'all';
+                this.filters.sourceDeliveryFilter = 'all';
+                return;
+            }
+            if (filter.startsWith('delivery:')) {
+                const delivery = filter.slice('delivery:'.length);
+                this.filters.sourceDeliveryFilter = (
+                    this.filters.sourceDeliveryFilter === delivery ? 'all' : delivery
+                );
+                return;
+            }
+            this.filters.sourceRiskFilter = (
+                this.filters.sourceRiskFilter === filter ? 'all' : filter
+            );
+        },
+
+        sourceSummaryFilterActive(filter) {
+            if (filter === 'all') {
+                return this.filters.sourceRiskFilter === 'all' && this.filters.sourceDeliveryFilter === 'all';
+            }
+            if (filter.startsWith('delivery:')) {
+                return this.filters.sourceDeliveryFilter === filter.slice('delivery:'.length);
+            }
+            return this.filters.sourceRiskFilter === filter;
         },
 
         sourceDeliveryMatches(source, filter) {

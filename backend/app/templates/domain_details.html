@@ -2450,33 +2450,51 @@
                    class="mb-4 rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
                    x-text="sourceReputationRefreshError"></p>
                 <div class="mb-4 flex flex-wrap gap-2 text-xs" x-show="!sourcesLoading && !sourcesError">
-                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/80">
+                    <button type="button" data-domain-detail-source-filter="all"
+                        class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/80 hover:ring-2 hover:ring-[#2f9da5]/40 focus:outline-none focus:ring-2 focus:ring-[#2f9da5]"
+                        :aria-pressed="sourceSummaryFilterActive('all')">
                         <span x-text="sourceRiskCounts.total"></span><span class="ml-1">sources</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-[#fff2ec] px-2 py-0.5 font-semibold text-[#8a2d0d]">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="risky"
+                        class="inline-flex items-center rounded-full bg-[#fff2ec] px-2 py-0.5 font-semibold text-[#8a2d0d] hover:ring-2 hover:ring-[#8a2d0d]/30 focus:outline-none focus:ring-2 focus:ring-[#8a2d0d]"
+                        :aria-pressed="sourceSummaryFilterActive('risky')">
                         <span x-text="sourceRiskCounts.risky"></span><span class="ml-1">reputation review</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="listed"
+                        class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800 hover:ring-2 hover:ring-red-500/30 focus:outline-none focus:ring-2 focus:ring-red-600"
+                        :aria-pressed="sourceSummaryFilterActive('listed')">
                         <span x-text="sourceRiskCounts.listed"></span><span class="ml-1">listed</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="auth_review"
+                        class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 hover:ring-2 hover:ring-amber-500/30 focus:outline-none focus:ring-2 focus:ring-amber-600"
+                        :aria-pressed="sourceSummaryFilterActive('auth_review')">
                         <span x-text="sourceRiskCounts.authReview"></span><span class="ml-1">auth review</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="recent"
+                        class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800 hover:ring-2 hover:ring-green-500/30 focus:outline-none focus:ring-2 focus:ring-green-600"
+                        :aria-pressed="sourceSummaryFilterActive('recent')">
                         <span x-text="sourceRiskCounts.recent"></span><span class="ml-1">recent</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="delivery:aligned"
+                        class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800 hover:ring-2 hover:ring-green-500/30 focus:outline-none focus:ring-2 focus:ring-green-600"
+                        :aria-pressed="sourceSummaryFilterActive('delivery:aligned')">
                         <span x-text="sourceRiskCounts.aligned"></span><span class="ml-1">aligned delivery</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="delivery:policy_blocked"
+                        class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800 hover:ring-2 hover:ring-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        :aria-pressed="sourceSummaryFilterActive('delivery:policy_blocked')">
                         <span x-text="sourceRiskCounts.blocked"></span><span class="ml-1">blocked by policy</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="delivery:unauthenticated_delivered"
+                        class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800 hover:ring-2 hover:ring-red-500/30 focus:outline-none focus:ring-2 focus:ring-red-600"
+                        :aria-pressed="sourceSummaryFilterActive('delivery:unauthenticated_delivered')">
                         <span x-text="sourceRiskCounts.unauthenticated"></span><span class="ml-1">unauthenticated delivery</span>
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70">
+                    </button>
+                    <button type="button" data-domain-detail-source-filter="unchecked"
+                        class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70 hover:ring-2 hover:ring-[#2f9da5]/40 focus:outline-none focus:ring-2 focus:ring-[#2f9da5]"
+                        :aria-pressed="sourceSummaryFilterActive('unchecked')">
                         <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
-                    </span>
+                    </button>
                 </div>
                 <div class="sending-sources-list space-y-3" data-sending-sources-list>
                         <template x-if="sources.length === 0">
