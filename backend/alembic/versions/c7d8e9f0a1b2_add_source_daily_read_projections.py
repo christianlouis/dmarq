@@ -62,10 +62,19 @@ def upgrade() -> None:
         "domain_source_daily_projections",
         ["domain_id", "observed_at", "source_ip"],
     )
+    op.create_index(
+        "ix_domain_source_daily_projection_last_seen",
+        "domain_source_daily_projections",
+        ["domain_id", "last_seen", "source_ip"],
+    )
 
 
 def downgrade() -> None:
     """Remove sender read projections."""
+    op.drop_index(
+        "ix_domain_source_daily_projection_last_seen",
+        table_name="domain_source_daily_projections",
+    )
     op.drop_index(
         "ix_domain_source_daily_projection_window",
         table_name="domain_source_daily_projections",

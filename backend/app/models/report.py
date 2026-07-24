@@ -152,6 +152,12 @@ class DomainSourceDailyProjection(Base):
             "observed_at",
             "source_ip",
         ),
+        Index(
+            "ix_domain_source_daily_projection_last_seen",
+            "domain_id",
+            "last_seen",
+            "source_ip",
+        ),
     )
 
 

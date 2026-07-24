@@ -4,7 +4,7 @@ import json
 import time
 import zipfile
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -26,7 +26,10 @@ from app.services.organizations import OrganizationPlanLimitError
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
-from app.services.source_read_projection import backfill_source_projections
+from app.services.source_read_projection import (
+    backfill_source_projections,
+    load_domain_source_read_projection,
+)
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.workspace_access import ROLE_ANALYST
@@ -149,6 +152,31 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
 
     assert db_session.query(DomainSourceDailyProjection).count() == 1
     assert db_session.get(DMARCReport, report.id).source_projection_at is not None
+
+
+def test_projection_window_uses_report_end_time(db_session, monkeypatch):
+    """A report remains visible until its actual DMARC reporting window ends."""
+    workspace = get_or_create_default_workspace(db_session)
+    report = _parsed_report(domain="projection-window.example", report_id="projection-window", count=4)
+    report["begin_timestamp"] = 1_704_146_400
+    report["end_timestamp"] = 1_704_239_999
+    report["begin_date"] = report["begin_timestamp"]
+    report["end_date"] = report["end_timestamp"]
+    saved, _ = save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.source_read_projection.datetime",
+        type("FrozenDateTime", (), {"now": staticmethod(lambda *_args: datetime.fromtimestamp(1_704_240_000, timezone.utc))}),
+    )
+    sources, _ = load_domain_source_read_projection(
+        db_session,
+        domain_id=saved.domain_id,
+        domain_name="projection-window.example",
+        days=1,
+    )
+
+    assert sources[0]["count"] == 4
 
 
 def _add_user(db_session, email: str, *, is_superuser: bool = False) -> User:
@@ -826,6 +854,7 @@ def test_delete_report_success(authed_client: TestClient, db_session):
     data = response.json()
     assert data["success"] is True
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+    assert db_session.query(DomainSourceDailyProjection).count() == 0
 
     # Domain should be gone now
     assert authed_client.get("/api/v1/reports/domain/example.com/summary").status_code == 404

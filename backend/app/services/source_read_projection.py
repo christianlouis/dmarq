@@ -285,7 +285,7 @@ def load_domain_source_read_projection(
     )
     if days is not None:
         cutoff = int(datetime.now(timezone.utc).timestamp()) - max(1, int(days)) * 86_400
-        query = query.filter(DomainSourceDailyProjection.observed_at >= cutoff)
+        query = query.filter(DomainSourceDailyProjection.last_seen >= cutoff)
     rows = query.order_by(DomainSourceDailyProjection.observed_at.asc()).all()
     sources: Dict[str, Dict[str, Any]] = {}
     daily_records: Dict[int, List[Dict[str, Any]]] = defaultdict(list)

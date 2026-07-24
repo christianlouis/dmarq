@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.models.domain import Domain
-from app.models.report import DMARCReport, ReportRecord
+from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
 from app.services.source_read_projection import materialize_source_projection
 from app.models.workspace import Workspace
 from app.services.demo_data import seed_demo_report_store
@@ -560,6 +560,15 @@ def delete_persisted_report(
     report = query.first()
     if report is None:
         return False
+    # Projections combine same-day source rows across reports. Rebuild this
+    # domain lazily in the background so deletion never leaves stale counters.
+    db.query(DomainSourceDailyProjection).filter(
+        DomainSourceDailyProjection.domain_id == report.domain_id
+    ).delete(synchronize_session=False)
+    db.query(DMARCReport).filter(DMARCReport.domain_id == report.domain_id).update(
+        {DMARCReport.source_projection_at: None},
+        synchronize_session=False,
+    )
     db.delete(report)
     return True
 
@@ -569,5 +578,8 @@ def delete_persisted_domain(db: Session, domain_name: str) -> bool:
     domain = db.query(Domain).filter(Domain.name == domain_name).first()
     if domain is None:
         return False
+    db.query(DomainSourceDailyProjection).filter(
+        DomainSourceDailyProjection.domain_id == domain.id
+    ).delete(synchronize_session=False)
     db.delete(domain)
     return True
