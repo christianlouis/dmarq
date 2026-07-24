@@ -318,6 +318,18 @@ def _source_public_entry(ip: str, data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _aggregate_sources(reports: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Build source aggregates for a specific report collection."""
+    sources: Dict[str, Dict[str, Any]] = {}
+    for report in reports:
+        for record in report.get("records", []):
+            source_ip = record.get("source_ip", "unknown")
+            if source_ip not in sources:
+                sources[source_ip] = _new_source_stats()
+            _update_source_from_record(sources[source_ip], record, report)
+    return sources
+
+
 def _update_source_from_record(
     source: Dict[str, Any],
     record: Dict[str, Any],
@@ -431,8 +443,6 @@ class ReportStore:
             "failed_count": 0,
             "reports_processed": len(reports),
         }
-        sources: Dict[str, Dict[str, Any]] = {}
-
         for report in reports:
             report_summary = report.get("summary", {})
             summary["total_count"] += report_summary.get("total_count", 0)
@@ -442,11 +452,7 @@ class ReportStore:
             if "policy" in report:
                 summary["policy"] = report["policy"]
 
-            for record in report.get("records", []):
-                source_ip = record.get("source_ip", "unknown")
-                if source_ip not in sources:
-                    sources[source_ip] = _new_source_stats()
-                _update_source_from_record(sources[source_ip], record, report)
+        sources = _aggregate_sources(reports)
 
         total = summary["total_count"]
         summary["compliance_rate"] = (
@@ -525,18 +531,35 @@ class ReportStore:
                     return report
         return None
 
-    def get_domain_reports(self, domain: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_domain_reports(
+        self,
+        domain: str,
+        limit: Optional[int] = None,
+        *,
+        days: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Get all reports for a domain
 
         Args:
             domain: Domain name
             limit: Optional limit on number of reports to return
+            days: Optional observation window. Reports without an observed date
+                are excluded when a window is requested.
 
         Returns:
             List of reports or empty list if domain not found
         """
         reports = self.domain_reports.get(domain, [])
+
+        if days is not None:
+            cutoff = _now_timestamp() - max(1, int(days)) * SECONDS_PER_DAY
+            reports = [
+                report
+                for report in reports
+                if (observed_end := _observed_report_window(report)[1]) is not None
+                and observed_end >= cutoff
+            ]
 
         # Sort reports by date (most recent first)
         sorted_reports = sorted(reports, key=lambda r: r.get("end_date", 0), reverse=True)
@@ -629,13 +652,14 @@ class ReportStore:
         )
         return rows
 
-    def get_domain_sources(self, domain: str, days: int = 30) -> List[Dict[str, Any]]:
+    def get_domain_sources(self, domain: str, days: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Get sending sources for a domain
 
         Args:
             domain: Domain name
-            days: Number of days to look back
+            days: Number of days to look back. ``None`` returns the historical
+                aggregate for API callers that did not select a time window.
 
         Returns:
             List of source entries or empty list if domain not found
@@ -643,11 +667,25 @@ class ReportStore:
         if domain not in self.domain_sources:
             return []
 
-        # For Milestone 1, we don't filter by date
-        # In a future milestone, we'll add date-based filtering
-        sources = []
-        for ip, data in self.domain_sources[domain].items():
-            sources.append(_source_public_entry(ip, data))
+        if days is None:
+            sources = [
+                _source_public_entry(ip, data)
+                for ip, data in self.domain_sources[domain].items()
+            ]
+            return sorted(sources, key=lambda source: source["count"], reverse=True)
+
+        cutoff = _now_timestamp() - max(1, int(days)) * SECONDS_PER_DAY
+        reports = [
+            report
+            for report in self.domain_reports.get(domain, [])
+            if (observed_end := _observed_report_window(report)[1]) is not None
+            and observed_end >= cutoff
+        ]
+        aggregated_sources = _aggregate_sources(reports)
+        sources = [
+            _source_public_entry(ip, data)
+            for ip, data in aggregated_sources.items()
+        ]
 
         # Sort sources by count (highest first)
         return sorted(sources, key=lambda s: s["count"], reverse=True)

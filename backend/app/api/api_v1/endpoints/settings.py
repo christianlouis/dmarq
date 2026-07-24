@@ -90,6 +90,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "integer",
         "category": "general",
     },
+    {
+        "key": "general.source_date_window_days",
+        "value": "30",
+        "description": "Default observation window for sending sources: 7, 30, or 90 days",
+        "value_type": "integer",
+        "category": "general",
+    },
     # ── DMARC ────────────────────────────────────────────────────────────────
     {
         "key": "dmarc.default_policy",

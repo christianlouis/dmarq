@@ -289,6 +289,8 @@ def test_get_source_reputation_returns_listed_source(authed_client: TestClient, 
     report = {
         **MINIMAL_REPORT,
         "report_id": "listed-source-reputation",
+        "begin_timestamp": int((datetime.now(timezone.utc) - timedelta(days=1)).timestamp()),
+        "end_timestamp": int(datetime.now(timezone.utc).timestamp()),
         "records": [
             {
                 "source_ip": "198.51.100.199",

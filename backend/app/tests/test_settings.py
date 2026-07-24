@@ -309,6 +309,13 @@ class TestSettingsAPI:
         assert res.json()["key"] == "general.app_name"
         assert res.json()["value"] == "DMARQ"
 
+    def test_settings_seed_the_default_source_date_window(self, authed_client: TestClient):
+        rows = authed_client.get("/api/v1/settings").json()
+        source_window = next(row for row in rows if row["key"] == "general.source_date_window_days")
+
+        assert source_window["value"] == "30"
+        assert source_window["category"] == "general"
+
     def test_get_missing_setting_returns_404(self, authed_client: TestClient):
         """GET /api/v1/settings/{key} returns 404 for unknown keys."""
         authed_client.get("/api/v1/settings")  # seed

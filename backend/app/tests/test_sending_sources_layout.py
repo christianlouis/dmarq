@@ -61,6 +61,35 @@ def test_sending_sources_keeps_auth_and_recommendations_data() -> None:
     assert "sending-source-intel" in section
 
 
+def test_sending_sources_accepts_a_configured_default_window() -> None:
+    body = _domain_details()
+    script = (APP_ROOT / "static" / "js" / "domain-details-page.js").read_text(encoding="utf-8")
+
+    assert 'data-source-window-days="{{ source_window_days }}"' in body
+    assert "configuredSourceWindow" in script
+    assert "['7', '30', '90'].includes(configuredSourceWindow)" in script
+
+
+def test_sending_source_summary_chips_are_interactive_filters() -> None:
+    section = _sending_sources_section()
+    script = (APP_ROOT / "static" / "js" / "domain-details-page.js").read_text(encoding="utf-8")
+
+    for value in (
+        "all",
+        "risky",
+        "listed",
+        "auth_review",
+        "recent",
+        "unchecked",
+        "delivery:aligned",
+        "delivery:policy_blocked",
+        "delivery:unauthenticated_delivered",
+    ):
+        assert f'data-domain-detail-source-filter="{value}"' in section
+    assert "setSourceSummaryFilter" in script
+    assert "sourceSummaryFilterActive" in script
+
+
 def test_auth_status_cells_include_labels_beside_badges() -> None:
     section = _sending_sources_section()
     for label in ("SPF", "DKIM", "DMARC", "Disposition"):

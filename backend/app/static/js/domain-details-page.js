@@ -263,6 +263,7 @@ function domainDetailsApp(domainId = '') {
             dateRange: '30',
             sourceFilter: '',
             sourceRiskFilter: 'all',
+            sourceDeliveryFilter: 'all',
             exportStartDate: '',
             exportEndDate: ''
         },
@@ -273,6 +274,10 @@ function domainDetailsApp(domainId = '') {
 
         init() {
             this.domainId = this.$el?.dataset?.domainId || this.domainId;
+            const configuredSourceWindow = this.$el?.dataset?.sourceWindowDays;
+            if (['7', '30', '90'].includes(configuredSourceWindow)) {
+                this.filters.dateRange = configuredSourceWindow;
+            }
             this.bindPageControls();
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
@@ -335,6 +340,9 @@ function domainDetailsApp(domainId = '') {
                     event.preventDefault();
                     this.remediationQueueFilter = button.dataset.domainDetailRemediationFilter || 'all';
                     this.showAllRemediationQueueItems = false;
+                } else if (button.matches('[data-domain-detail-source-filter]')) {
+                    event.preventDefault();
+                    this.setSourceSummaryFilter(button.dataset.domainDetailSourceFilter || 'all');
                 } else if (
                     button.matches('[data-domain-detail-remediation-retry]') ||
                     button.matches('[data-domain-detail-remediation-refresh]')
@@ -598,9 +606,22 @@ function domainDetailsApp(domainId = '') {
                     if (!source?.reputation) counts.unchecked += 1;
                     if (source?.dmarc === 'fail' || source?.dmarc === 'mixed') counts.authReview += 1;
                     if (this.sourceActivityBucket(source) === 'recent') counts.recent += 1;
+                    if (source?.delivery_status === 'aligned') counts.aligned += 1;
+                    if (source?.delivery_status === 'policy_blocked') counts.blocked += 1;
+                    if (source?.delivery_status === 'unauthenticated_delivered') counts.unauthenticated += 1;
                     return counts;
                 },
-                { total: 0, risky: 0, listed: 0, unchecked: 0, authReview: 0, recent: 0 }
+                {
+                    total: 0,
+                    risky: 0,
+                    listed: 0,
+                    unchecked: 0,
+                    authReview: 0,
+                    recent: 0,
+                    aligned: 0,
+                    blocked: 0,
+                    unauthenticated: 0
+                }
             );
         },
 
@@ -609,6 +630,7 @@ function domainDetailsApp(domainId = '') {
 
             return this.sources.filter(source => {
                 if (!this.sourceRiskMatches(source, this.filters.sourceRiskFilter)) return false;
+                if (!this.sourceDeliveryMatches(source, this.filters.sourceDeliveryFilter)) return false;
                 if (!this.filters.sourceFilter) return true;
                 const needle = this.filters.sourceFilter.toLowerCase();
                 return [
@@ -631,6 +653,8 @@ function domainDetailsApp(domainId = '') {
                     source.last_seen ? this.sourceSeenLabel(source.last_seen) : '',
                     source.reputation?.status,
                     source.reputation?.summary,
+                    source.delivery_label,
+                    source.delivery_detail,
                     ...(source.reputation?.listings || []),
                 ].some(value => String(value || '').toLowerCase().includes(needle));
             });
@@ -646,6 +670,46 @@ function domainDetailsApp(domainId = '') {
             if (filter === 'stale') return this.sourceActivityBucket(source) === 'stale';
             if (filter === 'clean') return source.reputation?.status === 'clean';
             return true;
+        },
+
+        setSourceSummaryFilter(filter) {
+            if (filter === 'all') {
+                this.filters.sourceRiskFilter = 'all';
+                this.filters.sourceDeliveryFilter = 'all';
+                return;
+            }
+            if (filter.startsWith('delivery:')) {
+                const delivery = filter.slice('delivery:'.length);
+                this.filters.sourceDeliveryFilter = (
+                    this.filters.sourceDeliveryFilter === delivery ? 'all' : delivery
+                );
+                return;
+            }
+            this.filters.sourceRiskFilter = (
+                this.filters.sourceRiskFilter === filter ? 'all' : filter
+            );
+        },
+
+        sourceSummaryFilterActive(filter) {
+            if (filter === 'all') {
+                return this.filters.sourceRiskFilter === 'all' && this.filters.sourceDeliveryFilter === 'all';
+            }
+            if (filter.startsWith('delivery:')) {
+                return this.filters.sourceDeliveryFilter === filter.slice('delivery:'.length);
+            }
+            return this.filters.sourceRiskFilter === filter;
+        },
+
+        sourceDeliveryMatches(source, filter) {
+            return filter === 'all' || source?.delivery_status === filter;
+        },
+
+        sourceDeliveryClass(source) {
+            if (source?.delivery_status === 'aligned') return 'bg-green-100 text-green-800';
+            if (source?.delivery_status === 'policy_blocked') return 'bg-blue-100 text-blue-800';
+            if (source?.delivery_status === 'unauthenticated_delivered') return 'bg-red-100 text-red-800';
+            if (source?.delivery_status === 'mixed') return 'bg-amber-100 text-amber-800';
+            return 'bg-base-200 text-base-content/70';
         },
 
         sourceReputationNeedsReview(source) {

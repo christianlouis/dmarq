@@ -1869,9 +1869,10 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     workspace = get_or_create_default_workspace(db_session)
     captured = {}
 
-    def fake_single_domain_store(db, domain_id, workspace_arg):
+    def fake_single_domain_store(db, domain_id, workspace_arg, report_window_days=None):
         captured["workspace_id"] = workspace_arg.id
         captured["domain_id"] = domain_id
+        captured["report_window_days"] = report_window_days
         store = ReportStore()
         return DOMAIN, store
 
@@ -1908,6 +1909,7 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     assert response.status_code == 200
     assert captured["workspace_id"] == workspace.id
     assert captured["domain_id"] == DOMAIN
+    assert captured["report_window_days"] == 30
     assert response.json()["domain"] == DOMAIN
 
 
@@ -1970,6 +1972,57 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
     assert elapsed < 2.0
 
 
+def test_domain_remediation_queue_keeps_completed_evidence_when_one_task_times_out(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """A slow health calculation must not discard already-complete DNS guidance."""
+
+    async def slow_grade(*_args, **_kwargs):
+        await asyncio.sleep(2.0)
+        return {"domain": DOMAIN, "score": 50, "grade": "C", "status": "needs_attention"}
+
+    async def quick_guidance(*_args, **_kwargs):
+        return {
+            "domain": DOMAIN,
+            "status": "critical",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", slow_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", quick_guidance)
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
+
+    class _Settings:
+        DEMO_MODE = False
+        REMEDIATION_QUEUE_TIMEOUT_SECONDS = 1
+
+    monkeypatch.setattr(domains_endpoint, "get_settings", lambda: _Settings())
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enrichment_pending"] is True
+    assert any(item["id"] == "dns:dmarc-missing" for item in body["items"])
+
+
 def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
     authed_client: TestClient,
     monkeypatch,
@@ -2028,8 +2081,8 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     hydrate_calls = []
     seen_domains = []
 
-    def fake_hydrate_domain(db, store_arg, domain_name, workspace_id=None):
-        hydrate_calls.append((domain_name, workspace_id))
+    def fake_hydrate_domain(db, store_arg, domain_name, workspace_id=None, days=None):
+        hydrate_calls.append((domain_name, workspace_id, days))
         return 1
 
     async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
@@ -2066,6 +2119,7 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     assert len(hydrate_calls) == 1
     assert hydrate_calls[0][0] == DOMAIN
     assert hydrate_calls[0][1] is not None
+    assert hydrate_calls[0][2] == 30
     assert seen_domains == [DOMAIN, DOMAIN]
     assert response.json()["domain"] == DOMAIN
 
@@ -2745,6 +2799,38 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
             "failed": 6,
         }
     ]
+    assert source["delivery_status"] == "mixed"
+    assert source["delivery_label"] == "Mixed delivery"
+
+
+@pytest.mark.parametrize(
+    ("source", "status"),
+    [
+        ({"dmarc_pass_count": 12, "dmarc_fail_count": 0}, "aligned"),
+        (
+            {
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 12,
+                "disposition_counts": {"reject": 12},
+            },
+            "policy_blocked",
+        ),
+        (
+            {
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 12,
+                "disposition_counts": {"none": 12},
+            },
+            "unauthenticated_delivered",
+        ),
+    ],
+)
+def test_source_delivery_status_distinguishes_policy_outcomes(source, status):
+    delivery = domains_endpoint._source_delivery_status(  # pylint: disable=protected-access
+        source
+    )
+
+    assert delivery["status"] == status
 
 
 def test_get_domain_sources_returns_recommendations(
@@ -2876,7 +2962,7 @@ def test_get_domain_source_intelligence_returns_regions_and_anomalies(
 ):
     """Source intelligence summarizes regions and notable sending-source changes."""
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/source-intelligence?days=30")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650")
 
     assert response.status_code == 200
     data = response.json()
@@ -2904,7 +2990,7 @@ def test_get_domain_source_intelligence_unknown_domain_returns_404(
 def test_get_domain_sources_includes_geo_and_anomaly_hints(seeded_client: TestClient):
     """Source rows carry coarse geo data and anomaly recommendations."""
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
 
     assert response.status_code == 200
     source = next(item for item in response.json()["sources"] if item["anomalies"])
@@ -3001,7 +3087,7 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
     db_session.commit()
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
 
     assert response.status_code == 200
     source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
@@ -3076,7 +3162,7 @@ def test_get_domain_sources_prefers_ingestion_evidence_over_live_lookup(
     monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", reject_snapshot_ptr)
     monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", reject_snapshot_network)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
 
     assert response.status_code == 200
     source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
@@ -3100,7 +3186,7 @@ def test_get_domain_sources_continues_when_enrichment_times_out(
     monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", timeout_networks)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", timeout_reputation)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
 
     assert response.status_code == 200
     sources = response.json()["sources"]
@@ -3132,7 +3218,7 @@ def test_get_domain_sources_refreshes_reputation_cache(
 
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30&refresh=true")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650&refresh=true")
 
     assert response.status_code == 200
     assert captured_refresh == [True]
@@ -3194,11 +3280,11 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup_result", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
 
-    sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=30")
+    sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=3650")
     intelligence = authed_client.get(
-        "/api/v1/domains/fast-sources.example/source-intelligence?days=30"
+        "/api/v1/domains/fast-sources.example/source-intelligence?days=3650"
     )
-    reputation = authed_client.get("/api/v1/domains/fast-sources.example/source-reputation?days=30")
+    reputation = authed_client.get("/api/v1/domains/fast-sources.example/source-reputation?days=3650")
 
     assert sources.status_code == 200
     assert sources.json()["sources"][0]["ip"] == "203.0.113.42"
