@@ -75,7 +75,7 @@ def scopes_to_string(
     return ",".join(normalize_scopes(scopes, allowed_scopes=allowed_scopes))
 
 
-def parse_scopes(value: str) -> Set[str]:
+def parse_scopes(value: Optional[str]) -> Set[str]:
     """Parse stored scope text into a set."""
     return {scope.strip().lower() for scope in (value or "").split(",") if scope.strip()}
 
