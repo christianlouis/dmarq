@@ -335,6 +335,23 @@ const domainSources = {
   ],
 };
 
+const domainSourceIntelligence = {
+  domain: 'cklnet.com',
+  period_days: 30,
+  recent_days: 14,
+  regions: [
+    {
+      region: 'Europe',
+      country_codes: ['DE'],
+      source_count: 1,
+      message_count: 137,
+      failure_rate: 5.1,
+    },
+  ],
+  anomalies: [],
+  summary: { sources: 2, anomalies: 0 },
+};
+
 const dnsCached = {
   dmarc: true,
   dmarcRecord: 'v=DMARC1; p=reject; rua=mailto:dmarc@cklnet.com',
@@ -618,6 +635,7 @@ async function installApiMocks(page) {
       },
       '/api/v1/domains/cklnet.com/reports': domainReports,
       '/api/v1/domains/cklnet.com/sources': domainSources,
+      '/api/v1/domains/cklnet.com/source-intelligence': domainSourceIntelligence,
       '/api/v1/domains/cklnet.com/dns': dnsCached,
       '/api/v1/domains/cklnet.com/dns/health': {
         status: 'warning',
@@ -1174,7 +1192,7 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
 
   await expect(page.getByRole('heading', { name: 'cklnet.com' })).toBeVisible();
   const dnsEvidence = page.locator('details', {
-    has: page.locator('summary', { hasText: 'DNS and authentication' }),
+    has: page.locator('summary', { hasText: 'Email authentication and DNS fixes' }),
   });
   await dnsEvidence.locator(':scope > summary').click();
   await expect(dnsEvidence.getByText('TXT lookup timed out; showing cached DNS evidence')).toBeVisible();
@@ -1184,6 +1202,7 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   });
   await sourceIntelligence.locator(':scope > summary').click();
   await expect(sourceIntelligence.getByRole('heading', { name: 'Source Intelligence' })).toBeVisible();
+  await expect(sourceIntelligence.getByText('Europe', { exact: true })).toBeVisible();
   const sendingSources = page.locator('details', {
     has: page.locator('summary', { hasText: 'Sending sources' }),
   });
@@ -1200,6 +1219,12 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await expect(sendingSources.getByText('Fix DKIM on owned infrastructure').first()).toBeVisible();
   await expect(page.getByText('Sending sources could not be loaded.')).not.toBeVisible();
   await expect(page.getByText('No data available for this time period')).not.toBeVisible();
+  const recentReports = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Reports' }),
+  });
+  await recentReports.locator(':scope > summary').click();
+  await expect(recentReports.getByRole('heading', { name: 'Recent Reports' })).toBeVisible();
+  await expect(recentReports.getByText('google.com').first()).toBeVisible();
 });
 
 test('reports list and aggregate detail keep source evidence actionable', async ({ page }) => {

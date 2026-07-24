@@ -182,7 +182,9 @@ function domainDetailsApp(domainId = '') {
         reportsLoading: true,
         reportsError: '',
         sources: [],
-        sourcesLoading: false,
+        // Keep the sender panel in a loading state until the first projection read settles.
+        // Otherwise a slow but successful first response is briefly presented as an empty domain.
+        sourcesLoading: true,
         sourcesError: '',
         sourceReputationRefreshing: false,
         sourceReputationRefreshError: '',
@@ -452,10 +454,7 @@ function domainDetailsApp(domainId = '') {
         async loadInitialData() {
             await Promise.allSettled([
                 this.fetchDomainStats(),
-                this.fetchReports()
-            ]);
-
-            Promise.allSettled([
+                this.fetchReports(),
                 this.fetchSources({ preserveOnFailure: true }),
                 this.fetchSourceIntelligence({ preserveOnFailure: true })
             ]);
@@ -3158,9 +3157,16 @@ function domainDetailsApp(domainId = '') {
                     throw new Error(detail || 'Recent reports could not be loaded.');
                 }
                 const data = await response.json();
-                this.reports = data.reports || [];
-                this.lastComplianceTimeline = data.compliance_timeline || [];
-                this.initComplianceChart(data.compliance_timeline);
+                this.reports = Array.isArray(data.reports) ? data.reports : [];
+                this.lastComplianceTimeline = Array.isArray(data.compliance_timeline)
+                    ? data.compliance_timeline
+                    : [];
+                try {
+                    this.initComplianceChart(this.lastComplianceTimeline);
+                } catch (chartError) {
+                    // Report rows remain useful even when an optional chart cannot render.
+                    console.error('Error rendering compliance chart:', chartError);
+                }
             } catch (error) {
                 this.reports = [];
                 this.reportsError = error.message || 'Recent reports could not be loaded.';
@@ -3223,7 +3229,8 @@ function domainDetailsApp(domainId = '') {
                     throw new Error(detail || 'Sending sources could not be loaded.');
                 }
                 const data = await response.json();
-                this.sources = (data.sources || []).map(source => this.normalizeSource(source));
+                this.sources = (Array.isArray(data.sources) ? data.sources : [])
+                    .map(source => this.normalizeSource(source));
                 this.sourceReputationRefreshError = '';
             } catch (error) {
                 const hasExistingSources = (this.sources || []).length > 0;
@@ -3260,6 +3267,9 @@ function domainDetailsApp(domainId = '') {
                 const data = await response.json();
                 this.sourceIntelligence = {
                     ...data,
+                    regions: Array.isArray(data.regions) ? data.regions : [],
+                    anomalies: Array.isArray(data.anomalies) ? data.anomalies : [],
+                    summary: data.summary && typeof data.summary === 'object' ? data.summary : {},
                     loading: false,
                     error: ''
                 };
