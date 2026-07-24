@@ -102,7 +102,10 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
 
         # ── 4. Browser auth not configured ───────────────────────────────────
         if not getattr(cfg, "auth_configured", False):
-            return RedirectResponse(url="/setup", status_code=302)
+            setup_url = "/setup"
+            if request.url.query:
+                setup_url = f"{setup_url}?{request.url.query}"
+            return RedirectResponse(url=setup_url, status_code=302)
 
         # ── 5. Redirect to login ──────────────────────────────────────────────
         next_path = request.url.path
