@@ -35,6 +35,7 @@ from app.services.source_reputation import (
     ReputationEvidence,
     SourceReputation,
 )
+from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -3190,6 +3191,7 @@ def test_get_domain_sources_prefers_ingestion_evidence_over_live_lookup(
             },
         }
     )
+    sync_source_projection_evidence(db_session, saved.records)
     db_session.commit()
 
     async def reject_snapshot_ptr(_provider, ip, timeout=1.5):
@@ -3346,7 +3348,7 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     assert intelligence.json()["summary"]["messages"] == 4
     assert reputation.status_code == 200
     assert reputation.json()["domain"] == "fast-sources.example"
-    assert hydrated_windows == [3650, 3650, 3650]
+    assert hydrated_windows == []
 
 
 def test_source_recommendations_cover_common_cases():
@@ -3671,6 +3673,7 @@ def test_source_reads_hydrate_only_the_selected_window(
         return original_hydrate(*args, **kwargs)
 
     monkeypatch.setattr(domains_endpoint, "hydrate_domain_report_store_from_db", track_hydrate)
+    monkeypatch.setattr(domains_endpoint, "source_projection_is_complete", lambda *_args, **_kwargs: False)
 
     sources_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=90")
     intelligence_response = seeded_client.get(

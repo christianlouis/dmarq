@@ -137,6 +137,10 @@ from app.services.source_evidence_prewarm import (
     network_from_source_evidence,
     ptr_from_source_evidence,
 )
+from app.services.source_read_projection import (
+    load_domain_source_read_projection,
+    source_projection_is_complete,
+)
 from app.services.source_network import (
     SourceNetworkIntelligence,
     lookup_sources_network_cached,
@@ -3398,6 +3402,43 @@ def _single_domain_report_store_for_read(
         hydrate_report_store_from_db(db, store)
         domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
     return domain_name, store
+
+
+def _domain_source_read_model_for_read(
+    db: Session,
+    domain_id: str,
+    workspace: Workspace,
+    *,
+    days: Optional[int],
+) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Read projected sender facts when ingestion/backfill has completed."""
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE and source_projection_is_complete(
+        db,
+        domain_id=domain.id,
+        days=days,
+    ):
+        sources, reports = load_domain_source_read_projection(
+            db,
+            domain_id=domain.id,
+            domain_name=str(domain.name),
+            days=days,
+        )
+        return str(domain.name), sources, reports
+
+    domain_name, store = _single_domain_report_store_for_read(
+        db,
+        domain_id,
+        workspace,
+        report_window_days=days,
+    )
+    return (
+        domain_name,
+        store.get_domain_sources(domain_name, days=days),
+        store.get_domain_reports(domain_name, days=days),
+    )
 
 
 def _record_evidence(
@@ -8257,16 +8298,14 @@ async def get_domain_sources(
     and SPF fix hints for sources that fail authentication.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
     source_days = days if days is not None else 30
-    sources = store.get_domain_sources(domain_name, days=days)
-    reports = store.get_domain_reports(domain_name, days=days)
     provider = get_default_provider(db)
     settings = get_settings()
 
@@ -8403,15 +8442,13 @@ async def get_domain_source_reputation(
 ):
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
-    reports = store.get_domain_reports(domain_name, days=days)
-    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
         domain_name,
         reports,
@@ -8457,14 +8494,13 @@ async def get_domain_source_intelligence(
 ):
     """Return region summaries and source anomaly hints for a domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    domain_name, store = _single_domain_report_store_for_read(
+    domain_name, sources, reports = _domain_source_read_model_for_read(
         db,
         domain_id,
         workspace,
-        report_window_days=days,
+        days=days,
     )
 
-    sources = store.get_domain_sources(domain_name, days=days)
     provider = get_default_provider(db)
     settings = get_settings()
     ips = [str(source.get("source_ip") or "unknown") for source in sources]
@@ -8484,7 +8520,7 @@ async def get_domain_source_intelligence(
     }
     intelligence = build_source_intelligence(
         domain_name,
-        store.get_domain_reports(domain_name, days=days),
+        reports,
         sources,
         period_days=days,
         geo_by_ip=geo_by_ip,
