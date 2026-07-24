@@ -17,6 +17,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.services.dns_resolver import get_default_provider
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.source_network import SourceNetworkIntelligence, lookup_sources_network_cached
+from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.source_reputation_feeds import (
     lookup_sources_reputation_cached,
     providers_from_settings,
@@ -200,6 +201,7 @@ async def prewarm_source_evidence() -> int:
             ):
                 changed_rows.append(row)
         if changed_rows:
+            sync_source_projection_evidence(db, changed_rows)
             db.commit()
     except asyncio.CancelledError:
         raise

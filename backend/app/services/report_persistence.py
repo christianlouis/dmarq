@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.services.source_read_projection import materialize_source_projection
 from app.models.workspace import Workspace
 from app.services.demo_data import seed_demo_report_store
 from app.services.organizations import require_organization_plan_limit
@@ -232,6 +233,13 @@ def save_parsed_report(
                 record_extensions=_json_or_none(record.get("extensions")),
             )
         )
+
+    materialize_source_projection(
+        db,
+        report,
+        domain_id=domain.id,
+        db_report=db_report,
+    )
 
     return db_report, True
 
