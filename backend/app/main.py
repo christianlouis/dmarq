@@ -43,6 +43,7 @@ from app.middleware.security import SecurityHeadersMiddleware
 from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
+from app.models.setting import Setting
 from app.services.demo_data import build_demo_mail_sources
 from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.gmail_client import GmailClient
@@ -814,6 +815,10 @@ async def domain_details(request: Request, domain_id: str):
     try:
         hydrate_report_store_from_db(db, store)
         stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
+        source_window_setting = db.get(Setting, "general.source_date_window_days")
+        source_window_days = str(source_window_setting.value or "30") if source_window_setting else "30"
+        if source_window_days not in {"7", "30", "90"}:
+            source_window_days = "30"
     finally:
         db.close()
     known_domains = store.get_domains()
@@ -831,6 +836,7 @@ async def domain_details(request: Request, domain_id: str):
         "domain_details.html",
         {
             "domain_id": domain_id,
+            "source_window_days": source_window_days,
             "domain": {
                 "name": domain_id,
                 "description": stored_domain.description if stored_domain else "",

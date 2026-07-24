@@ -274,6 +274,10 @@ function domainDetailsApp(domainId = '') {
 
         init() {
             this.domainId = this.$el?.dataset?.domainId || this.domainId;
+            const configuredSourceWindow = this.$el?.dataset?.sourceWindowDays;
+            if (['7', '30', '90'].includes(configuredSourceWindow)) {
+                this.filters.dateRange = configuredSourceWindow;
+            }
             this.bindPageControls();
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {

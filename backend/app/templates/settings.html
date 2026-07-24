@@ -235,6 +235,15 @@
                             class="input input-bordered w-full" min="5" />
                         <label class="label"><span class="label-text-alt text-muted-foreground">How long login sessions remain valid</span></label>
                     </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Default Sending Sources Window</span></label>
+                        <select x-model="s['general.source_date_window_days']" class="select select-bordered w-full">
+                            <option value="7">Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <label class="label"><span class="label-text-alt text-muted-foreground">Applied when opening a domain. You can still choose any window, including all time, on that page.</span></label>
+                    </div>
                 </div>
                 {{ save_footer("Save this section after changing product name, public URL, or session behavior.", "Save General Settings") }}
             </form>
