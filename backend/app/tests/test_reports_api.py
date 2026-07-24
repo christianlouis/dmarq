@@ -165,10 +165,12 @@ def test_projection_window_uses_report_end_time(db_session, monkeypatch):
     saved, _ = save_parsed_report(db_session, report, workspace_id=workspace.id)
     db_session.commit()
 
-    monkeypatch.setattr(
-        "app.services.source_read_projection.datetime",
-        type("FrozenDateTime", (), {"now": staticmethod(lambda *_args: datetime.fromtimestamp(1_704_240_000, timezone.utc))}),
-    )
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(1_704_240_000, tz or timezone.utc)
+
+    monkeypatch.setattr("app.services.source_read_projection.datetime", FrozenDateTime)
     sources, _ = load_domain_source_read_projection(
         db_session,
         domain_id=saved.domain_id,
