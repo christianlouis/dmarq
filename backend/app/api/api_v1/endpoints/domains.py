@@ -1992,6 +1992,9 @@ class SourceEntry(BaseModel):
     dmarc_pass_count: int = 0
     dmarc_fail_count: int = 0
     disposition_counts: Dict[str, int] = Field(default_factory=dict)
+    delivery_status: str = "unknown"
+    delivery_label: str = "Delivery status unknown"
+    delivery_detail: str = "No DMARC delivery outcome is available for this source."
     hostname: Optional[str] = None
     ptr_status: Optional[str] = None
     ptr_detail: Optional[str] = None
@@ -7799,6 +7802,45 @@ def _source_recommendations(
     return recommendations
 
 
+def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
+    """Describe the observed DMARC outcome without claiming sender ownership."""
+    passed = int(source.get("dmarc_pass_count") or 0)
+    failed = int(source.get("dmarc_fail_count") or 0)
+    dispositions = source.get("disposition_counts") or {}
+    blocked = int(dispositions.get("reject") or 0) + int(dispositions.get("quarantine") or 0)
+    delivered_failures = int(dispositions.get("none") or 0)
+
+    if passed and not failed:
+        return {
+            "status": "aligned",
+            "label": "Aligned delivery",
+            "detail": "All observed messages passed DMARC in the selected window.",
+        }
+    if failed and blocked >= failed and not delivered_failures:
+        return {
+            "status": "policy_blocked",
+            "label": "Blocked by policy",
+            "detail": "Observed DMARC failures were quarantined or rejected by policy.",
+        }
+    if failed and delivered_failures and not passed:
+        return {
+            "status": "unauthenticated_delivered",
+            "label": "Unauthenticated delivery",
+            "detail": "Observed DMARC failures were delivered with disposition none.",
+        }
+    if passed or failed:
+        return {
+            "status": "mixed",
+            "label": "Mixed delivery",
+            "detail": "The selected window contains both aligned and failing DMARC outcomes.",
+        }
+    return {
+        "status": "unknown",
+        "label": "Delivery status unknown",
+        "detail": "No DMARC delivery outcome is available for this source.",
+    }
+
+
 def _anomaly_recommendations(anomalies: List[Dict[str, Any]]) -> List[SourceRecommendation]:
     """Expose source intelligence anomalies as source-level next steps."""
     recommendations = []
@@ -8165,7 +8207,7 @@ async def _source_reputations_by_ip(
 @router.get("/{domain_id}/sources", response_model=DomainSourcesResponse)
 async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
-    days: int = Query(30, title="Number of days to look back"),
+    days: Optional[int] = Query(None, ge=1, le=3650, title="Number of days to look back"),
     refresh: bool = Query(False, title="Refresh cached source reputation evidence"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -8177,8 +8219,9 @@ async def get_domain_sources(
     workspace = _authorized_domain_read_workspace(_auth, db)
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
+    source_days = days if days is not None else 30
     sources = store.get_domain_sources(domain_name, days=days)
-    reports = store.get_domain_reports(domain_name)
+    reports = store.get_domain_reports(domain_name, days=days)
     provider = get_default_provider(db)
     settings = get_settings()
 
@@ -8214,7 +8257,7 @@ async def get_domain_sources(
         domain_name,
         reports,
         sources,
-        period_days=days,
+        period_days=source_days,
         geo_by_ip=geo_by_ip,
     )
     anomalies_by_ip = intelligence.get("anomalies_by_ip", {})
@@ -8234,7 +8277,7 @@ async def get_domain_sources(
         sources,
         sender_by_ip,
         anomalies_by_ip,
-        days,
+        source_days,
         refresh,
         settings,
     )
@@ -8248,6 +8291,7 @@ async def get_domain_sources(
             spf_fix_hint = None
         source_anomalies = anomalies_by_ip.get(ip, [])
         reputation = reputations_by_ip.get(ip)
+        delivery = _source_delivery_status(source)
         recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
         recommendations.extend(_anomaly_recommendations(source_anomalies))
         recommendations.extend(_reputation_recommendations(reputation))
@@ -8272,6 +8316,9 @@ async def get_domain_sources(
                 dmarc_pass_count=source.get("dmarc_pass_count", 0),
                 dmarc_fail_count=source.get("dmarc_fail_count", 0),
                 disposition_counts=source.get("disposition_counts", {}),
+                delivery_status=delivery["status"],
+                delivery_label=delivery["label"],
+                delivery_detail=delivery["detail"],
                 hostname=hostname,
                 ptr_status=(ptr_by_ip.get(ip).status if ptr_by_ip.get(ip) else None),
                 ptr_detail=(ptr_by_ip.get(ip).detail if ptr_by_ip.get(ip) else None),
@@ -8304,7 +8351,7 @@ async def get_domain_sources(
 @router.get("/{domain_id}/source-reputation", response_model=DomainSourceReputationResponse)
 async def get_domain_source_reputation(
     domain_id: str = Path(..., title="The domain ID or name"),
-    days: int = Query(30, ge=1, le=365, title="Number of days to analyze"),
+    days: int = Query(30, ge=1, le=3650, title="Number of days to analyze"),
     refresh: bool = Query(False, title="Refresh cached reputation evidence"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -8313,7 +8360,7 @@ async def get_domain_source_reputation(
     workspace = _authorized_domain_read_workspace(_auth, db)
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    reports = store.get_domain_reports(domain_name)
+    reports = store.get_domain_reports(domain_name, days=days)
     sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
         domain_name,
@@ -8354,7 +8401,7 @@ async def get_domain_source_reputation(
 @router.get("/{domain_id}/source-intelligence", response_model=SourceIntelligenceResponse)
 async def get_domain_source_intelligence(
     domain_id: str = Path(..., title="The domain ID or name"),
-    days: int = Query(30, ge=1, le=365, title="Number of days to analyze"),
+    days: int = Query(30, ge=1, le=3650, title="Number of days to analyze"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -8382,7 +8429,7 @@ async def get_domain_source_intelligence(
     }
     intelligence = build_source_intelligence(
         domain_name,
-        store.get_domain_reports(domain_name),
+        store.get_domain_reports(domain_name, days=days),
         sources,
         period_days=days,
         geo_by_ip=geo_by_ip,

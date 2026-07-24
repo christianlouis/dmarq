@@ -2427,6 +2427,13 @@
                             <option value="stale">Stale senders</option>
                             <option value="clean">Clean reputation</option>
                         </select>
+                        <select x-model="filters.sourceDeliveryFilter" class="select select-sm select-bordered">
+                            <option value="all">All delivery outcomes</option>
+                            <option value="aligned">Aligned delivery</option>
+                            <option value="policy_blocked">Blocked by policy</option>
+                            <option value="unauthenticated_delivered">Unauthenticated delivery</option>
+                            <option value="mixed">Mixed delivery</option>
+                        </select>
                         <button type="button"
                                 class="btn btn-sm btn-default"
                                 data-domain-detail-refresh-reputation
@@ -2457,6 +2464,15 @@
                     </span>
                     <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">
                         <span x-text="sourceRiskCounts.recent"></span><span class="ml-1">recent</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">
+                        <span x-text="sourceRiskCounts.aligned"></span><span class="ml-1">aligned delivery</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">
+                        <span x-text="sourceRiskCounts.blocked"></span><span class="ml-1">blocked by policy</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800">
+                        <span x-text="sourceRiskCounts.unauthenticated"></span><span class="ml-1">unauthenticated delivery</span>
                     </span>
                     <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70">
                         <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
@@ -2505,6 +2521,10 @@
                                         <span class="mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
                                               :class="sourceActivityClass(source)"
                                               x-text="sourceActivityLabel(source)"></span>
+                                        <span class="inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
+                                              :class="sourceDeliveryClass(source)"
+                                              :title="source.delivery_detail"
+                                              x-text="source.delivery_label"></span>
                                     </div>
                                     <div class="space-y-1">
                                         <div class="flex flex-wrap items-center gap-2">

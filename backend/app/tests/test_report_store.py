@@ -191,6 +191,54 @@ class TestReportStore:
         ]
         assert "_volume_by_date" not in source
 
+    def test_get_domain_sources_honors_the_requested_observation_window(self, monkeypatch):
+        store = ReportStore.get_instance()
+        now = 1709251200  # 2024-03-01T00:00:00Z
+        older = _sample_report("test.com")
+        older.update(
+            {
+                "report_id": "outside-window",
+                "begin_timestamp": 1701388800,
+                "end_timestamp": 1701475199,
+                "records": [
+                    {
+                        "source_ip": "203.0.113.10",
+                        "count": 99,
+                        "disposition": "reject",
+                        "dkim_result": "fail",
+                        "spf_result": "fail",
+                    }
+                ],
+            }
+        )
+        recent = _sample_report("test.com")
+        recent.update(
+            {
+                "report_id": "inside-window",
+                "begin_timestamp": 1709164800,
+                "end_timestamp": 1709251199,
+                "records": [
+                    {
+                        "source_ip": "203.0.113.20",
+                        "count": 7,
+                        "disposition": "none",
+                        "dkim_result": "pass",
+                        "spf_result": "pass",
+                    }
+                ],
+            }
+        )
+        store.add_report(older)
+        store.add_report(recent)
+        monkeypatch.setattr(report_store_module, "_now_timestamp", lambda: now)
+
+        sources = store.get_domain_sources("test.com", days=30)
+        reports = store.get_domain_reports("test.com", days=30)
+
+        assert [source["source_ip"] for source in sources] == ["203.0.113.20"]
+        assert sources[0]["count"] == 7
+        assert [report["report_id"] for report in reports] == ["inside-window"]
+
     def test_get_domain_sources_clamps_future_report_end_to_current_time(self, monkeypatch):
         store = ReportStore.get_instance()
         now = 1706788800
