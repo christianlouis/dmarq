@@ -2008,6 +2008,11 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "Investigation summary" in template
     assert "Sending source clusters" in template
     assert "Raw record evidence" in template
+    assert "Receiver action" in template
+    assert "Next step" in template
+    assert "View evidence" in template
+    assert "formatNumber(record.count)" in template
+    assert "formatNumber(value)" in script
     assert "senderClusters" in script
     assert "investigationCounts" in script
     assert "data-report-risk-filter" in template

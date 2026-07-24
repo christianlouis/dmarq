@@ -365,27 +365,24 @@
                         {% call thead() %}
                             {% call tr() %}
                                 {% call th() %}Source IP{% endcall %}
-                                {% call th() %}Source intelligence{% endcall %}
-                                {% call th() %}Reputation{% endcall %}
-                                {% call th() %}Count{% endcall %}
-                                {% call th() %}Disposition{% endcall %}
-                                {% call th() %}DKIM{% endcall %}
-                                {% call th() %}SPF{% endcall %}
-                                {% call th() %}Header From{% endcall %}
-                                {% call th() %}Review{% endcall %}
+                                {% call th() %}Observed{% endcall %}
+                                {% call th() %}Receiver action{% endcall %}
+                                {% call th() %}Authentication{% endcall %}
+                                {% call th() %}Next step{% endcall %}
+                                {% call th() %}Evidence{% endcall %}
                             {% endcall %}
                         {% endcall %}
                         {% call tbody() %}
                             <template x-if="report.records.length === 0">
                                 <tr>
-                                    <td colspan="9" class="text-center py-4">
+                                    <td colspan="6" class="text-center py-4">
                                         <div class="text-muted-foreground">No records in this report</div>
                                     </td>
                                 </tr>
                             </template>
                             <template x-if="report.records.length > 0 && filteredRecords.length === 0">
                                 <tr>
-                                    <td colspan="9" class="text-center py-4">
+                                    <td colspan="6" class="text-center py-4">
                                         <div class="text-muted-foreground">No records match this reputation view.</div>
                                     </td>
                                 </tr>
@@ -393,135 +390,20 @@
                             <template x-for="(record, index) in visibleFilteredRecords" :key="record.source_ip + '-' + index">
                                 {% call tr() %}
                                     {% call td() %}
-                                        <span class="font-mono text-sm" x-text="record.source_ip"></span>
-                                    {% endcall %}
-                                    {% call td() %}
-                                        <div class="min-w-64 max-w-sm space-y-1 text-xs text-[#5f5c78]">
+                                        <div class="min-w-48 space-y-1 text-xs text-[#5f5c78]">
+                                            <span class="font-mono text-sm font-semibold text-[#120d36]" x-text="record.source_ip"></span>
+                                            <p x-show="record.source_details.hostname" class="font-mono" x-text="record.source_details.hostname"></p>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <span class="font-semibold text-[#120d36]" x-text="recordSenderName(record)"></span>
                                                 <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                                       :class="senderStatusClass(recordSenderStatus(record))"
                                                       x-text="recordSenderStatus(record)"></span>
                                             </div>
-                                            <div>
-                                                <span x-text="recordSenderProvider(record)"></span>
-                                                <span> · </span>
-                                                <span x-text="recordSenderConfidence(record)"></span>
-                                            </div>
-                                            <p x-show="recordSenderEvidence(record)" x-text="recordSenderEvidence(record)"></p>
-                                            <p x-show="recordSenderRemediationHint(record)" class="text-[#120d36]" x-text="recordSenderRemediationHint(record)"></p>
-                                            <div x-show="record.source_details.hostname">
-                                                PTR: <span class="font-mono" x-text="record.source_details.hostname"></span>
-                                            </div>
-                                            <div x-show="!record.source_details.hostname" class="text-muted-foreground">
-                                                <span x-text="ptrStatusLabel(record.source_details)"></span>
-                                            </div>
-                                            <div>
-                                                <span x-text="sourceLocation(record)"></span>
-                                            </div>
-                                            <div x-show="record.source_details.config_hint" class="text-muted-foreground"
-                                                 x-text="geoAvailabilityHint(record.source_details)"></div>
-                                            <div x-show="record.source_details.enrichment_mode === 'tokenless-fallback'" class="text-muted-foreground">
-                                                Tokenless ASN; geo may be partial (no premium geo token required)
-                                            </div>
-                                            <div x-show="record.source_details.city">
-                                                City: <span x-text="record.source_details.city"></span>
-                                            </div>
-                                            <div x-show="record.source_details.asn || record.source_details.network">
-                                                <span x-text="record.source_details.asn || 'ASN unknown'"></span>
-                                                <span x-show="record.source_details.network"> · </span>
-                                                <span x-text="record.source_details.network || ''"></span>
-                                            </div>
-                                            <div class="flex flex-wrap gap-1" x-show="record.source_details.bgp_prefix || record.source_details.registry || record.source_details.allocated">
-                                                <span x-show="record.source_details.bgp_prefix"
-                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 font-mono"
-                                                      x-text="record.source_details.bgp_prefix"></span>
-                                                <span x-show="record.source_details.registry"
-                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 uppercase"
-                                                      x-text="record.source_details.registry"></span>
-                                                <span x-show="record.source_details.allocated"
-                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5"
-                                                      x-text="'allocated ' + record.source_details.allocated"></span>
-                                            </div>
-                                            <div x-show="record.source_details.network_source">
-                                                Network data: <span x-text="record.source_details.network_source"></span>
-                                            </div>
-                                            <div x-show="record.source_details.organization || record.source_details.domain">
-                                                <span x-show="record.source_details.organization" x-text="record.source_details.organization"></span>
-                                                <span x-show="record.source_details.organization && record.source_details.domain"> · </span>
-                                                <span x-show="record.source_details.domain" x-text="record.source_details.domain"></span>
-                                            </div>
-                                            <a x-show="record.source_details.radar_url"
-                                               :href="record.source_details.radar_url"
-                                               target="_blank"
-                                               rel="noopener noreferrer"
-                                               class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
-                                            <div x-show="record.source_details.network_error && !record.source_details.asn && !record.source_details.network"
-                                                 x-text="record.source_details.network_error"></div>
-                                            <div x-show="record.reputation && (record.reputation.first_seen || record.reputation.last_seen)">
-                                                <span x-show="record.reputation && record.reputation.last_seen">Last sent <span x-text="seenLabel(record.reputation.last_seen)"></span></span>
-                                                <span x-show="record.reputation && record.reputation.first_seen && record.reputation.last_seen"> · </span>
-                                                <span x-show="record.reputation && record.reputation.first_seen">First seen <span x-text="seenLabel(record.reputation.first_seen)"></span></span>
-                                            </div>
                                         </div>
                                     {% endcall %}
                                     {% call td() %}
-                                        <div class="min-w-56 max-w-xs space-y-2 text-xs text-[#5f5c78]">
-                                            <template x-if="record.reputation">
-                                                <div class="space-y-2">
-                                                    <div class="flex flex-wrap gap-1">
-                                                        <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold"
-                                                              :class="reputationClass(record.reputation.status)"
-                                                              x-text="reputationLabel(record.reputation)"></span>
-                                                        <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80"
-                                                              x-text="reputationScoreLabel(record.reputation)"></span>
-                                                    </div>
-                                                    <div class="flex flex-wrap gap-1">
-                                                        <span class="inline-flex items-center rounded px-2 py-1 text-xs"
-                                                              :class="reputationFeedClass(record.reputation.feed_status)"
-                                                              x-text="record.reputation.feed_summary || 'Local reputation evidence only'"></span>
-                                                    </div>
-                                                    <div class="leading-relaxed" x-text="reputationDetail(record.reputation)"></div>
-                                                    <div class="text-muted-foreground">
-                                                        <span x-text="reputationCheckedLabel(record.reputation)"></span>
-                                                        <span> · </span>
-                                                        <span x-text="reputationAgeLabel(record.reputation)"></span>
-                                                    </div>
-                                                    <template x-if="record.reputation.listings && record.reputation.listings.length">
-                                                        <div class="font-semibold text-[#ff6f3c]">
-                                                            DNSBL: <span x-text="record.reputation.listings.join(', ')"></span>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="reputationNextSteps(record.reputation).length">
-                                                        <ul class="space-y-1 text-[#5f5c78]">
-                                                            <template x-for="step in reputationNextSteps(record.reputation)" :key="step">
-                                                                <li x-text="step"></li>
-                                                            </template>
-                                                        </ul>
-                                                    </template>
-                                                    <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(record.reputation).length">
-                                                        <template x-for="item in reputationEvidencePreview(record.reputation)" :key="item.label + item.value">
-                                                            <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
-                                                                <span class="font-medium" x-text="item.label"></span>
-                                                                <span class="px-1">·</span>
-                                                                <span class="truncate" x-text="item.value"></span>
-                                                            </span>
-                                                        </template>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                            <template x-if="!record.reputation">
-                                                <div class="space-y-1">
-                                                    <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 text-xs font-semibold text-base-content/70">
-                                                        Reputation not calculated
-                                                    </span>
-                                                    <p>Use Recalculate reputation to refresh reputation feeds and cached IP evidence for this report.</p>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    {% endcall %}
-                                    {% call td() %}
-                                        <span x-text="record.count"></span>
+                                        <span class="font-semibold" x-text="formatNumber(record.count)"></span>
+                                        <span class="mt-1 block text-xs text-[#5f5c78]">messages</span>
                                     {% endcall %}
                                     {% call td() %}
                                         <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
@@ -529,34 +411,110 @@
                                               x-text="record.disposition"></span>
                                     {% endcall %}
                                     {% call td() %}
-                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
-                                              :class="resultClass(record.dkim_result)"
-                                              x-text="record.dkim_result || '—'"></span>
+                                        <div class="min-w-36 space-y-1 text-xs text-[#5f5c78]">
+                                            <div class="flex flex-wrap gap-1">
+                                                <span class="inline-flex items-center rounded px-2 py-1 capitalize"
+                                                      :class="resultClass(record.dkim_result)"
+                                                      x-text="'DKIM ' + (record.dkim_result || '—')"></span>
+                                                <span class="inline-flex items-center rounded px-2 py-1 capitalize"
+                                                      :class="resultClass(record.spf_result)"
+                                                      x-text="'SPF ' + (record.spf_result || '—')"></span>
+                                            </div>
+                                            <p class="truncate" :title="record.header_from || '—'">
+                                                From: <span x-text="record.header_from || '—'"></span>
+                                            </p>
+                                        </div>
                                     {% endcall %}
                                     {% call td() %}
-                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
-                                              :class="resultClass(record.spf_result)"
-                                              x-text="record.spf_result || '—'"></span>
-                                    {% endcall %}
-                                    {% call td() %}
-                                        <span x-text="record.header_from || '—'"></span>
-                                    {% endcall %}
-                                    {% call td() %}
-                                        <div class="max-w-sm space-y-2">
+                                        <div class="min-w-52 max-w-sm space-y-2">
                                             <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
                                                   :class="reviewStatusClass(record.review_status)"
                                                   x-text="reviewStatusLabel(record.review_status)"></span>
-                                            <template x-if="(record.failure_reasons || []).length">
-                                                <ul class="space-y-1 text-xs text-[#5f5c78]">
-                                                    <template x-for="reason in (record.failure_reasons || [])" :key="reason">
-                                                        <li x-text="reason"></li>
-                                                    </template>
-                                                </ul>
-                                            </template>
                                             <template x-if="(record.next_steps || []).length">
                                                 <p class="text-xs font-semibold text-[#2f9da5]" x-text="(record.next_steps || [])[0]"></p>
                                             </template>
+                                            <template x-if="!(record.next_steps || []).length && (record.failure_reasons || []).length">
+                                                <p class="text-xs font-semibold text-[#2f9da5]" x-text="(record.failure_reasons || [])[0]"></p>
+                                            </template>
+                                            <template x-if="!(record.next_steps || []).length && !(record.failure_reasons || []).length && reputationNextSteps(record.reputation).length">
+                                                <p class="text-xs font-semibold text-[#2f9da5]" x-text="reputationNextSteps(record.reputation)[0]"></p>
+                                            </template>
+                                            <template x-if="!(record.next_steps || []).length && !(record.failure_reasons || []).length && !reputationNextSteps(record.reputation).length && recordSenderRemediationHint(record)">
+                                                <p class="text-xs font-semibold text-[#2f9da5]" x-text="recordSenderRemediationHint(record)"></p>
+                                            </template>
                                         </div>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <details class="min-w-40 max-w-xs rounded border border-base-300 bg-base-100">
+                                            <summary class="cursor-pointer px-3 py-2 text-xs font-semibold text-[#272a5f]">
+                                                View evidence
+                                            </summary>
+                                            <div class="space-y-3 border-t border-base-300 p-3 text-xs text-[#5f5c78]">
+                                                <div class="space-y-1">
+                                                    <p><span class="font-semibold text-[#120d36]">Sender:</span> <span x-text="recordSenderProvider(record)"></span> · <span x-text="recordSenderConfidence(record)"></span></p>
+                                                    <p x-show="recordSenderEvidence(record)" x-text="recordSenderEvidence(record)"></p>
+                                                    <p x-show="record.source_details.hostname">PTR: <span class="font-mono" x-text="record.source_details.hostname"></span></p>
+                                                    <p x-show="!record.source_details.hostname" x-text="ptrStatusLabel(record.source_details)"></p>
+                                                    <p x-text="sourceLocation(record)"></p>
+                                                    <p x-show="record.source_details.city">City: <span x-text="record.source_details.city"></span></p>
+                                                    <p x-show="record.source_details.asn || record.source_details.network">
+                                                        <span x-text="record.source_details.asn || 'ASN unknown'"></span>
+                                                        <span x-show="record.source_details.network"> · </span>
+                                                        <span x-text="record.source_details.network || ''"></span>
+                                                    </p>
+                                                    <p x-show="record.source_details.organization || record.source_details.domain">
+                                                        <span x-text="record.source_details.organization || record.source_details.domain"></span>
+                                                    </p>
+                                                    <div class="flex flex-wrap gap-1" x-show="record.source_details.bgp_prefix || record.source_details.registry || record.source_details.allocated">
+                                                        <span x-show="record.source_details.bgp_prefix" class="rounded bg-base-200 px-2 py-0.5 font-mono" x-text="record.source_details.bgp_prefix"></span>
+                                                        <span x-show="record.source_details.registry" class="rounded bg-base-200 px-2 py-0.5 uppercase" x-text="record.source_details.registry"></span>
+                                                        <span x-show="record.source_details.allocated" class="rounded bg-base-200 px-2 py-0.5" x-text="'allocated ' + record.source_details.allocated"></span>
+                                                    </div>
+                                                    <p x-show="record.source_details.config_hint" x-text="geoAvailabilityHint(record.source_details)"></p>
+                                                    <p x-show="record.source_details.network_error && !record.source_details.asn && !record.source_details.network" x-text="record.source_details.network_error"></p>
+                                                    <a x-show="record.source_details.radar_url" :href="record.source_details.radar_url" target="_blank" rel="noopener noreferrer" class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
+                                                </div>
+                                                <template x-if="record.reputation">
+                                                    <div class="space-y-2 border-t border-base-200 pt-3">
+                                                        <div class="flex flex-wrap gap-1">
+                                                            <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold" :class="reputationClass(record.reputation.status)" x-text="reputationLabel(record.reputation)"></span>
+                                                            <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 font-mono text-xs" x-text="reputationScoreLabel(record.reputation)"></span>
+                                                        </div>
+                                                        <span class="inline-flex items-center rounded px-2 py-1 text-xs"
+                                                              :class="reputationFeedClass(record.reputation.feed_status)"
+                                                              x-text="record.reputation.feed_summary || 'Local reputation evidence only'"></span>
+                                                        <p x-text="reputationDetail(record.reputation)"></p>
+                                                        <p><span x-text="reputationCheckedLabel(record.reputation)"></span> · <span x-text="reputationAgeLabel(record.reputation)"></span></p>
+                                                        <p x-show="record.reputation.first_seen || record.reputation.last_seen">
+                                                            <span x-show="record.reputation.last_seen">Last sent <span x-text="seenLabel(record.reputation.last_seen)"></span></span>
+                                                            <span x-show="record.reputation.first_seen && record.reputation.last_seen"> · </span>
+                                                            <span x-show="record.reputation.first_seen">First seen <span x-text="seenLabel(record.reputation.first_seen)"></span></span>
+                                                        </p>
+                                                        <p x-show="record.reputation.listings && record.reputation.listings.length" class="font-semibold text-[#ff6f3c]">DNSBL: <span x-text="record.reputation.listings.join(', ')"></span></p>
+                                                        <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(record.reputation).length">
+                                                            <template x-for="item in reputationEvidencePreview(record.reputation)" :key="item.label + item.value">
+                                                                <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
+                                                                    <span class="font-medium" x-text="item.label"></span>
+                                                                    <span class="px-1">·</span>
+                                                                    <span class="truncate" x-text="item.value"></span>
+                                                                </span>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!record.reputation">
+                                                    <p class="border-t border-base-200 pt-3">Reputation has not been calculated. Use Recalculate reputation to refresh report evidence.</p>
+                                                </template>
+                                                <template x-if="(record.failure_reasons || []).length">
+                                                    <div class="border-t border-base-200 pt-3">
+                                                        <p class="font-semibold text-[#120d36]">Why this needs review</p>
+                                                        <ul class="mt-1 space-y-1">
+                                                            <template x-for="reason in (record.failure_reasons || [])" :key="reason"><li x-text="reason"></li></template>
+                                                        </ul>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </details>
                                     {% endcall %}
                                 {% endcall %}
                             </template>
