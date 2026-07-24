@@ -156,6 +156,59 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
     assert db_session.get(DMARCReport, report.id).source_projection_at is not None
 
 
+def test_projection_backfill_merges_same_sender_day_within_one_batch(db_session):
+    """A single historic batch may contain several reports for one daily sender fact."""
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name="projection-batch.example", workspace_id=workspace.id, active=True)
+    db_session.add(domain)
+    db_session.flush()
+    first = DMARCReport(
+        domain_id=domain.id,
+        report_id="projection-batch-first",
+        org_name="receiver.example",
+        begin_date=1_704_067_200,
+        end_date=1_704_153_599,
+    )
+    second = DMARCReport(
+        domain_id=domain.id,
+        report_id="projection-batch-second",
+        org_name="receiver.example",
+        begin_date=1_704_067_200,
+        end_date=1_704_153_599,
+    )
+    db_session.add_all([first, second])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportRecord(
+                report_id=first.id,
+                source_ip="192.0.2.88",
+                count=7,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+            ReportRecord(
+                report_id=second.id,
+                source_ip="192.0.2.88",
+                count=13,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert backfill_source_projections(db_session, limit=10) == 2
+    db_session.commit()
+
+    projection = db_session.query(DomainSourceDailyProjection).one()
+    assert projection.message_count == 20
+    assert projection.report_count == 2
+    assert db_session.query(DMARCReport).filter(DMARCReport.source_projection_at.is_(None)).count() == 0
+
+
 def test_projection_write_lock_serializes_postgres_writers():
     """Production writers use one transaction-scoped lock for daily aggregates."""
 
@@ -182,6 +235,9 @@ def test_projection_write_lock_serializes_postgres_writers():
         def execute(self, statement, params):
             self.calls.append((str(statement), params))
 
+        def flush(self):
+            self.calls.append(("flush", None))
+
         def query(self, *_args):
             self.calls.append(("query", None))
             return FakeQuery(self)
@@ -205,6 +261,7 @@ def test_projection_write_lock_serializes_postgres_writers():
 
     materialize_calls = postgres.calls[1:]
     assert "pg_advisory_xact_lock" in materialize_calls[0][0]
+    assert ("flush", None) in materialize_calls
     assert ("query", None) in materialize_calls
 
     sqlite = FakeSession("sqlite")
