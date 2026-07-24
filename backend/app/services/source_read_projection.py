@@ -169,6 +169,10 @@ def materialize_source_projection(
 ) -> None:
     """Upsert sender facts for a newly persisted aggregate report."""
     _acquire_source_projection_write_lock(db)
+    # Backfill batches can contain multiple reports for the same sender/day.
+    # SessionLocal disables autoflush, so persist facts from the preceding
+    # report before looking up the next daily aggregate.
+    db.flush()
     first_seen, last_seen, observed_at = _observation_window(report)
     for source_ip, values in _projection_records(report.get("records") or []).items():
         projection = (
