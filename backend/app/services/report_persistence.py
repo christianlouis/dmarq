@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -377,7 +378,7 @@ def hydrate_domain_report_store_from_db(
         # to a datetime happens to be permissive in SQLite but fails in
         # PostgreSQL and prevents every time-scoped domain read from using its
         # database filter.
-        cutoff = int((datetime.utcnow() - timedelta(days=max(1, int(days)))).timestamp())
+        cutoff = int(time.time()) - (max(1, int(days)) * 24 * 60 * 60)
         query = query.filter(DMARCReport.end_date >= cutoff)
     reports = query.order_by(DMARCReport.end_date.desc()).all()
     for report in reports:
