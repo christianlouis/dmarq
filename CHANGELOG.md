@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   safe change and core DMARC, SPF, and DKIM evidence lead the view; provider
   connection details, optional standards, selector management, implementation
   guidance, and full lint evidence remain available through clear disclosures.
+- Reorganized report records around the operational questions: source, observed
+  volume, receiver action, authentication result, and next step. PTR, ASN/geo,
+  reputation feeds, raw lookup evidence, and failure detail remain available
+  per record without forcing the entire evidence set into every table row.
 - Kept localized dashboards responsive by preventing translation and Alpine
   rendering from repeatedly rewriting the same text nodes. Language choices in
   the asynchronously rendered account menu now apply and persist after reload.

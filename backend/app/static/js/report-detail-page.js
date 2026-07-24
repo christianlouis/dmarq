@@ -166,6 +166,10 @@ function reportDetailApp(reportId = '') {
             return new Date(timestamp * 1000).toLocaleString();
         },
 
+        formatNumber(value) {
+            return new Intl.NumberFormat().format(Number(value || 0));
+        },
+
         normalizeReport(report) {
             const normalized = report && typeof report === 'object' ? report : {};
             return {
