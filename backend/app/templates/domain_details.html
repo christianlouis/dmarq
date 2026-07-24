@@ -1382,7 +1382,14 @@
                             <p class="mt-3 text-sm text-red-700" x-text="healthHistory.error"></p>
                         </template>
                         <template x-if="!healthHistory.error && !healthHistory.points.length && !healthHistory.loading">
-                            <p class="mt-3 text-sm text-[#5f5c78]">No health history has been captured yet.</p>
+                            <div class="mt-3 space-y-2 text-sm text-[#5f5c78]">
+                                <p>No health snapshot has been captured yet. Capture the current aggregate posture to start this trend.</p>
+                                <button type="button"
+                                        class="btn btn-outline btn-sm"
+                                        data-domain-detail-health-history-capture>
+                                    Capture current health score
+                                </button>
+                            </div>
                         </template>
                     </div>
 

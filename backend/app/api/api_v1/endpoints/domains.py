@@ -4370,7 +4370,15 @@ async def build_domain_health_evidence_export_rows(
             detail="Domain not found",
         )
 
-    if capture_current and not get_settings().DEMO_MODE:
+    snapshot_today = list_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        domain_name=domain_id,
+        start_date=date.today(),
+        end_date=date.today(),
+        limit=1,
+    )
+    if capture_current and not snapshot_today and not get_settings().DEMO_MODE:
         health = await _build_domain_dns_health(db, store, domain_id)
         domain_health = await _build_domain_health_grade(db, domain_id, store)
         summary = store.get_domain_summary(domain_id)
@@ -6790,7 +6798,18 @@ async def get_domain_health_score_history(
             detail="Domain not found",
         )
 
-    if capture_current and not get_settings().DEMO_MODE:
+    # The page requests this endpoint on every visit.  Capture the first
+    # snapshot of the day, then read the persisted evidence on later visits
+    # instead of repeating DNS and report aggregation work.
+    snapshots_today = list_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        domain_name=domain_id,
+        start_date=date.today(),
+        end_date=date.today(),
+        limit=1,
+    )
+    if capture_current and not snapshots_today and not get_settings().DEMO_MODE:
         health = await _build_domain_dns_health(db, store, domain_id)
         domain_health = await _build_domain_health_grade(db, domain_id, store)
         summary = store.get_domain_summary(domain_id)

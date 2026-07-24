@@ -2259,7 +2259,8 @@ def test_domain_details_exposes_health_history_without_html_injection():
     script = _domain_details_script()
 
     assert "Health Score Trend" in template
-    assert "/posture/history?capture_current=false" in script
+    assert "capture_current: captureCurrent ? 'true' : 'false'" in script
+    assert "data-domain-detail-health-history-capture" in template
     assert "/posture/evidence/export?capture_current=false" in script
     assert "encodeURIComponent(this.domainId)" in script
     assert 'x-data="domainDetailsApp"' in template

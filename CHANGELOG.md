@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Started domain health history automatically with one persisted score snapshot
+  per domain and day. Existing domains receive their initial trend point when
+  their detail view opens, and later visits reuse that evidence rather than
+  repeating the expensive posture calculation.
 - Kept localized dashboards responsive by preventing translation and Alpine
   rendering from repeatedly rewriting the same text nodes. Language choices in
   the asynchronously rendered account menu now apply and persist after reload.
