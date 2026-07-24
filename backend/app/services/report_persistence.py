@@ -445,6 +445,102 @@ def domain_summaries_from_db(
     return summaries
 
 
+def domain_summary_from_db(db: Session, *, domain_id: int) -> Dict[str, Any]:
+    """Return one domain's report totals without hydrating report payloads."""
+    passed_count = func.coalesce(
+        func.sum(
+            case(
+                (
+                    or_(ReportRecord.dkim == "pass", ReportRecord.spf == "pass"),
+                    ReportRecord.count,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    total_count = func.coalesce(func.sum(ReportRecord.count), 0)
+    row = (
+        db.query(
+            func.count(distinct(DMARCReport.id)).label("reports_processed"),
+            total_count.label("total_count"),
+            passed_count.label("passed_count"),
+        )
+        .select_from(DMARCReport)
+        .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(DMARCReport.domain_id == domain_id)
+        .one()
+    )
+    total = int(row.total_count or 0)
+    passed = int(row.passed_count or 0)
+    return {
+        "total_count": total,
+        "passed_count": passed,
+        "failed_count": max(0, total - passed),
+        "reports_processed": int(row.reports_processed or 0),
+        "compliance_rate": round((passed / total) * 100, 1) if total else 0.0,
+    }
+
+
+def domain_reports_and_timeline_from_db(
+    db: Session,
+    *,
+    domain_id: int,
+    limit: int,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Read recent reports and daily compliance evidence without a ReportStore."""
+    reports = (
+        db.query(DMARCReport)
+        .options(selectinload(DMARCReport.domain), selectinload(DMARCReport.records))
+        .filter(DMARCReport.domain_id == domain_id)
+        .order_by(DMARCReport.end_date.desc())
+        .limit(max(1, limit))
+        .all()
+    )
+    passed_count = func.coalesce(
+        func.sum(
+            case(
+                (
+                    or_(ReportRecord.dkim == "pass", ReportRecord.spf == "pass"),
+                    ReportRecord.count,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    total_count = func.coalesce(func.sum(ReportRecord.count), 0)
+    daily_rows = (
+        db.query(
+            DMARCReport.begin_date.label("begin_date"),
+            total_count.label("total_count"),
+            passed_count.label("passed_count"),
+        )
+        .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(DMARCReport.domain_id == domain_id)
+        .group_by(DMARCReport.begin_date)
+        .order_by(DMARCReport.begin_date.asc())
+        .all()
+    )
+    timeline = []
+    for row in daily_rows:
+        total = int(row.total_count or 0)
+        passed = int(row.passed_count or 0)
+        failed = max(0, total - passed)
+        timeline.append(
+            {
+                "date": _iso_from_timestamp(int(row.begin_date or 0))[:10],
+                "total": total,
+                "volume": total,
+                "passed": passed,
+                "failed": failed,
+                "compliance_rate": round((passed / total) * 100, 1) if total else 0.0,
+                "failure_rate": round((failed / total) * 100, 1) if total else 0.0,
+            }
+        )
+    return [persisted_report_to_dict(report) for report in reports], timeline
+
+
 def delete_persisted_report(
     db: Session,
     domain_name: str,

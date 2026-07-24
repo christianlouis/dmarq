@@ -771,6 +771,7 @@ def identify_sender(
     *,
     hostname: Optional[str] = None,
     domain: Optional[str] = None,
+    ptr_lookup_pending: bool = False,
 ) -> Dict[str, Any]:
     """Return a named sender identity for a source row.
 
@@ -827,7 +828,7 @@ def identify_sender(
     dmarc_failed = (
         int(source.get("dmarc_fail_count", 0) or 0) > 0 or source.get("dmarc_result") == "fail"
     )
-    if dmarc_failed and not hostname:
+    if dmarc_failed and not hostname and not ptr_lookup_pending:
         status = "suspicious"
         reason = "DMARC failures came from a source without reverse DNS."
     elif dmarc_failed:
