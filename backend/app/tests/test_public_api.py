@@ -1,5 +1,5 @@
 import copy
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,7 +85,15 @@ def _seed_report_store():
 
 
 def _persist_report(db_session):
-    save_parsed_report(db_session, MINIMAL_REPORT)
+    now = datetime.now(timezone.utc)
+    save_parsed_report(
+        db_session,
+        {
+            **MINIMAL_REPORT,
+            "begin_timestamp": int((now - timedelta(days=1)).timestamp()),
+            "end_timestamp": int(now.timestamp()),
+        },
+    )
     db_session.commit()
 
 
