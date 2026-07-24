@@ -30,6 +30,7 @@ from app.services.source_read_projection import (
     _acquire_source_projection_write_lock,
     backfill_source_projections,
     load_domain_source_read_projection,
+    materialize_source_projection,
 )
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
@@ -158,6 +159,18 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
 def test_projection_write_lock_serializes_postgres_writers():
     """Production writers use one transaction-scoped lock for daily aggregates."""
 
+    class FakeQuery:
+        def __init__(self, session):
+            self.session = session
+
+        def filter(self, *_args):
+            self.session.calls.append(("filter", None))
+            return self
+
+        def first(self):
+            self.session.calls.append(("first", None))
+            return None
+
     class FakeSession:
         def __init__(self, dialect_name):
             self._bind = SimpleNamespace(dialect=SimpleNamespace(name=dialect_name))
@@ -169,11 +182,30 @@ def test_projection_write_lock_serializes_postgres_writers():
         def execute(self, statement, params):
             self.calls.append((str(statement), params))
 
+        def query(self, *_args):
+            self.calls.append(("query", None))
+            return FakeQuery(self)
+
+        def add(self, *_args):
+            self.calls.append(("add", None))
+
     postgres = FakeSession("postgresql")
     _acquire_source_projection_write_lock(postgres)
 
     assert len(postgres.calls) == 1
     assert "pg_advisory_xact_lock" in postgres.calls[0][0]
+
+    db_report = DMARCReport()
+    materialize_source_projection(
+        postgres,
+        _parsed_report(domain="projection-lock.example", report_id="projection-lock-report"),
+        domain_id=42,
+        db_report=db_report,
+    )
+
+    materialize_calls = postgres.calls[1:]
+    assert "pg_advisory_xact_lock" in materialize_calls[0][0]
+    assert ("query", None) in materialize_calls
 
     sqlite = FakeSession("sqlite")
     _acquire_source_projection_write_lock(sqlite)
