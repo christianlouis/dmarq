@@ -157,6 +157,19 @@ unless the operator adds the explicit escape hatch
 DMARQ does not currently implement a local username/password browser login. The
 owner email on `/setup` is an operational contact, not a login account.
 
+## IMAP transport security
+
+DMARQ uses encrypted IMAP by default. With `Use SSL/TLS` enabled, port `993`
+uses implicit TLS (IMAPS) and port `143` uses STARTTLS. Leave this enabled for
+hosted mailbox providers.
+
+For a local IMAP bridge that deliberately exposes plain IMAP, such as Proton
+Mail Bridge, enter its bridge hostname and port (commonly `143`) and disable
+`Use SSL/TLS` in the mail-source form. DMARQ then uses plain IMAP for the
+connection test, scheduled polling, manual imports, and backfills. Only use
+this mode on an isolated trusted network; DMARQ does not send credentials over
+an untrusted cleartext connection.
+
 ## Reverse Proxy
 
 Keep the Compose bind address on `127.0.0.1` when Nginx, Caddy, or Traefik runs

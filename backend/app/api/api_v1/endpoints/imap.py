@@ -71,6 +71,7 @@ async def test_imap_connection(
         port=request.port,
         username=request.username,
         password=request.password,
+        use_ssl=request.ssl,
     )
 
     success, message, stats = imap_client.test_connection()

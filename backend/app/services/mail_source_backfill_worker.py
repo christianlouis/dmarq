@@ -299,6 +299,7 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             port=source.port or 993,
             username=source.username,
             password=source.password,
+            use_ssl=source.use_ssl,
             folder=source.folder,
             db=db,
             workspace_id=source.workspace_id,

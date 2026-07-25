@@ -1166,6 +1166,7 @@ def _fetch_imap_source(source: MailSource, db: Session, days: int) -> Dict[str, 
         port=source.port or 993,
         username=source.username,
         password=source.password,
+        use_ssl=source.use_ssl,
         folder=source.folder,
         db=db,
         workspace_id=source.workspace_id,
@@ -1880,6 +1881,7 @@ async def test_stored_mail_source(  # noqa: C901
         port=source.port or 993,
         username=source.username,
         password=source.password,
+        use_ssl=source.use_ssl,
         folder=source.folder,
     )
     success, message, stats = imap_client.test_connection()
@@ -1917,6 +1919,7 @@ async def test_connection_adhoc(
         port=request.port,
         username=request.username,
         password=request.password,
+        use_ssl=request.ssl,
     )
     success, message, stats = imap_client.test_connection()
 
