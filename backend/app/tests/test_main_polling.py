@@ -82,6 +82,7 @@ def test_poll_single_imap_source_passes_configured_folder():
         port=993,
         username="u",
         password="p",
+        use_ssl=True,
         folder="Junk Mail",
     )
     db = MagicMock()
@@ -107,6 +108,7 @@ def test_poll_single_imap_source_passes_configured_folder():
         port=993,
         username="u",
         password="p",
+        use_ssl=True,
         folder="Junk Mail",
         db=db,
         workspace_id=None,
