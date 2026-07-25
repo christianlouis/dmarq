@@ -1452,6 +1452,35 @@ class TestMailSourcesAPIAuthed:
         assert test_resp.json()["success"] is True
         assert client_class.call_args.kwargs["password"] == "stored-app-password"
 
+    def test_stored_plain_imap_test_passes_saved_tls_setting(
+        self,
+        authed_client: TestClient,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Local IMAP bridge",
+                "method": "IMAP",
+                "server": "protonmail-bridge",
+                "port": 143,
+                "username": "bridge-user",
+                "password": "bridge-password",
+                "use_ssl": False,
+            },
+        )
+        source_id = create_resp.json()["id"]
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = (True, "Connection successful", {})
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.IMAPClient",
+            return_value=mock_client,
+        ) as client_class:
+            test_resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert test_resp.status_code == 200
+        assert client_class.call_args.kwargs["use_ssl"] is False
+
     def test_update_enable_allows_unverified_report_domains(
         self,
         authed_client: TestClient,
@@ -1688,6 +1717,28 @@ class TestMailSourcesAPIAuthed:
         data = resp.json()
         assert data["success"] is True
         assert data["message_count"] == 5
+
+    def test_adhoc_plain_imap_passes_tls_setting(self, authed_client: TestClient):
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = (True, "Connection successful", {})
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.IMAPClient",
+            return_value=mock_client,
+        ) as client_class:
+            resp = authed_client.post(
+                "/api/v1/mail-sources/test-connection",
+                json={
+                    "server": "protonmail-bridge",
+                    "port": 143,
+                    "username": "bridge-user",
+                    "password": "bridge-password",
+                    "ssl": False,
+                    "method": "IMAP",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert client_class.call_args.kwargs["use_ssl"] is False
 
     def test_adhoc_non_imap_returns_not_implemented(self, authed_client: TestClient):
         payload = {

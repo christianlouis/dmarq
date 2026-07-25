@@ -34,6 +34,7 @@ class IMAPClient:
         port: int = None,
         username: str = None,
         password: str = None,
+        use_ssl: Optional[bool] = None,
         delete_emails: Optional[bool] = None,
         folder: str = None,
         db: Any = None,
@@ -47,6 +48,8 @@ class IMAPClient:
             port: IMAP server port (if None, uses settings)
             username: IMAP username (if None, uses settings)
             password: IMAP password (if None, uses settings)
+            use_ssl: Use implicit TLS (IMAPS). Set False for a local plain-IMAP
+                bridge such as Proton Mail Bridge.
             delete_emails: Whether to delete emails after successful report imports.
                 If omitted, uses DELETE_IMPORTED_EMAILS from settings.
             folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
@@ -62,6 +65,7 @@ class IMAPClient:
         self.port = port or settings.IMAP_PORT
         self.username = username or settings.IMAP_USERNAME
         self.password = password or settings.IMAP_PASSWORD
+        self.use_ssl = True if use_ssl is None else bool(use_ssl)
         configured_delete = getattr(settings, "DELETE_IMPORTED_EMAILS", False)
         if not isinstance(configured_delete, bool):
             configured_delete = False
@@ -78,6 +82,12 @@ class IMAPClient:
     def _quoted_folder(self) -> str:
         escaped = self.folder.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
+
+    def _connect(self) -> imaplib.IMAP4:
+        """Open the configured implicit-TLS or plain IMAP connection."""
+        if self.use_ssl:
+            return imaplib.IMAP4_SSL(self.server, self.port)
+        return imaplib.IMAP4(self.server, self.port)
 
     @staticmethod
     def _mailbox_name_from_list_response(response: str) -> str:
@@ -136,8 +146,7 @@ class IMAPClient:
             )
 
         try:
-            # Create IMAP4 connection
-            mail = imaplib.IMAP4_SSL(self.server, self.port)
+            mail = self._connect()
             # Login
             mail.login(self.username, self.password)
 
@@ -183,6 +192,7 @@ class IMAPClient:
                 "available_mailboxes": available_mailboxes,
                 "server": self.server,
                 "port": self.port,
+                "use_ssl": self.use_ssl,
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -288,8 +298,7 @@ class IMAPClient:
         stats = initial_import_stats(deleted=True)
 
         try:
-            # Connect to the mail server
-            mail = imaplib.IMAP4_SSL(self.server, self.port)
+            mail = self._connect()
             mail.login(self.username, self.password)
             mail.select(self._quoted_folder())
 

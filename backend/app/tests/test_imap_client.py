@@ -148,6 +148,7 @@ class TestIMAPClientInit:
         assert client.port == 143
         assert client.username == "user@example.com"
         assert client.password == "secret"
+        assert client.use_ssl is True
         assert client.delete_emails is True
 
     def test_delete_emails_defaults_to_settings(self):
@@ -306,6 +307,30 @@ class TestTestConnection:
         assert stats["message_count"] == 10
         assert "INBOX" in stats["available_mailboxes"]
         assert stats["dmarc_count_strategy"] == "common_provider_subjects"
+
+    def test_plain_imap_connection_does_not_negotiate_implicit_tls(self):
+        client = IMAPClient(
+            server="protonmail-bridge",
+            port=143,
+            username="bridge-user",
+            password="bridge-password",
+            use_ssl=False,
+        )
+        mock_mail = MagicMock()
+        mock_mail.list.return_value = ("OK", [])
+        mock_mail.select.return_value = ("OK", [b"0"])
+        mock_mail.search.return_value = ("OK", [b""])
+
+        with (
+            patch("imaplib.IMAP4", return_value=mock_mail) as plain_imap,
+            patch("imaplib.IMAP4_SSL") as tls_imap,
+        ):
+            success, _, stats = client.test_connection()
+
+        assert success is True
+        assert stats["use_ssl"] is False
+        plain_imap.assert_called_once_with("protonmail-bridge", 143)
+        tls_imap.assert_not_called()
 
     def test_connection_counts_standard_google_report_subjects(self):
         client = self._make_client()
