@@ -2,6 +2,7 @@ import email
 import imaplib
 import logging
 import shlex
+import ssl
 from datetime import datetime, timedelta
 from email.header import decode_header
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -84,10 +85,18 @@ class IMAPClient:
         return f'"{escaped}"'
 
     def _connect(self) -> imaplib.IMAP4:
-        """Open the configured implicit-TLS or plain IMAP connection."""
-        if self.use_ssl:
-            return imaplib.IMAP4_SSL(self.server, self.port)
-        return imaplib.IMAP4(self.server, self.port)
+        """Open the configured implicit-TLS, STARTTLS, or plain IMAP connection."""
+        if not self.use_ssl:
+            return imaplib.IMAP4(self.server, self.port)
+        if self.port == 143:
+            mail = imaplib.IMAP4(self.server, self.port)
+            typ, capabilities = mail.capability()
+            if typ != "OK" or not any(b"STARTTLS" in value.upper() for value in capabilities):
+                mail.logout()
+                raise imaplib.IMAP4.error("IMAP server does not advertise STARTTLS.")
+            mail.starttls(ssl_context=ssl.create_default_context())
+            return mail
+        return imaplib.IMAP4_SSL(self.server, self.port)
 
     @staticmethod
     def _mailbox_name_from_list_response(response: str) -> str:

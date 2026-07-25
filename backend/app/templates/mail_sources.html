@@ -394,7 +394,7 @@
                     <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
                         <div class="flex items-center gap-3">
                             <input type="checkbox" x-model="form.use_ssl" class="toggle toggle-sm" id="form-ssl" />
-                            <label for="form-ssl" class="label-text">Use SSL/TLS (recommended)</label>
+                            <label for="form-ssl" class="label-text">Use TLS (993: implicit TLS, 143: STARTTLS)</label>
                         </div>
                     </template>
 

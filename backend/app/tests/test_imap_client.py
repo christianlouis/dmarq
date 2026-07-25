@@ -332,6 +332,31 @@ class TestTestConnection:
         plain_imap.assert_called_once_with("protonmail-bridge", 143)
         tls_imap.assert_not_called()
 
+    def test_starttls_imap_connection_upgrades_before_login(self):
+        client = IMAPClient(
+            server="imap.example.com",
+            port=143,
+            username="user",
+            password="password",
+            use_ssl=True,
+        )
+        mock_mail = MagicMock()
+        mock_mail.capability.return_value = ("OK", [b"IMAP4rev1 STARTTLS AUTH=PLAIN"])
+        mock_mail.list.return_value = ("OK", [])
+        mock_mail.select.return_value = ("OK", [b"0"])
+        mock_mail.search.return_value = ("OK", [b""])
+
+        with (
+            patch("imaplib.IMAP4", return_value=mock_mail) as plain_imap,
+            patch("imaplib.IMAP4_SSL") as tls_imap,
+        ):
+            success, _, _ = client.test_connection()
+
+        assert success is True
+        plain_imap.assert_called_once_with("imap.example.com", 143)
+        mock_mail.starttls.assert_called_once()
+        tls_imap.assert_not_called()
+
     def test_connection_counts_standard_google_report_subjects(self):
         client = self._make_client()
         mock_mail = MagicMock()

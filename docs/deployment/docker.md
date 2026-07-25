@@ -159,8 +159,9 @@ owner email on `/setup` is an operational contact, not a login account.
 
 ## IMAP transport security
 
-DMARQ uses implicit TLS for IMAP by default (`Use SSL/TLS` enabled, normally
-port `993`). Leave this enabled for hosted mailbox providers.
+DMARQ uses encrypted IMAP by default. With `Use SSL/TLS` enabled, port `993`
+uses implicit TLS (IMAPS) and port `143` uses STARTTLS. Leave this enabled for
+hosted mailbox providers.
 
 For a local IMAP bridge that deliberately exposes plain IMAP, such as Proton
 Mail Bridge, enter its bridge hostname and port (commonly `143`) and disable
