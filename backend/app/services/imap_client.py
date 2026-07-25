@@ -22,6 +22,7 @@ from app.services.report_store import ReportStore
 
 # Setup logger
 logger = logging.getLogger(__name__)
+IMAPError = imaplib.IMAP4.error
 
 
 class IMAPClient:
@@ -93,7 +94,7 @@ class IMAPClient:
             typ, capabilities = mail.capability()
             if typ != "OK" or not any(b"STARTTLS" in value.upper() for value in capabilities):
                 mail.logout()
-                raise imaplib.IMAP4.error("IMAP server does not advertise STARTTLS.")
+                raise IMAPError("IMAP server does not advertise STARTTLS.")
             mail.starttls(ssl_context=ssl.create_default_context())
             return mail
         return imaplib.IMAP4_SSL(self.server, self.port)
@@ -206,7 +207,7 @@ class IMAPClient:
             }
 
             return True, "Connection successful", stats
-        except imaplib.IMAP4.error as e:
+        except IMAPError as e:
             logger.error("IMAP connection test failed: %s", str(e))
             return (
                 False,

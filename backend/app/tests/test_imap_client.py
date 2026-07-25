@@ -357,6 +357,25 @@ class TestTestConnection:
         mock_mail.starttls.assert_called_once()
         tls_imap.assert_not_called()
 
+    def test_starttls_connection_reports_missing_server_capability(self):
+        client = IMAPClient(
+            server="imap.example.com",
+            port=143,
+            username="user",
+            password="password",
+            use_ssl=True,
+        )
+        mock_mail = MagicMock()
+        mock_mail.capability.return_value = ("OK", [b"IMAP4rev1 AUTH=PLAIN"])
+
+        with patch("imaplib.IMAP4", return_value=mock_mail):
+            success, message, stats = client.test_connection()
+
+        assert success is False
+        assert "failed" in message.lower()
+        assert "STARTTLS" in stats["diagnostic_detail"]
+        mock_mail.logout.assert_called_once()
+
     def test_connection_counts_standard_google_report_subjects(self):
         client = self._make_client()
         mock_mail = MagicMock()
