@@ -36,6 +36,7 @@ class IMAPClient:
         password: str = None,
         delete_emails: Optional[bool] = None,
         folder: str = None,
+        use_ssl: bool = True,
         db: Any = None,
         workspace_id: Optional[int] = None,
     ):
@@ -50,6 +51,7 @@ class IMAPClient:
             delete_emails: Whether to delete emails after successful report imports.
                 If omitted, uses DELETE_IMPORTED_EMAILS from settings.
             folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
+            use_ssl: Whether to connect with implicit SSL/TLS.
             db: Optional SQLAlchemy session used to persist imported reports
             workspace_id: Optional workspace that should own imported domains/reports
         """
@@ -67,6 +69,7 @@ class IMAPClient:
             configured_delete = False
         self.delete_emails = configured_delete if delete_emails is None else delete_emails
         self.folder = folder or settings_folder or "INBOX"
+        self.use_ssl = use_ssl
         self.db = db
         self.workspace_id = workspace_id
 
@@ -78,6 +81,11 @@ class IMAPClient:
     def _quoted_folder(self) -> str:
         escaped = self.folder.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
+
+    def _connect(self) -> imaplib.IMAP4:
+        if self.use_ssl:
+            return imaplib.IMAP4_SSL(self.server, self.port)
+        return imaplib.IMAP4(self.server, self.port)
 
     @staticmethod
     def _mailbox_name_from_list_response(response: str) -> str:
@@ -137,7 +145,7 @@ class IMAPClient:
 
         try:
             # Create IMAP4 connection
-            mail = imaplib.IMAP4_SSL(self.server, self.port)
+            mail = self._connect()
             # Login
             mail.login(self.username, self.password)
 
@@ -183,6 +191,7 @@ class IMAPClient:
                 "available_mailboxes": available_mailboxes,
                 "server": self.server,
                 "port": self.port,
+                "ssl": self.use_ssl,
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -289,7 +298,7 @@ class IMAPClient:
 
         try:
             # Connect to the mail server
-            mail = imaplib.IMAP4_SSL(self.server, self.port)
+            mail = self._connect()
             mail.login(self.username, self.password)
             mail.select(self._quoted_folder())
 

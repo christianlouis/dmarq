@@ -143,12 +143,14 @@ class TestIMAPClientInit:
                 username="user@example.com",
                 password="secret",
                 delete_emails=True,
+                use_ssl=False,
             )
         assert client.server == "custom.example.com"
         assert client.port == 143
         assert client.username == "user@example.com"
         assert client.password == "secret"
         assert client.delete_emails is True
+        assert client.use_ssl is False
 
     def test_delete_emails_defaults_to_settings(self):
         settings = SimpleNamespace(
@@ -305,7 +307,33 @@ class TestTestConnection:
         assert "successful" in message.lower()
         assert stats["message_count"] == 10
         assert "INBOX" in stats["available_mailboxes"]
+        assert stats["ssl"] is True
         assert stats["dmarc_count_strategy"] == "common_provider_subjects"
+
+    def test_connection_can_use_plain_imap(self):
+        client = IMAPClient(
+            server="imap.example.com",
+            port=143,
+            username="u",
+            password="p",
+            use_ssl=False,
+        )
+        mock_mail = MagicMock()
+        mock_mail.login.return_value = None
+        mock_mail.list.return_value = ("OK", [b'(\\HasNoChildren) "/" INBOX'])
+        mock_mail.select.return_value = ("OK", [b"10"])
+        mock_mail.search.return_value = ("OK", [b""])
+
+        with (
+            patch("imaplib.IMAP4", return_value=mock_mail) as mock_plain_imap,
+            patch("imaplib.IMAP4_SSL") as mock_ssl_imap,
+        ):
+            success, _, stats = client.test_connection()
+
+        assert success is True
+        assert stats["ssl"] is False
+        mock_plain_imap.assert_called_once_with("imap.example.com", 143)
+        mock_ssl_imap.assert_not_called()
 
     def test_connection_counts_standard_google_report_subjects(self):
         client = self._make_client()
