@@ -16,6 +16,7 @@ from app.services.workspace_access import (
     ROLE_ANALYST,
     ROLE_WORKSPACE_OWNER,
     PERMISSION_REPORTS_READ,
+    PERMISSION_REPORTS_WRITE,
     _auth_user,
     is_platform_admin_auth,
     parse_selected_workspace_id,
@@ -156,7 +157,7 @@ async def get_guidance_preference(
     workspace = resolve_authorized_workspace(
         db,
         _auth,
-        PERMISSION_REPORTS_READ,
+        PERMISSION_REPORTS_WRITE,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     return _guidance_payload(workspace)
@@ -177,7 +178,7 @@ async def update_guidance_preference(
     workspace = resolve_authorized_workspace(
         db,
         _auth,
-        PERMISSION_REPORTS_READ,
+        PERMISSION_REPORTS_WRITE,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.guided_mail_health_enabled = bool(payload.enabled)

@@ -5,8 +5,8 @@
 {% block content %}
 <div class="mx-auto max-w-7xl space-y-6"
      x-data="workspaceOnboarding"
-     data-multi-workspace-ui="{{ multi_workspace_ui_enabled | tojson }}"
-     data-guided-mail-health-ui="{{ guided_mail_health_ui_enabled | tojson }}"
+     data-multi-workspace-ui="{{ (multi_workspace_ui_enabled | default(false)) | tojson }}"
+     data-guided-mail-health-ui="{{ (guided_mail_health_ui_enabled | default(false)) | tojson }}"
      data-onboarding-page x-cloak>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>

@@ -12,6 +12,8 @@ function dashboardApp() {
         guidedMailHealthEnabled: false,
         guidedMailHealth: null,
         guidedMailHealthLoading: false,
+        guidanceDepth: 'guided',
+        guidanceContext: 'watch',
         dashboardLoading: true,
         dashboardError: '',
         dashboardRefreshError: '',
@@ -722,6 +724,8 @@ function dashboardApp() {
                 const preference = await response.json();
                 this.guidedMailHealthAvailable = Boolean(preference.available);
                 this.guidedMailHealthEnabled = Boolean(preference.enabled);
+                this.guidanceDepth = preference.depth || this.guidanceDepth;
+                this.guidanceContext = preference.context || this.guidanceContext;
                 if (this.guidedMailHealthEnabled) await this.fetchGuidedMailHealth();
             } catch (error) {
                 console.error('Could not load guided dashboard preference:', error);
@@ -733,12 +737,18 @@ function dashboardApp() {
                 const response = await fetch('/api/v1/workspaces/guidance', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled, depth: 'guided', context: 'watch' })
+                    body: JSON.stringify({
+                        enabled,
+                        depth: this.guidanceDepth,
+                        context: this.guidanceContext
+                    })
                 });
                 if (!response.ok) throw new Error('Could not save the dashboard preference.');
                 const preference = await response.json();
                 this.guidedMailHealthAvailable = Boolean(preference.available);
                 this.guidedMailHealthEnabled = Boolean(preference.enabled);
+                this.guidanceDepth = preference.depth || this.guidanceDepth;
+                this.guidanceContext = preference.context || this.guidanceContext;
                 if (this.guidedMailHealthEnabled) await this.fetchGuidedMailHealth();
             } catch (error) {
                 console.error('Could not update guided dashboard preference:', error);

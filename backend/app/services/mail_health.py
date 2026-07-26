@@ -117,8 +117,8 @@ def build_workspace_mail_health_assessment(
         .join(DomainSourceDailyProjection, DomainSourceDailyProjection.domain_id == Domain.id)
         .filter(
             Domain.workspace_id == workspace.id,
-            DomainSourceDailyProjection.observed_at >= start_ts - 86_400,
-            DomainSourceDailyProjection.observed_at <= end_ts,
+            DomainSourceDailyProjection.observed_at >= start_ts,
+            DomainSourceDailyProjection.observed_at < end_ts,
         )
         .all()
     )

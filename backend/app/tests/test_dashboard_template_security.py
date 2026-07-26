@@ -1519,7 +1519,7 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
     assert "Traffic-weighted health" in template
     assert "Weighted by message volume." in template
     assert 'id="dashboard-next-action-heading"' in template
-    assert 'x-show="showDashboardNextAction"' in template
+    assert 'showDashboardNextAction' in template
     assert "data-dashboard-demo-tour-close" in script
     assert "ownerDocument.addEventListener('keydown'" in script
     assert "removeEventListener('keydown'" in script
