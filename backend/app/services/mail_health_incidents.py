@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.alert import MailHealthIncident
@@ -91,7 +92,9 @@ def _should_notify(
     row: MailHealthIncident,
 ) -> Optional[str]:
     posture = workspace.notification_posture or "actionable_only"
-    if posture == "disabled" or row.status == "snoozed" and row.snoozed_until and row.snoozed_until > now:
+    if posture == "disabled" or (
+        row.status == "snoozed" and row.snoozed_until and row.snoozed_until > now
+    ):
         return None
     outcome = str(assessment.get("outcome") or "")
     if outcome not in ACTIONABLE_OUTCOMES and posture != "all_signals":
@@ -137,6 +140,22 @@ def record_mail_health_assessment(
     row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one_or_none()
     is_new = row is None
     if row is None:
+        # A changed assessment supersedes older active interpretations for the
+        # same domain. It is not a second unresolved problem for the operator.
+        for previous in (
+            db.query(MailHealthIncident)
+            .filter(
+                MailHealthIncident.workspace_id == workspace.id,
+                MailHealthIncident.domain == domain,
+                MailHealthIncident.outcome != outcome,
+                MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
+            )
+            .all()
+        ):
+            previous.status = "resolved"
+            previous.resolved_at = now
+            previous.resolution_evidence = "Superseded by a newer report-backed assessment."
+            previous.last_seen_at = now
         row = MailHealthIncident(
             workspace_id=workspace.id,
             domain=domain,
@@ -152,9 +171,19 @@ def record_mail_health_assessment(
             last_seen_at=now,
             last_material_change_at=now,
         )
-        db.add(row)
-        materially_changed = False
-    else:
+        try:
+            with db.begin_nested():
+                db.add(row)
+                db.flush()
+        except IntegrityError:
+            # Concurrent scheduler/manual evaluations can reach this branch
+            # together. Reuse the first committed incident instead of failing.
+            row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one()
+            is_new = False
+            materially_changed = row.material_state_hash != state_hash
+        else:
+            materially_changed = False
+    if not is_new:
         materially_changed = row.material_state_hash != state_hash
         row.domain = domain
         row.outcome = outcome

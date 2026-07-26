@@ -175,7 +175,8 @@ def _target_records(
             ),
             what_it_does=(
                 "Publishes where sending mail servers can find this domain's TLS policy. "
-                "Enforce mode requires valid TLS; testing and none collect evidence without blocking delivery."
+                "Enforce mode requires valid TLS; testing allows delivery to continue while "
+                "failures can be reported, and none disables MTA-STS enforcement."
             ),
             learn_more_url="https://www.rfc-editor.org/rfc/rfc8461",
             learn_more_label="Read the MTA-STS standard",
@@ -187,8 +188,9 @@ def _target_records(
             value=f"v=TLSRPTv1; rua=mailto:{tls_report_mailbox}",
             purpose="SMTP TLS Reporting aggregate delivery.",
             what_it_does=(
-                "Asks sending mail servers to send aggregate reports about TLS delivery "
-                "failures. It improves visibility but does not change mail delivery policy."
+                "Asks sending mail servers to send aggregate TLS policy-validation statistics, "
+                "including successes and failures. It improves visibility but does not change "
+                "mail delivery policy."
             ),
             learn_more_url="https://www.rfc-editor.org/rfc/rfc8460",
             learn_more_label="Read the TLS-RPT standard",

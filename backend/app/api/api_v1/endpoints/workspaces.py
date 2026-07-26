@@ -1,6 +1,6 @@
 """Current-user workspace context endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -322,13 +322,16 @@ async def update_mail_health_incident(
         db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
     )
     try:
+        snoozed_until = payload.snoozed_until
+        if snoozed_until is not None and snoozed_until.tzinfo is not None:
+            snoozed_until = snoozed_until.astimezone(timezone.utc).replace(tzinfo=None)
         return update_incident_operator_state(
             db,
             workspace=workspace,
             incident_id=incident_id,
             action=payload.action,
             note=payload.note,
-            snoozed_until=payload.snoozed_until,
+            snoozed_until=snoozed_until,
             auth_context=_auth,
         )
     except LookupError as exc:

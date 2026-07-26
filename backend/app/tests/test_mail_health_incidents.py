@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from app.models.alert import MailHealthIncident
 from app.models.workspace import Workspace
 from app.services.mail_health_incidents import (
+    incident_to_dict,
+    list_mail_health_incidents,
     record_mail_health_assessment,
     update_incident_operator_state,
 )
@@ -97,3 +99,144 @@ def test_acknowledge_and_snooze_do_not_mark_an_incident_resolved(db_session):
     assert acknowledged["status"] == "acknowledged"
     assert snoozed["status"] == "snoozed"
     assert snoozed["resolved_at"] is None
+
+
+def test_healthy_assessment_resolves_open_incidents_for_the_domain(db_session):
+    workspace = Workspace(slug="calm-resolve", name="Calm Resolve")
+    db_session.add(workspace)
+    db_session.commit()
+    record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+
+    resolved = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment={"outcome": "healthy", "domain": "example.test"},
+    )
+
+    assert resolved["incident"] is None
+    assert len(resolved["resolved"]) == 1
+    assert resolved["resolved"][0]["status"] == "resolved"
+
+
+def test_all_signals_can_notify_a_protected_unknown_source(db_session):
+    workspace = Workspace(
+        slug="calm-all-signals", name="Calm All Signals", notification_posture="all_signals"
+    )
+    db_session.add(workspace)
+    db_session.commit()
+
+    result = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=_assessment("no_action_likely_unauthorized_use"),
+    )
+
+    assert result["notification_reason"] == "created"
+
+
+def test_new_outcome_resolves_the_previous_incident_for_one_domain(db_session):
+    workspace = Workspace(slug="calm-supersede", name="Calm Supersede")
+    db_session.add(workspace)
+    db_session.commit()
+    record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+
+    replacement = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=_assessment("investigation_required"),
+    )
+    rows = list_mail_health_incidents(db_session, workspace=workspace)
+
+    assert replacement["incident"]["outcome"] == "investigation_required"
+    assert {row["status"] for row in rows} == {"open", "resolved"}
+
+
+def test_invalid_operator_action_and_malformed_assessment_are_safe(db_session):
+    workspace = Workspace(slug="calm-invalid", name="Calm Invalid")
+    db_session.add(workspace)
+    db_session.commit()
+    created = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    row = db_session.query(MailHealthIncident).one()
+    row.assessment = "not-json"
+    db_session.commit()
+
+    assert incident_to_dict(row)["assessment"] == {}
+    try:
+        update_incident_operator_state(
+            db_session,
+            workspace=workspace,
+            incident_id=created["incident"]["id"],
+            action="resolve",
+            note=None,
+            snoozed_until=None,
+            auth_context=None,
+        )
+    except ValueError as exc:
+        assert "Unsupported" in str(exc)
+    else:
+        raise AssertionError("An unsupported operator action must be rejected.")
+
+
+def test_disabled_and_active_snooze_suppress_notification_but_keep_incidents(db_session):
+    disabled = Workspace(slug="calm-disabled", name="Calm Disabled", notification_posture="disabled")
+    snoozed_workspace = Workspace(slug="calm-snoozed", name="Calm Snoozed")
+    db_session.add_all([disabled, snoozed_workspace])
+    db_session.commit()
+
+    disabled_result = record_mail_health_assessment(db_session, workspace=disabled, assessment=_assessment())
+    created = record_mail_health_assessment(db_session, workspace=snoozed_workspace, assessment=_assessment())
+    update_incident_operator_state(
+        db_session,
+        workspace=snoozed_workspace,
+        incident_id=created["incident"]["id"],
+        action="snooze",
+        note=None,
+        snoozed_until=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1),
+        auth_context=None,
+    )
+    changed = _assessment()
+    changed["urgency"] = "urgent"
+    snoozed_result = record_mail_health_assessment(db_session, workspace=snoozed_workspace, assessment=changed)
+
+    assert disabled_result["notification_reason"] is None
+    assert snoozed_result["notification_reason"] is None
+    assert snoozed_result["incident"]["status"] == "snoozed"
+
+
+def test_operator_state_rejects_missing_incident_and_snooze_timestamp(db_session):
+    workspace = Workspace(slug="calm-missing", name="Calm Missing")
+    db_session.add(workspace)
+    db_session.commit()
+
+    for kwargs, message in (
+        ({"incident_id": 9999, "action": "acknowledge", "snoozed_until": None}, "not found"),
+        ({"incident_id": 9999, "action": "snooze", "snoozed_until": None}, "not found"),
+    ):
+        try:
+            update_incident_operator_state(
+                db_session,
+                workspace=workspace,
+                note=None,
+                auth_context=None,
+                **kwargs,
+            )
+        except LookupError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError("A cross-workspace incident must not be writable.")
+
+    created = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    try:
+        update_incident_operator_state(
+            db_session,
+            workspace=workspace,
+            incident_id=created["incident"]["id"],
+            action="snooze",
+            note=None,
+            snoozed_until=None,
+            auth_context=None,
+        )
+    except ValueError as exc:
+        assert "required" in str(exc)
+    else:
+        raise AssertionError("A snooze without an end time must be rejected.")
