@@ -82,6 +82,7 @@ def test_guided_dashboard_preference_can_be_opted_into_per_workspace(
         "context": "watch",
         "preference_scope": "workspace",
         "goal": None,
+        "notification_posture": "actionable_only",
         "interview_completed": False,
     }
     db_session.refresh(workspace)

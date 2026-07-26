@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided workspaces now persist Calm Watch incidents by workspace, with stable
+  identity, material-change detection, `actionable_only` notification posture,
+  and auditable acknowledge/snooze actions. Protected unknown-source abuse is
+  retained as evidence without interrupting the operator by default.
 - Optional MTA-STS, TLS-RPT, and BIMI DNS plans now state their practical
   effect beside the proposed TXT record and link to the relevant standard or
   BIMI reference. The operational DNS instruction remains unchanged.

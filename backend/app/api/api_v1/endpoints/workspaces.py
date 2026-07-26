@@ -13,6 +13,13 @@ from app.core.security import require_admin_auth
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.mail_health import build_workspace_mail_health_assessment
+from app.services.mail_health_incidents import (
+    NOTIFICATION_POSTURES,
+    list_mail_health_incidents,
+    record_mail_health_assessment,
+    update_incident_operator_state,
+)
 from app.services.workspace_access import (
     ROLE_ANALYST,
     ROLE_WORKSPACE_OWNER,
@@ -50,6 +57,20 @@ class GuidanceProfileUpdate(BaseModel):
     depth: str = "guided"
 
 
+class NotificationPostureUpdate(BaseModel):
+    """How much Calm Watch may interrupt an operator."""
+
+    posture: str
+
+
+class IncidentActionUpdate(BaseModel):
+    """An auditable acknowledgement or bounded snooze."""
+
+    action: str
+    note: Optional[str] = None
+    snoozed_until: Optional[datetime] = None
+
+
 def _guidance_payload(workspace: Workspace, user: Optional[User] = None) -> Dict[str, Any]:
     settings = get_settings()
     available = bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED)
@@ -62,6 +83,7 @@ def _guidance_payload(workspace: Workspace, user: Optional[User] = None) -> Dict
         "context": (user.guidance_context if user and user.guidance_context else workspace.guidance_context) or "watch",
         "preference_scope": "user" if has_user_preference else "workspace",
         "goal": workspace.mail_health_goal,
+        "notification_posture": workspace.notification_posture or "actionable_only",
         "interview_completed": workspace.guidance_interview_completed_at is not None,
     }
 
@@ -233,3 +255,83 @@ async def update_guidance_profile(
     db.commit()
     db.refresh(workspace)
     return _guidance_payload(workspace, user)
+
+
+@router.put("/guidance/notification-posture")
+async def update_notification_posture(
+    payload: NotificationPostureUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Choose whether Calm Watch only interrupts for actionable incidents."""
+    if payload.posture not in NOTIFICATION_POSTURES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid notification posture")
+    workspace = resolve_authorized_workspace(
+        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+    )
+    workspace.notification_posture = payload.posture
+    db.commit()
+    return _guidance_payload(workspace, _auth_user(db, _auth))
+
+
+@router.get("/mail-health/incidents")
+async def get_mail_health_incidents(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """List only incidents in the caller's authorized workspace."""
+    workspace = resolve_authorized_workspace(
+        db, _auth, PERMISSION_REPORTS_READ, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+    )
+    return {"incidents": list_mail_health_incidents(db, workspace=workspace, limit=limit)}
+
+
+@router.post("/mail-health/incidents/evaluate")
+async def evaluate_mail_health_incident(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Evaluate one report-backed Calm Watch assessment without sending a notification."""
+    workspace = resolve_authorized_workspace(
+        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+    )
+    end = datetime.utcnow()
+    assessment = build_workspace_mail_health_assessment(
+        db,
+        workspace=workspace,
+        start_ts=int((end.timestamp() - 30 * 24 * 60 * 60)),
+        end_ts=int(end.timestamp()),
+    )
+    return record_mail_health_assessment(db, workspace=workspace, assessment=assessment)
+
+
+@router.put("/mail-health/incidents/{incident_id}")
+async def update_mail_health_incident(
+    incident_id: int,
+    payload: IncidentActionUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Acknowledge or snooze an incident without treating it as resolved."""
+    workspace = resolve_authorized_workspace(
+        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+    )
+    try:
+        return update_incident_operator_state(
+            db,
+            workspace=workspace,
+            incident_id=incident_id,
+            action=payload.action,
+            note=payload.note,
+            snoozed_until=payload.snoozed_until,
+            auth_context=_auth,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
