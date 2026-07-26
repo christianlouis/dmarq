@@ -32,6 +32,16 @@ Guidance intentionally describes aggregate DMARC reports as authentication and
 receiver-policy evidence. It does not present them as proof of an individual
 bounce, inbox placement, or read event.
 
+## Intake choices
+
+The setup assistant keeps the direct IMAP path available, and exposes the
+other supported routes in the same place: Gmail OAuth, Microsoft 365 Graph,
+manual XML/ZIP/GZIP upload, and an inbound webhook such as a Cloudflare Email
+Worker. The choices describe their operational boundary before collecting
+credentials: OAuth or application permissions for hosted mail, no mailbox
+credential for upload, and reachable HTTPS plus a webhook secret for forwarded
+mail.
+
 ## What the first guided assessment can say
 
 It reads only the indexed sender facts created during aggregate-report

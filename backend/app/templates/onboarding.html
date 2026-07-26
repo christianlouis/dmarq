@@ -322,6 +322,40 @@
                     {% endif %}
                     A report source can be connected later from Mail Sources.
                 </div>
+
+                <details class="mt-5 rounded-lg border border-[#e6e3e1] bg-[#fcfcfd] p-4">
+                    <summary class="cursor-pointer font-semibold text-[#120d36]">Other ways to bring in reports</summary>
+                    <p class="mt-2 max-w-3xl text-sm leading-6 text-[#5f5c78]">
+                        Choose the path that matches where your DMARC reports arrive. You can add more than one source later.
+                    </p>
+                    <div class="mt-4 grid gap-3 md:grid-cols-2">
+                        <a href="/mail-sources"
+                           class="rounded-md border border-[#d9e7e7] bg-white p-4 transition hover:border-[#2f9da6] hover:bg-[#fbffff]">
+                            <span class="block font-semibold text-[#120d36]">Gmail API</span>
+                            <span class="mt-1 block text-sm leading-5 text-[#5f5c78]">Use Google OAuth when the report mailbox is in Gmail. DMARQ asks for read access to the configured mailbox only.</span>
+                            <span class="mt-3 block text-sm font-semibold text-[#247982]">Configure Gmail</span>
+                        </a>
+                        <a href="/mail-sources"
+                           class="rounded-md border border-[#d9e7e7] bg-white p-4 transition hover:border-[#2f9da6] hover:bg-[#fbffff]">
+                            <span class="block font-semibold text-[#120d36]">Microsoft 365</span>
+                            <span class="mt-1 block text-sm leading-5 text-[#5f5c78]">Use Microsoft Graph with delegated access or a tightly scoped Entra application for a dedicated report mailbox.</span>
+                            <span class="mt-3 block text-sm font-semibold text-[#247982]">Configure Microsoft 365</span>
+                        </a>
+                        <a href="/upload"
+                           class="rounded-md border border-[#d9e7e7] bg-white p-4 transition hover:border-[#2f9da6] hover:bg-[#fbffff]">
+                            <span class="block font-semibold text-[#120d36]">Upload a report</span>
+                            <span class="mt-1 block text-sm leading-5 text-[#5f5c78]">Best for a quick evaluation or a first explanation. Upload XML, ZIP, or GZIP report files without connecting a mailbox.</span>
+                            <span class="mt-3 block text-sm font-semibold text-[#247982]">Upload a report</span>
+                        </a>
+                        <a href="https://github.com/christianlouis/dmarq/blob/main/docs/cloudflare-email-worker-inbound-webhook.md"
+                           target="_blank" rel="noopener noreferrer"
+                           class="rounded-md border border-[#d9e7e7] bg-white p-4 transition hover:border-[#2f9da6] hover:bg-[#fbffff]">
+                            <span class="block font-semibold text-[#120d36]">Webhook or Cloudflare Email Worker</span>
+                            <span class="mt-1 block text-sm leading-5 text-[#5f5c78]">For automated forwarding from an existing mail route. This needs a reachable HTTPS DMARQ URL and a webhook secret.</span>
+                            <span class="mt-3 block text-sm font-semibold text-[#247982]">Open webhook guide</span>
+                        </a>
+                    </div>
+                </details>
             </div>
         </form>
 

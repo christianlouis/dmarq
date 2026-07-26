@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The setup assistant now exposes Gmail, Microsoft 365, direct upload, and
+  webhook intake routes alongside IMAP, with their relevant operational
+  prerequisites before a user starts entering credentials.
 - Guided mail-health setup can now capture why a self-hosted operator installed
   DMARQ, retain their preferred explanation depth, and state a safe next step
   without enabling the new dashboard automatically.
