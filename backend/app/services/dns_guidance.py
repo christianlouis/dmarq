@@ -24,6 +24,9 @@ class DNSGuidanceRecord:
     value: str
     purpose: str
     priority: str = "recommended"
+    what_it_does: Optional[str] = None
+    learn_more_url: Optional[str] = None
+    learn_more_label: Optional[str] = None
 
 
 @dataclass
@@ -76,6 +79,9 @@ class DNSChangePlan:
     applies_automatically: bool = False
     provider_write_available: bool = False
     provider_value_required: bool = False
+    what_it_does: Optional[str] = None
+    learn_more_url: Optional[str] = None
+    learn_more_label: Optional[str] = None
 
 
 @dataclass
@@ -167,6 +173,13 @@ def _target_records(
                 "MTA-STS policy discovery. Host the matching HTTPS policy at "
                 f"https://mta-sts.{domain}/.well-known/mta-sts.txt."
             ),
+            what_it_does=(
+                "Publishes where sending mail servers can find this domain's TLS policy. "
+                "Enforce mode requires valid TLS; testing allows delivery to continue while "
+                "failures can be reported, and none disables MTA-STS enforcement."
+            ),
+            learn_more_url="https://www.rfc-editor.org/rfc/rfc8461",
+            learn_more_label="Read the MTA-STS standard",
         ),
         DNSGuidanceRecord(
             code="target_tls_rpt",
@@ -174,6 +187,13 @@ def _target_records(
             name=f"_smtp._tls.{domain}",
             value=f"v=TLSRPTv1; rua=mailto:{tls_report_mailbox}",
             purpose="SMTP TLS Reporting aggregate delivery.",
+            what_it_does=(
+                "Asks sending mail servers to send aggregate TLS policy-validation statistics, "
+                "including successes and failures. It improves visibility but does not change "
+                "mail delivery policy."
+            ),
+            learn_more_url="https://www.rfc-editor.org/rfc/rfc8460",
+            learn_more_label="Read the TLS-RPT standard",
         ),
         DNSGuidanceRecord(
             code="target_bimi",
@@ -182,6 +202,12 @@ def _target_records(
             value=f"v=BIMI1; l=https://{domain}/.well-known/bimi.svg; a=",
             purpose="BIMI logo discovery after DMARC enforcement is ready.",
             priority="optional",
+            what_it_does=(
+                "Lets participating inbox providers show an approved brand logo after "
+                "DMARC enforcement and the provider's logo-certificate requirements are met."
+            ),
+            learn_more_url="https://bimigroup.org/",
+            learn_more_label="Learn about BIMI",
         ),
     ]
 
@@ -1509,6 +1535,9 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
                 expected_health_impact=_expected_health_impact(finding),
                 manual_steps=_manual_steps_for_plan(finding, operation),
                 provider_value_required=_provider_value_required(finding),
+                what_it_does=(finding.target_record.what_it_does if finding.target_record else None),
+                learn_more_url=(finding.target_record.learn_more_url if finding.target_record else None),
+                learn_more_label=(finding.target_record.learn_more_label if finding.target_record else None),
             )
         )
     return plans

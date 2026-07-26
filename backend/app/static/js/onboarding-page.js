@@ -15,6 +15,21 @@ function workspaceOnboarding(options = {}) {
         setupStateLoaded: false,
         configuring: false,
         draftDirty: false,
+        guidedMailHealthUiAvailable: false,
+        guidanceInterviewCompleted: false,
+        guidanceDepth: 'guided',
+        selectedGoal: '',
+        savingGoal: false,
+        goalSaved: false,
+        goalError: '',
+        mailHealthGoals: [
+            {id: 'delivery_problem', label: 'Messages are being rejected or bounced', description: 'I need to understand what may be affecting mail I send.'},
+            {id: 'spam_or_inconsistent', label: 'Mail is landing in spam or behaving inconsistently', description: 'I want to check authentication and likely delivery risks.'},
+            {id: 'reports_confusing', label: 'I received DMARC reports I do not understand', description: 'Help me turn these reports into a clear next step.'},
+            {id: 'suspected_abuse', label: 'Someone may be using my domain for spam', description: 'Help me separate likely abuse from my intended senders.'},
+            {id: 'preventive_monitoring', label: 'I want to keep mail delivery healthy', description: 'Set up monitoring before a problem appears.'},
+            {id: 'curious', label: 'I want to understand my mail setup', description: 'Show me the current picture without assuming there is a problem.'},
+        ],
         setupState: {
             domains: 0,
             reports: 0,
@@ -53,6 +68,59 @@ function workspaceOnboarding(options = {}) {
                 !this.setupStateLoading &&
                 !this.setupStateError &&
                 !this.hasExistingSetup;
+        },
+        get showGoalInterview() {
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.guidanceInterviewCompleted;
+        },
+        get showGoalRecommendation() {
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && this.guidanceInterviewCompleted && Boolean(this.selectedGoal);
+        },
+        get goalRecommendation() {
+            const recommendations = {
+                delivery_problem: {
+                    title: 'Start by connecting the report mailbox',
+                    description: 'DMARQ can compare authentication outcomes from receiving providers once aggregate reports arrive. Then it can distinguish known senders that need attention from unrelated sources.',
+                    evidenceNote: 'Aggregate DMARC reports show authentication and receiver policy outcomes. They do not by themselves prove that an individual message bounced, reached an inbox, or landed in spam.',
+                    action: 'Connect report mailbox',
+                    href: '/mail-sources',
+                },
+                spam_or_inconsistent: {
+                    title: 'Start by connecting the report mailbox',
+                    description: 'Collect aggregate reports first, then review whether the services that send for your domain authenticate consistently.',
+                    evidenceNote: 'DMARC evidence can identify authentication risks. Inbox placement and individual delivery need separate provider or bounce evidence.',
+                    action: 'Connect report mailbox',
+                    href: '/mail-sources',
+                },
+                reports_confusing: {
+                    title: 'Bring in one report before changing DNS',
+                    description: 'Connect the mailbox that receives DMARC reports or upload a report. DMARQ will turn the aggregate evidence into a prioritized explanation.',
+                    evidenceNote: 'A report is evidence about a receiver’s authentication evaluation, not a complete record of every individual delivery.',
+                    action: 'Choose import method',
+                    href: '/mail-sources',
+                },
+                suspected_abuse: {
+                    title: 'Collect reports before changing your policy',
+                    description: 'First identify your intended senders and the sources receivers already reject. That avoids weakening legitimate delivery while investigating possible abuse.',
+                    evidenceNote: 'DMARQ will show which sources are known, which are unknown, and what receivers reported. It will not claim that an unknown source is malicious without enough evidence.',
+                    action: 'Connect report mailbox',
+                    href: '/mail-sources',
+                },
+                preventive_monitoring: {
+                    title: 'Set up report intake for ongoing monitoring',
+                    description: 'Connect a report mailbox, then add the domains whose mail you want DMARQ to watch.',
+                    evidenceNote: 'The guided view will surface changes that are likely actionable while retaining the full technical evidence below.',
+                    action: 'Connect report mailbox',
+                    href: '/mail-sources',
+                },
+                curious: {
+                    title: 'Start with one domain and one report source',
+                    description: 'Use a small, reversible setup first. Once reports arrive, DMARQ can show the observed senders and DNS posture for that domain.',
+                    evidenceNote: 'Technical details remain available when you want them; the default view will focus on the next useful question.',
+                    action: 'Add a domain',
+                    href: '/domains',
+                },
+            };
+            return recommendations[this.selectedGoal] || recommendations.curious;
         },
         get setupStatusItems() {
             const state = this.setupState;
@@ -187,6 +255,7 @@ function workspaceOnboarding(options = {}) {
             if (flag === 'true' || flag === 'false') {
                 this.multiWorkspaceUiEnabled = flag === 'true';
             }
+            this.guidedMailHealthUiAvailable = this.$el?.dataset?.guidedMailHealthUi === 'true';
             this.draftDirty = localStorage.getItem('dmarq.onboarding.draftDirty') === 'true';
             this.draftFields().forEach((field) => {
                 const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
@@ -200,6 +269,7 @@ function workspaceOnboarding(options = {}) {
             });
             this.bindControls();
             this.loadSetupState();
+            this.loadGuidanceProfile();
         },
         bindControls() {
             const root = this.$root;
@@ -275,6 +345,42 @@ function workspaceOnboarding(options = {}) {
             } finally {
                 this.setupStateLoading = false;
                 this.setupStateLoaded = true;
+            }
+        },
+        async loadGuidanceProfile() {
+            if (!this.guidedMailHealthUiAvailable || !this.singleUserMode) return;
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance');
+                if (!response.ok) return;
+                const data = await response.json();
+                this.guidanceInterviewCompleted = Boolean(data.interview_completed);
+                this.guidanceDepth = data.depth || 'guided';
+                this.selectedGoal = data.goal || '';
+            } catch (_) {
+                // The setup path remains usable when optional guidance is unavailable.
+            }
+        },
+        async saveGoal(goal) {
+            if (this.savingGoal) return;
+            this.savingGoal = true;
+            this.goalError = '';
+            this.goalSaved = false;
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/profile', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({goal, depth: this.guidanceDepth}),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Your setup goal could not be saved.');
+                this.selectedGoal = data.goal || goal;
+                this.guidanceDepth = data.depth || this.guidanceDepth;
+                this.guidanceInterviewCompleted = Boolean(data.interview_completed);
+                this.goalSaved = true;
+            } catch (error) {
+                this.goalError = error.message || 'Your setup goal could not be saved.';
+            } finally {
+                this.savingGoal = false;
             }
         },
         draftFields() {

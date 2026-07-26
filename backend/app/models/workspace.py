@@ -20,6 +20,19 @@ class Workspace(Base):
     report_retention_days = Column(Integer, default=400, nullable=False)
     forensic_retention_days = Column(Integer, default=90, nullable=False)
     tls_report_retention_days = Column(Integer, default=400, nullable=False)
+    # The guided experience is deliberately workspace-scoped. This protects
+    # established operators from an unexpected dashboard change while allowing
+    # a new or less technical workspace to opt in.
+    guided_mail_health_enabled = Column(Boolean, default=False, nullable=False)
+    guidance_depth = Column(String(24), default="standard", nullable=False)
+    guidance_context = Column(String(24), default="watch", nullable=False)
+    # Calm Watch defaults to only situations where intended mail may need an
+    # operator decision. Expert deployments can deliberately widen this later.
+    notification_posture = Column(String(32), default="actionable_only", nullable=False)
+    # Keep the initial reason for installing DMARQ with the workspace, rather
+    # than turning a one-time setup answer into browser-only state.
+    mail_health_goal = Column(String(48), nullable=True)
+    guidance_interview_completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

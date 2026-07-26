@@ -37,6 +37,16 @@ class TestDashboardStatistics:
         response = authed_client.get("/api/v1/stats/dashboard")
         assert response.status_code == 200
 
+    def test_mail_health_summary_returns_a_safe_empty_evidence_assessment(
+        self, authed_client: TestClient
+    ):
+        response = authed_client.get("/api/v1/stats/mail-health/summary")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["assessment"]["outcome"] == "insufficient_evidence"
+        assert data["assessment"]["claim_type"] == "aggregate_dmarc_authentication"
+
     def test_dashboard_response_contains_api_version(self, authed_client: TestClient):
         response = authed_client.get("/api/v1/stats/dashboard")
         data = response.json()

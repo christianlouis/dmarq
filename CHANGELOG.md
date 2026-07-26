@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided workspaces now persist Calm Watch incidents by workspace, with stable
+  identity, material-change detection, `actionable_only` notification posture,
+  and auditable acknowledge/snooze actions. Protected unknown-source abuse is
+  retained as evidence without interrupting the operator by default.
+- Optional MTA-STS, TLS-RPT, and BIMI DNS plans now state their practical
+  effect beside the proposed TXT record and link to the relevant standard or
+  BIMI reference. The operational DNS instruction remains unchanged.
+- The setup assistant now exposes Gmail, Microsoft 365, direct upload, and
+  webhook intake routes alongside IMAP, with their relevant operational
+  prerequisites before a user starts entering credentials.
+- Guided mail-health setup can now capture why a self-hosted operator installed
+  DMARQ, retain their preferred explanation depth, and state a safe next step
+  without enabling the new dashboard automatically.
+- Added an opt-in guided mail-health dashboard for workspaces that want one
+  plain-language interpretation before the established operational evidence.
+  It distinguishes known sender authentication failures from likely
+  unauthorized use already rejected by DMARC, keeps the classic dashboard as
+  the default for existing workspaces, and never presents aggregate DMARC data
+  as proof of individual message delivery or bounces.
+- Guided mail-health preferences now keep a workspace-safe default while
+  allowing signed-in users to select their own explanation depth and Watch,
+  Diagnose, or Evidence presentation context.
 - Added real English and German product localization with a persistent browser
   preference, `LANGUAGE`/`DMARQ_DEFAULT_LOCALE` instance defaults, English
   fallback, localized client-rendered states, and locale-aware date and number

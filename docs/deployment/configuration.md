@@ -59,6 +59,7 @@ paths.
 | `PROVIDER_OPERATOR_EMAILS` | Comma-separated authenticated identities allowed to manage all provider tenants and start support sessions. Tenant roles do not imply this access. | Empty | `operator@cklnet.com` |
 | `PROVIDER_BOOTSTRAP_DEFAULT_PLANS` | Add missing Monitor, Protect, and Protect Plus provider plans at startup without overwriting existing plans. | `false` | `true`, `false` |
 | `PROVIDER_DEMO_ENABLED` | Enable the dedicated synthetic `/provider-demo` profile. Keep false for production provider installs, which use `/provider`. | `false` | `true`, `false` |
+| `GUIDED_MAIL_HEALTH_UI_ENABLED` | Make the optional guided mail-health dashboard available. It remains disabled per workspace until an operator chooses it, so existing workspaces stay on the classic dashboard. Individual signed-in users may then choose their own explanation depth and Watch, Diagnose, or Evidence context. | `false` | `true`, `false` |
 | `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from Logto, direct OIDC, or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
 | `AUTH_MFA_CLAIM_NAMES` | Comma-separated claim names to inspect for MFA assurance. Common OIDC claims are `amr` and `acr`. | `amr,acr` | `amr,acr` |
 | `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as MFA proof. Adjust this to the values emitted by your IdP. | `mfa,otp,totp,webauthn,hwk,swk,phr` | `mfa,webauthn` |

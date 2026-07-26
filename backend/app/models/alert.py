@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 
 from app.core.database import Base
 
@@ -50,3 +50,38 @@ class AlertConfigurationAudit(Base):
 
     def __repr__(self):
         return f"<AlertConfigurationAudit {self.key}>"
+
+
+class MailHealthIncident(Base):
+    """Workspace-scoped lifecycle for one interpreted mail-health situation."""
+
+    __tablename__ = "mail_health_incidents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
+    domain = Column(String, nullable=True)
+    incident_key = Column(String(64), nullable=False, unique=True)
+    outcome = Column(String(64), nullable=False)
+    intended_mail_impact = Column(String(32), nullable=False)
+    urgency = Column(String(32), nullable=False)
+    confidence = Column(String(32), nullable=False)
+    status = Column(String(32), nullable=False, default="open")
+    material_state_hash = Column(String(64), nullable=False)
+    assessment = Column(Text, nullable=False)
+    first_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_material_change_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_notified_at = Column(DateTime, nullable=True)
+    last_notification_reason = Column(String(64), nullable=True)
+    snoozed_until = Column(DateTime, nullable=True)
+    operator_note = Column(Text, nullable=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
+    resolution_evidence = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_mail_health_incidents_workspace_status", "workspace_id", "status"),
+        Index("ix_mail_health_incidents_workspace_domain", "workspace_id", "domain"),
+    )
+
+    def __repr__(self):
+        return f"<MailHealthIncident {self.incident_key} status={self.status}>"
