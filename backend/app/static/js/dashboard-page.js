@@ -8,6 +8,10 @@ function dashboardApp() {
         domains: [],
         healthSummary: null,
         healthHistory: null,
+        guidedMailHealthAvailable: false,
+        guidedMailHealthEnabled: false,
+        guidedMailHealth: null,
+        guidedMailHealthLoading: false,
         dashboardLoading: true,
         dashboardError: '',
         dashboardRefreshError: '',
@@ -211,6 +215,42 @@ function dashboardApp() {
             };
         },
 
+        get showGuidedMailHealth() {
+            return this.guidedMailHealthEnabled && Boolean(this.guidedMailHealth);
+        },
+
+        get showGuidanceOptIn() {
+            return this.guidedMailHealthAvailable && !this.guidedMailHealthEnabled && this.hasReportData;
+        },
+
+        get guidedMailHealthTitle() {
+            return this.guidedMailHealth?.title || 'Checking mail health';
+        },
+
+        get guidedMailHealthSummary() {
+            return this.guidedMailHealth?.summary || '';
+        },
+
+        get guidedMailHealthNextStep() {
+            return this.guidedMailHealth?.next_step || 'Review reports';
+        },
+
+        get guidedMailHealthHref() {
+            return this.guidedMailHealth?.href || '/reports';
+        },
+
+        get guidedMailHealthConfidence() {
+            return this.guidedMailHealth?.confidence || 'Not enough evidence';
+        },
+
+        get guidedMailHealthReasons() {
+            return Array.isArray(this.guidedMailHealth?.reasons) ? this.guidedMailHealth.reasons : [];
+        },
+
+        get guidedMailHealthEvidenceScope() {
+            return this.guidedMailHealth?.evidence_scope || '';
+        },
+
         get showDashboardNextAction() {
             return this.hasReportData ||
                 this.intakeState.reauthSources > 0 ||
@@ -295,6 +335,7 @@ function dashboardApp() {
 
             // Fetch domain summary on page load
             this.fetchDomainSummary();
+            this.fetchGuidancePreference();
             
             // Check report intake status
             this.getReportIntakeStatus();
@@ -341,6 +382,19 @@ function dashboardApp() {
                 if (customApply && root.contains(customApply)) {
                     this.fetchDashboardStats();
                     this.fetchWorkspaceHealthHistory();
+                    this.fetchGuidedMailHealth();
+                    return;
+                }
+
+                const guidanceEnable = event.target.closest('[data-guidance-enable]');
+                if (guidanceEnable && root.contains(guidanceEnable)) {
+                    this.updateGuidancePreference(true);
+                    return;
+                }
+
+                const guidanceDisable = event.target.closest('[data-guidance-disable]');
+                if (guidanceDisable && root.contains(guidanceDisable)) {
+                    this.updateGuidancePreference(false);
                     return;
                 }
 
@@ -605,6 +659,7 @@ function dashboardApp() {
                         this.updateDnsHealth();
                         this.fetchDashboardStats();
                         this.fetchWorkspaceHealthHistory();
+                        this.fetchGuidedMailHealth();
                     });
                 } else {
                     this.domains = [];
@@ -658,6 +713,62 @@ function dashboardApp() {
             } catch (error) {
                 console.error('Error fetching dashboard stats:', error);
             }
+        },
+
+        async fetchGuidancePreference() {
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance');
+                if (!response.ok) return;
+                const preference = await response.json();
+                this.guidedMailHealthAvailable = Boolean(preference.available);
+                this.guidedMailHealthEnabled = Boolean(preference.enabled);
+                if (this.guidedMailHealthEnabled) await this.fetchGuidedMailHealth();
+            } catch (error) {
+                console.error('Could not load guided dashboard preference:', error);
+            }
+        },
+
+        async updateGuidancePreference(enabled) {
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, depth: 'guided', context: 'watch' })
+                });
+                if (!response.ok) throw new Error('Could not save the dashboard preference.');
+                const preference = await response.json();
+                this.guidedMailHealthAvailable = Boolean(preference.available);
+                this.guidedMailHealthEnabled = Boolean(preference.enabled);
+                if (this.guidedMailHealthEnabled) await this.fetchGuidedMailHealth();
+            } catch (error) {
+                console.error('Could not update guided dashboard preference:', error);
+            }
+        },
+
+        async fetchGuidedMailHealth() {
+            if (!this.guidedMailHealthEnabled) return;
+            this.guidedMailHealthLoading = true;
+            try {
+                const response = await fetch(this.guidedMailHealthUrl());
+                if (!response.ok) throw new Error('Could not load the guided mail-health assessment.');
+                const data = await response.json();
+                this.guidedMailHealth = data.assessment || null;
+            } catch (error) {
+                console.error('Could not load guided mail health:', error);
+                this.guidedMailHealth = null;
+            } finally {
+                this.guidedMailHealthLoading = false;
+            }
+        },
+
+        guidedMailHealthUrl() {
+            const params = new URLSearchParams();
+            params.set('interval', this.dateInterval);
+            if (this.dateInterval === 'custom') {
+                if (this.customStartDate) params.set('start_date', this.customStartDate);
+                if (this.customEndDate) params.set('end_date', this.customEndDate);
+            }
+            return `/api/v1/stats/mail-health/summary?${params.toString()}`;
         },
 
         async fetchWorkspaceHealthHistory() {
@@ -726,6 +837,7 @@ function dashboardApp() {
             if (this.dateInterval !== 'custom') {
                 this.fetchDashboardStats();
                 this.fetchWorkspaceHealthHistory();
+                this.fetchGuidedMailHealth();
                 return;
             }
             if (!this.customEndDate) {

@@ -2,20 +2,24 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.core.security import require_admin_auth
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.workspace_access import (
     ROLE_ANALYST,
     ROLE_WORKSPACE_OWNER,
+    PERMISSION_REPORTS_READ,
     _auth_user,
     is_platform_admin_auth,
+    parse_selected_workspace_id,
     permissions_for_role,
+    resolve_authorized_workspace,
 )
 
 router = APIRouter()
@@ -26,6 +30,26 @@ class WorkspaceContextResponse(BaseModel):
 
     workspaces: List[Dict[str, Any]]
     default_workspace_id: Optional[int] = None
+
+
+class GuidancePreferenceUpdate(BaseModel):
+    """Workspace-scoped opt-in for the focused mail-health dashboard."""
+
+    enabled: bool
+    depth: str = "guided"
+    context: str = "watch"
+
+
+def _guidance_payload(workspace: Workspace) -> Dict[str, Any]:
+    settings = get_settings()
+    available = bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED)
+    return {
+        "available": available,
+        "enabled": bool(workspace.guided_mail_health_enabled) and available,
+        "requested_enabled": bool(workspace.guided_mail_health_enabled),
+        "depth": workspace.guidance_depth or "standard",
+        "context": workspace.guidance_context or "watch",
+    }
 
 
 def _workspace_context_row(
@@ -110,3 +134,45 @@ async def list_visible_workspaces(
             visible.append(row)
     default_workspace_id = visible[0]["id"] if visible else None
     return {"workspaces": visible, "default_workspace_id": default_workspace_id}
+
+
+@router.get("/guidance")
+async def get_guidance_preference(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return whether this workspace may use the optional guided dashboard."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    return _guidance_payload(workspace)
+
+
+@router.put("/guidance")
+async def update_guidance_preference(
+    payload: GuidancePreferenceUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Persist an opt-in without changing legacy dashboards automatically."""
+    if payload.depth not in {"guided", "standard", "expert"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth")
+    if payload.context not in {"watch", "diagnose", "evidence"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance context")
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    workspace.guided_mail_health_enabled = bool(payload.enabled)
+    workspace.guidance_depth = payload.depth
+    workspace.guidance_context = payload.context
+    db.commit()
+    db.refresh(workspace)
+    return _guidance_payload(workspace)

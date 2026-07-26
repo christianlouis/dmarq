@@ -20,6 +20,12 @@ class Workspace(Base):
     report_retention_days = Column(Integer, default=400, nullable=False)
     forensic_retention_days = Column(Integer, default=90, nullable=False)
     tls_report_retention_days = Column(Integer, default=400, nullable=False)
+    # The guided experience is deliberately workspace-scoped. This protects
+    # established operators from an unexpected dashboard change while allowing
+    # a new or less technical workspace to opt in.
+    guided_mail_health_enabled = Column(Boolean, default=False, nullable=False)
+    guidance_depth = Column(String(24), default="standard", nullable=False)
+    guidance_context = Column(String(24), default="watch", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

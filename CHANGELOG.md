@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added an opt-in guided mail-health dashboard for workspaces that want one
+  plain-language interpretation before the established operational evidence.
+  It distinguishes known sender authentication failures from likely
+  unauthorized use already rejected by DMARC, keeps the classic dashboard as
+  the default for existing workspaces, and never presents aggregate DMARC data
+  as proof of individual message delivery or bounces.
 - Added real English and German product localization with a persistent browser
   preference, `LANGUAGE`/`DMARQ_DEFAULT_LOCALE` instance defaults, English
   fallback, localized client-rendered states, and locale-aware date and number

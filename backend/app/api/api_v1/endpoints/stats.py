@@ -9,6 +9,7 @@ from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.services.demo_data import build_demo_dashboard_statistics
+from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     parse_selected_workspace_id,
@@ -172,6 +173,36 @@ def resolve_dashboard_date_range(
     date_range = _rolling_date_range(now, selected, days)
     date_range["is_filtered"] = bool(requested_interval)
     return date_range
+
+
+@router.get("/mail-health/summary")
+async def get_mail_health_summary(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    interval: Optional[str] = Query(None, title="Named date interval"),
+    start_date: Optional[str] = Query(None, title="Custom start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, title="Custom end date in YYYY-MM-DD format"),
+) -> Dict[str, Any]:
+    """Return a focused interpretation from precomputed sender facts only."""
+    date_range = resolve_dashboard_date_range(
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    assessment = build_workspace_mail_health_assessment(
+        db,
+        workspace=workspace,
+        start_ts=int(datetime.fromisoformat(date_range["start_at"]).timestamp()),
+        end_ts=int(datetime.fromisoformat(date_range["end_at"]).timestamp()),
+    )
+    return {"date_range": date_range, "assessment": assessment}
 
 
 @router.get("/dashboard")

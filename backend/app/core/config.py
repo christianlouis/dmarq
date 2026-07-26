@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # provider console. This is intentionally separate from tenant roles.
     PROVIDER_OPERATOR_EMAILS: str = ""
     PROVIDER_BOOTSTRAP_DEFAULT_PLANS: bool = False
+    # Keep the guided mail-health experience opt-in while it matures. Existing
+    # workspaces continue to use the established operational dashboard unless
+    # both this deployment switch and their workspace preference are enabled.
+    GUIDED_MAIL_HEALTH_UI_ENABLED: bool = False
     # Opt-in, versioned acceptance data. The startup hook only accepts known
     # scenario identifiers, keeping normal installs and DEMO_MODE separate.
     SYNTHETIC_LOAD_TEST_SCENARIO: Optional[str] = None
