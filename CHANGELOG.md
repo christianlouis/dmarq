@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided mail-health setup can now capture why a self-hosted operator installed
+  DMARQ, retain their preferred explanation depth, and state a safe next step
+  without enabling the new dashboard automatically.
 - Added an opt-in guided mail-health dashboard for workspaces that want one
   plain-language interpretation before the established operational evidence.
   It distinguishes known sender authentication failures from likely

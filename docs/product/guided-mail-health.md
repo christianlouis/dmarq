@@ -19,6 +19,19 @@ The experience is protected by two independent controls:
 Existing workspaces remain on the classic dashboard until the second step. An
 operator can return to it immediately with **Use classic dashboard**.
 
+## Problem-first setup
+
+When `GUIDED_MAIL_HEALTH_UI_ENABLED=true`, a fresh self-hosted workspace can
+optionally state why it installed DMARQ: suspected delivery trouble, confusing
+reports, likely domain abuse, preventive monitoring, or simple curiosity. The
+answer and chosen explanation depth are stored per workspace. It selects a
+clear first action, but does not enable the guided dashboard, alter DNS, or
+hide the established setup and evidence workflows.
+
+Guidance intentionally describes aggregate DMARC reports as authentication and
+receiver-policy evidence. It does not present them as proof of an individual
+bounce, inbox placement, or read event.
+
 ## What the first guided assessment can say
 
 It reads only the indexed sender facts created during aggregate-report

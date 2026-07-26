@@ -733,6 +733,7 @@ templates = Jinja2Templates(
 templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
 templates.env.globals["provider_demo_enabled"] = settings.PROVIDER_DEMO_ENABLED
 templates.env.globals["demo_mode"] = settings.DEMO_MODE
+templates.env.globals["guided_mail_health_ui_enabled"] = settings.GUIDED_MAIL_HEALTH_UI_ENABLED
 templates.env.globals["app_timezone"] = settings.APP_TIMEZONE
 templates.env.globals["release_info"] = build_release_info(settings)
 templates.env.globals["support_session_context"] = support_session_from_request

@@ -1,5 +1,6 @@
 """Current-user workspace context endpoints."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -40,6 +41,13 @@ class GuidancePreferenceUpdate(BaseModel):
     context: str = "watch"
 
 
+class GuidanceProfileUpdate(BaseModel):
+    """Problem-first setup answers that do not change the legacy dashboard."""
+
+    goal: str
+    depth: str = "guided"
+
+
 def _guidance_payload(workspace: Workspace) -> Dict[str, Any]:
     settings = get_settings()
     available = bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED)
@@ -49,6 +57,8 @@ def _guidance_payload(workspace: Workspace) -> Dict[str, Any]:
         "requested_enabled": bool(workspace.guided_mail_health_enabled),
         "depth": workspace.guidance_depth or "standard",
         "context": workspace.guidance_context or "watch",
+        "goal": workspace.mail_health_goal,
+        "interview_completed": workspace.guidance_interview_completed_at is not None,
     }
 
 
@@ -173,6 +183,40 @@ async def update_guidance_preference(
     workspace.guided_mail_health_enabled = bool(payload.enabled)
     workspace.guidance_depth = payload.depth
     workspace.guidance_context = payload.context
+    db.commit()
+    db.refresh(workspace)
+    return _guidance_payload(workspace)
+
+
+@router.put("/guidance/profile")
+async def update_guidance_profile(
+    payload: GuidanceProfileUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Record the user's installation goal without opting them into a new view."""
+    valid_goals = {
+        "delivery_problem",
+        "spam_or_inconsistent",
+        "reports_confusing",
+        "suspected_abuse",
+        "preventive_monitoring",
+        "curious",
+    }
+    if payload.goal not in valid_goals:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid mail health goal")
+    if payload.depth not in {"guided", "standard", "expert"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth")
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    workspace.mail_health_goal = payload.goal
+    workspace.guidance_depth = payload.depth
+    workspace.guidance_interview_completed_at = datetime.utcnow()
     db.commit()
     db.refresh(workspace)
     return _guidance_payload(workspace)
