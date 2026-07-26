@@ -267,6 +267,22 @@ function dashboardApp() {
             return Array.isArray(this.guidedMailHealth?.reasons) ? this.guidedMailHealth.reasons : [];
         },
 
+        get guidedMailHealthKnownFacts() {
+            return Array.isArray(this.guidedMailHealth?.known_facts) ? this.guidedMailHealth.known_facts : [];
+        },
+
+        get guidedMailHealthInferences() {
+            return Array.isArray(this.guidedMailHealth?.inferences) ? this.guidedMailHealth.inferences : [];
+        },
+
+        get guidedMailHealthUnknowns() {
+            return Array.isArray(this.guidedMailHealth?.unknowns) ? this.guidedMailHealth.unknowns : [];
+        },
+
+        get guidedMailHealthVerification() {
+            return this.guidedMailHealth?.verification_condition || '';
+        },
+
         get guidedMailHealthEvidenceScope() {
             return this.guidedMailHealth?.evidence_scope || '';
         },

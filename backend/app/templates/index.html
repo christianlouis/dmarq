@@ -56,9 +56,19 @@
                 </div>
                 <details class="mt-4 max-w-3xl rounded border border-[#d7e8df] bg-white p-3 text-sm text-[#45505f]">
                     <summary class="cursor-pointer font-semibold text-[#272a5f]">Why DMARQ says this</summary>
-                    <ul class="mt-2 list-disc space-y-1 pl-5" role="list">
-                        <template x-for="reason in guidedMailHealthReasons" :key="reason"><li x-text="reason"></li></template>
+                    <p class="mt-3 font-semibold text-[#272a5f]">What DMARQ observed</p>
+                    <ul class="mt-1 list-disc space-y-1 pl-5" role="list">
+                        <template x-for="fact in guidedMailHealthKnownFacts" :key="fact"><li x-text="fact"></li></template>
                     </ul>
+                    <p class="mt-3 font-semibold text-[#272a5f]">What this likely means</p>
+                    <ul class="mt-1 list-disc space-y-1 pl-5" role="list">
+                        <template x-for="inference in guidedMailHealthInferences" :key="inference"><li x-text="inference"></li></template>
+                    </ul>
+                    <p class="mt-3 font-semibold text-[#272a5f]">What remains unknown</p>
+                    <ul class="mt-1 list-disc space-y-1 pl-5" role="list">
+                        <template x-for="unknown in guidedMailHealthUnknowns" :key="unknown"><li x-text="unknown"></li></template>
+                    </ul>
+                    <p class="mt-3 text-xs leading-5"><span class="font-semibold">How to verify: </span><span x-text="guidedMailHealthVerification"></span></p>
                     <p class="mt-3 text-xs leading-5" x-text="guidedMailHealthEvidenceScope"></p>
                 </details>
             </div>

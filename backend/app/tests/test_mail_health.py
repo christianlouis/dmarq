@@ -69,6 +69,11 @@ def test_known_sender_failures_are_actionable_without_claiming_delivery(db_sessi
     assert "may affect mail you intend to send" in result["summary"]
     assert result["intended_mail_impact"] == "likely_affected"
     assert result["urgency"] == "timely"
+    assert result["assessment_version"] == "v1"
+    assert result["known_facts"]
+    assert result["inferences"]
+    assert result["unknowns"]
+    assert result["next_action"]["href"] == result["href"]
     assert "do not prove" in result["evidence_scope"]
     assert result["claim_type"] == "aggregate_dmarc_authentication"
 
@@ -94,6 +99,8 @@ def test_unknown_rejected_source_is_quietly_classified_as_likely_unauthorized_us
     assert result["next_step"] == "Review source evidence"
     assert result["intended_mail_impact"] == "likely_not_affected"
     assert result["urgency"] == "none"
+    assert result["no_action_reason"]
+    assert result["watch_condition"]
     assert "not proof" in result["evidence_scope"]
 
 

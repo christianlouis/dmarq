@@ -91,6 +91,12 @@ def _assessment(
     domain: str | None = None,
     intended_mail_impact: str = "unknown",
     urgency: str = "monitor",
+    known_facts: list[str] | None = None,
+    inferences: list[str] | None = None,
+    unknowns: list[str] | None = None,
+    verification_condition: str = "Review fresh report evidence before changing mail or DNS settings.",
+    no_action_reason: str | None = None,
+    watch_condition: str | None = None,
 ) -> Dict[str, Any]:
     return {
         "outcome": outcome,
@@ -104,6 +110,18 @@ def _assessment(
         "domain": domain,
         "intended_mail_impact": intended_mail_impact,
         "urgency": urgency,
+        "assessment_version": "v1",
+        "known_facts": known_facts or [],
+        "inferences": inferences or [],
+        "unknowns": unknowns or [],
+        "next_action": {
+            "label": next_step,
+            "href": href,
+            "safety_boundary": "Review report-backed evidence before changing DNS or sender settings.",
+        },
+        "verification_condition": verification_condition,
+        "no_action_reason": no_action_reason,
+        "watch_condition": watch_condition,
         "claim_type": "aggregate_dmarc_authentication",
     }
 
@@ -148,6 +166,11 @@ def build_workspace_mail_health_assessment(
             evidence_scope="No report-backed authentication evidence is available yet.",
             intended_mail_impact="unknown",
             urgency="monitor",
+            known_facts=["No projected sender facts were found for the selected date window."],
+            inferences=["DMARQ cannot assess mail authentication health yet."],
+            unknowns=["How receivers evaluate mail from this domain."],
+            verification_condition="Ingest an aggregate DMARC report for this domain.",
+            watch_condition="DMARQ will reassess when a report is imported.",
         )
 
     known_failing: list[Dict[str, Any]] = []
@@ -202,6 +225,13 @@ def build_workspace_mail_health_assessment(
             domain=source["domain"],
             intended_mail_impact="likely_affected",
             urgency="timely",
+            known_facts=[
+                f"{identity.get('name') or 'A known sender'} matched a known sender profile.",
+                f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
+            ],
+            inferences=["This sender may affect mail you intend to send."],
+            unknowns=["Whether each affected message was delivered, bounced, or read."],
+            verification_condition="Fresh reports show the sender authenticating without DMARC failures.",
         )
 
     if unknown_protected and not unknown_failing:
@@ -227,6 +257,15 @@ def build_workspace_mail_health_assessment(
             domain=source["domain"],
             intended_mail_impact="likely_not_affected",
             urgency="none",
+            known_facts=[
+                "The source did not match a known provider or owned-infrastructure profile.",
+                "Receiver reports recorded protective quarantine or reject handling for all observed failures.",
+            ],
+            inferences=["This is likely unauthorized use rather than a fault in your known sending setup."],
+            unknowns=["Who operated the unrecognized source and the final outcome of individual messages."],
+            verification_condition="Known senders remain healthy and no new evidence links this source to your mail estate.",
+            no_action_reason="Receivers already reported protective handling and no known sender failures were found.",
+            watch_condition="DMARQ will surface a new action if the pattern changes or a known sender fails.",
         )
 
     if unknown_failing:
@@ -251,6 +290,13 @@ def build_workspace_mail_health_assessment(
             domain=source["domain"],
             intended_mail_impact="unknown",
             urgency="timely",
+            known_facts=[
+                "The source did not match a known sender profile.",
+                f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
+            ],
+            inferences=["DMARQ cannot yet tell whether this source belongs to your mail estate."],
+            unknowns=["Whether the source is an approved sender and its final delivery outcome."],
+            verification_condition="Classify the source or collect fresh report evidence that identifies its owner.",
         )
 
     observed_passes = sum(_count(source["dmarc_pass_count"]) for source in sources.values())
@@ -272,6 +318,11 @@ def build_workspace_mail_health_assessment(
             evidence_scope="Sender activity alone is not enough to assess mail authentication health.",
             intended_mail_impact="unknown",
             urgency="monitor",
+            known_facts=["Projected sender records contain no successful or failed DMARC authentication counts."],
+            inferences=["Sender activity by itself is not enough to assess mail health."],
+            unknowns=["Whether receivers accept or reject mail from these sources."],
+            verification_condition="A later report includes successful or failed DMARC authentication results.",
+            watch_condition="DMARQ will reassess when usable authentication evidence arrives.",
         )
 
     return _assessment(
@@ -289,4 +340,10 @@ def build_workspace_mail_health_assessment(
         ),
         intended_mail_impact="likely_not_affected",
         urgency="none",
+        known_facts=["Projected sender facts contain successful DMARC authentication and no reported failures."],
+        inferences=["Known sender activity appears healthy in the selected evidence window."],
+        unknowns=["Inbox placement and individual delivery outcomes."],
+        verification_condition="Continue receiving aggregate reports without a new authentication failure pattern.",
+        no_action_reason="No current authentication failures were found in the selected evidence window.",
+        watch_condition="DMARQ will notify when a meaningful sender or authentication change appears.",
     )
