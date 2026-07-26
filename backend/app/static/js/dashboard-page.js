@@ -245,6 +245,24 @@ function dashboardApp() {
             return this.guidedMailHealth?.confidence || 'Not enough evidence';
         },
 
+        get guidedMailHealthImpact() {
+            const impact = this.guidedMailHealth?.intended_mail_impact;
+            return {
+                likely_affected: 'Your intended mail may be affected',
+                likely_not_affected: 'Your intended mail does not appear affected',
+                unknown: 'Impact on your intended mail is not known yet',
+            }[impact] || 'Impact on your intended mail is not known yet';
+        },
+
+        get guidedMailHealthUrgency() {
+            const urgency = this.guidedMailHealth?.urgency;
+            return {
+                timely: 'Action recommended soon',
+                monitor: 'Keep monitoring',
+                none: 'No immediate action required',
+            }[urgency] || 'Keep monitoring';
+        },
+
         get guidedMailHealthReasons() {
             return Array.isArray(this.guidedMailHealth?.reasons) ? this.guidedMailHealth.reasons : [];
         },

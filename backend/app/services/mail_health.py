@@ -89,6 +89,8 @@ def _assessment(
     reasons: list[str],
     evidence_scope: str,
     domain: str | None = None,
+    intended_mail_impact: str = "unknown",
+    urgency: str = "monitor",
 ) -> Dict[str, Any]:
     return {
         "outcome": outcome,
@@ -100,6 +102,8 @@ def _assessment(
         "reasons": reasons,
         "evidence_scope": evidence_scope,
         "domain": domain,
+        "intended_mail_impact": intended_mail_impact,
+        "urgency": urgency,
         "claim_type": "aggregate_dmarc_authentication",
     }
 
@@ -142,6 +146,8 @@ def build_workspace_mail_health_assessment(
             confidence="Not enough evidence",
             reasons=["No projected sender facts were found for the selected date window."],
             evidence_scope="No report-backed authentication evidence is available yet.",
+            intended_mail_impact="unknown",
+            urgency="monitor",
         )
 
     known_failing: list[Dict[str, Any]] = []
@@ -194,6 +200,8 @@ def build_workspace_mail_health_assessment(
                 "whether an individual message was delivered, bounced, or read."
             ),
             domain=source["domain"],
+            intended_mail_impact="likely_affected",
+            urgency="timely",
         )
 
     if unknown_protected and not unknown_failing:
@@ -217,6 +225,8 @@ def build_workspace_mail_health_assessment(
                 "This is an interpretation of aggregate receiver reports, not proof of a specific delivery outcome."
             ),
             domain=source["domain"],
+            intended_mail_impact="likely_not_affected",
+            urgency="none",
         )
 
     if unknown_failing:
@@ -239,6 +249,8 @@ def build_workspace_mail_health_assessment(
                 "Aggregate DMARC reports describe authentication and receiver policy evaluation, not end-user delivery."
             ),
             domain=source["domain"],
+            intended_mail_impact="unknown",
+            urgency="timely",
         )
 
     observed_passes = sum(_count(source["dmarc_pass_count"]) for source in sources.values())
@@ -258,6 +270,8 @@ def build_workspace_mail_health_assessment(
                 "Projected sender facts contain no successful or failed DMARC authentication counts."
             ],
             evidence_scope="Sender activity alone is not enough to assess mail authentication health.",
+            intended_mail_impact="unknown",
+            urgency="monitor",
         )
 
     return _assessment(
@@ -273,4 +287,6 @@ def build_workspace_mail_health_assessment(
         evidence_scope=(
             "Aggregate DMARC reports show authentication results, not a guarantee of inbox placement or delivery."
         ),
+        intended_mail_impact="likely_not_affected",
+        urgency="none",
     )

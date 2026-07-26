@@ -67,6 +67,8 @@ def test_known_sender_failures_are_actionable_without_claiming_delivery(db_sessi
     assert result["outcome"] == "action_required"
     assert result["domain"] == "example.test"
     assert "may affect mail you intend to send" in result["summary"]
+    assert result["intended_mail_impact"] == "likely_affected"
+    assert result["urgency"] == "timely"
     assert "do not prove" in result["evidence_scope"]
     assert result["claim_type"] == "aggregate_dmarc_authentication"
 
@@ -90,6 +92,8 @@ def test_unknown_rejected_source_is_quietly_classified_as_likely_unauthorized_us
 
     assert result["outcome"] == "no_action_likely_unauthorized_use"
     assert result["next_step"] == "Review source evidence"
+    assert result["intended_mail_impact"] == "likely_not_affected"
+    assert result["urgency"] == "none"
     assert "not proof" in result["evidence_scope"]
 
 
@@ -131,3 +135,5 @@ def test_successful_authentication_evidence_is_reported_as_healthy(db_session):
 
     assert result["outcome"] == "healthy"
     assert result["confidence"] == "High"
+    assert result["intended_mail_impact"] == "likely_not_affected"
+    assert result["urgency"] == "none"
