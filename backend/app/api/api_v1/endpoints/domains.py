@@ -539,6 +539,9 @@ class DNSGuidanceRecordResponse(BaseModel):
     value: str
     purpose: str
     priority: str = "recommended"
+    what_it_does: Optional[str] = None
+    learn_more_url: Optional[str] = None
+    learn_more_label: Optional[str] = None
 
 
 class DNSLintFindingResponse(BaseModel):
@@ -598,6 +601,9 @@ class DNSChangePlanItemResponse(BaseModel):
     provider_write_available: bool = False
     provider_value_required: bool = False
     safety_notes: List[str] = Field(default_factory=list)
+    what_it_does: Optional[str] = None
+    learn_more_url: Optional[str] = None
+    learn_more_label: Optional[str] = None
 
 
 class DNSChangePlanResponse(BaseModel):

@@ -530,6 +530,16 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
         "target_dkim",
         "target_tls_rpt",
     }
+    mta_sts_target = next(
+        record for record in data["target_records"] if record["code"] == "target_mta_sts"
+    )
+    assert mta_sts_target["what_it_does"].startswith("Tells receiving mail servers")
+    assert mta_sts_target["learn_more_url"] == "https://www.rfc-editor.org/rfc/rfc8461"
+    tls_rpt_plan = next(
+        plan for plan in data["change_plans"] if plan["finding_code"] == "tls_rpt_missing"
+    )
+    assert tls_rpt_plan["what_it_does"].startswith("Asks receiving mail servers")
+    assert tls_rpt_plan["learn_more_url"] == "https://www.rfc-editor.org/rfc/rfc8460"
     dkim_finding = next(
         finding for finding in data["findings"] if finding["code"] == "dkim_selector_missing"
     )

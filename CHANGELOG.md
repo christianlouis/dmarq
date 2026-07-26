@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Optional MTA-STS, TLS-RPT, and BIMI DNS plans now state their practical
+  effect beside the proposed TXT record and link to the relevant standard or
+  BIMI reference. The operational DNS instruction remains unchanged.
 - The setup assistant now exposes Gmail, Microsoft 365, direct upload, and
   webhook intake routes alongside IMAP, with their relevant operational
   prerequisites before a user starts entering credentials.

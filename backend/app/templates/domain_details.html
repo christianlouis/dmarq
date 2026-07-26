@@ -1910,6 +1910,10 @@
                         <div class="space-y-2">
                             <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="mtaSts.dns_record || 'No _mta-sts TXT record found'">-</div>
                             <div class="rounded border border-base-300 p-3 text-sm">
+                                <p class="mb-2 text-xs text-base-content/65">
+                                    Requires TLS for mail delivered to this domain once the matching HTTPS policy is published.
+                                    <a class="link link-primary" href="https://www.rfc-editor.org/rfc/rfc8461" target="_blank" rel="noopener noreferrer">Read the MTA-STS standard</a>
+                                </p>
                                 <div class="grid gap-1">
                                     <div><span class="font-medium">Mode:</span> <span x-text="mtaSts.mode || 'unknown'"></span></div>
                                     <div><span class="font-medium">Max age:</span> <span x-text="mtaSts.max_age || 'unknown'"></span></div>
@@ -1934,6 +1938,10 @@
                         <div class="space-y-2">
                             <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="bimi.dns_record || 'No BIMI TXT record found at default._bimi'">-</div>
                             <div class="rounded border border-base-300 p-3 text-sm">
+                                <p class="mb-2 text-xs text-base-content/65">
+                                    Lets participating inbox providers show an approved brand logo after DMARC enforcement is ready.
+                                    <a class="link link-primary" href="https://bimigroup.org/" target="_blank" rel="noopener noreferrer">Learn about BIMI</a>
+                                </p>
                                 <div class="grid gap-1">
                                     <div><span class="font-medium">Selector:</span> <span class="font-mono" x-text="bimi.selector || 'default'"></span></div>
                                     <div><span class="font-medium">Logo:</span> <span class="font-mono break-all" x-text="bimi.logo_url || 'none'"></span></div>
@@ -2172,6 +2180,19 @@
                                                 </div>
                                                 <code class="mt-2 block break-all rounded bg-base-200 p-2 text-xs" x-text="record.value"></code>
                                                 <p class="mt-1 text-xs text-base-content/60" x-text="record.purpose"></p>
+                                                <template x-if="record.what_it_does">
+                                                    <p class="mt-2 text-xs text-base-content/75">
+                                                        <span class="font-semibold">What this does:</span>
+                                                        <span x-text="record.what_it_does"></span>
+                                                        <template x-if="record.learn_more_url">
+                                                            <a class="ml-1 font-medium text-[#1f5f9c] underline"
+                                                               :href="record.learn_more_url"
+                                                               target="_blank"
+                                                               rel="noopener noreferrer"
+                                                               x-text="record.learn_more_label || 'Learn more'"></a>
+                                                        </template>
+                                                    </p>
+                                                </template>
                                             </div>
                                             <button
                                                 :data-domain-detail-copy-value="record.value"
@@ -2260,6 +2281,19 @@
                                                     <p x-show="plan.provider_value_required" class="mt-1 text-xs text-base-content/60">
                                                         Confirm the final value in the sending-provider admin page before publishing.
                                                     </p>
+                                                </div>
+                                            </template>
+                                            <template x-if="plan.what_it_does">
+                                                <div class="mt-2 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-[#243b5a]">
+                                                    <span class="font-semibold">What this does:</span>
+                                                    <span x-text="plan.what_it_does"></span>
+                                                    <template x-if="plan.learn_more_url">
+                                                        <a class="ml-1 font-medium text-[#1f5f9c] underline"
+                                                           :href="plan.learn_more_url"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           x-text="plan.learn_more_label || 'Learn more'"></a>
+                                                    </template>
                                                 </div>
                                             </template>
                                             <div class="mt-2 grid gap-2 text-xs text-base-content/70 md:grid-cols-3">
