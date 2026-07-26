@@ -205,12 +205,15 @@ def test_disabled_and_active_snooze_suppress_notification_but_keep_incidents(db_
 
 def test_operator_state_rejects_missing_incident_and_snooze_timestamp(db_session):
     workspace = Workspace(slug="calm-missing", name="Calm Missing")
-    db_session.add(workspace)
+    other_workspace = Workspace(slug="calm-missing-other", name="Calm Missing Other")
+    db_session.add_all([workspace, other_workspace])
     db_session.commit()
+    foreign = record_mail_health_assessment(db_session, workspace=other_workspace, assessment=_assessment(domain="other.test"))
 
     for kwargs, message in (
         ({"incident_id": 9999, "action": "acknowledge", "snoozed_until": None}, "not found"),
         ({"incident_id": 9999, "action": "snooze", "snoozed_until": None}, "not found"),
+        ({"incident_id": foreign["incident"]["id"], "action": "acknowledge", "snoozed_until": None}, "not found"),
     ):
         try:
             update_incident_operator_state(

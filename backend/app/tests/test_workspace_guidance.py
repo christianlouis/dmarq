@@ -197,7 +197,8 @@ def test_user_guidance_preference_overrides_workspace_default_without_changing_i
 
 def test_notification_posture_and_incident_actions_are_workspace_scoped(authed_client, db_session):
     workspace = Workspace(slug="calm-api", name="Calm API")
-    db_session.add(workspace)
+    other_workspace = Workspace(slug="calm-api-other", name="Calm API Other")
+    db_session.add_all([workspace, other_workspace])
     db_session.commit()
     headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
 
@@ -224,11 +225,29 @@ def test_notification_posture_and_incident_actions_are_workspace_scoped(authed_c
             "next_action": {"href": "/domains/example.test#sending-sources"},
         },
     )
+    foreign = record_mail_health_assessment(
+        db_session,
+        workspace=other_workspace,
+        assessment={
+            "outcome": "action_required",
+            "domain": "foreign.test",
+            "intended_mail_impact": "likely_affected",
+            "urgency": "timely",
+            "confidence": "High",
+            "assessment_version": "v1",
+            "next_action": {"href": "/domains/foreign.test#sending-sources"},
+        },
+    )
     list_response = authed_client.get("/api/v1/workspaces/mail-health/incidents?limit=999", headers=headers)
     update_response = authed_client.put(
         f"/api/v1/workspaces/mail-health/incidents/{created['incident']['id']}",
         headers=headers,
-        json={"action": "snooze", "note": "Waiting for provider", "snoozed_until": "2026-07-28T10:00:00+02:00"},
+        json={"action": "snooze", "note": "Waiting for provider", "snoozed_until": "2099-07-28T10:00:00+02:00"},
+    )
+    foreign_update_response = authed_client.put(
+        f"/api/v1/workspaces/mail-health/incidents/{foreign['incident']['id']}",
+        headers=headers,
+        json={"action": "acknowledge"},
     )
     missing_response = authed_client.put(
         "/api/v1/workspaces/mail-health/incidents/999999",
@@ -246,9 +265,11 @@ def test_notification_posture_and_incident_actions_are_workspace_scoped(authed_c
     assert invalid_posture.status_code == 422
     assert list_response.status_code == 200
     assert len(list_response.json()["incidents"]) == 1
+    assert list_response.json()["incidents"][0]["id"] == created["incident"]["id"]
     assert update_response.status_code == 200
     assert update_response.json()["status"] == "snoozed"
-    assert update_response.json()["snoozed_until"] == "2026-07-28T08:00:00"
+    assert update_response.json()["snoozed_until"] == "2099-07-28T08:00:00"
+    assert foreign_update_response.status_code == 404
     assert missing_response.status_code == 404
     assert invalid_action.status_code == 422
 
