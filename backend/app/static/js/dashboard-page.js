@@ -263,6 +263,12 @@ function dashboardApp() {
             }[urgency] || 'Keep monitoring';
         },
 
+        guidanceContextButtonClass(context) {
+            return this.guidanceContext === context
+                ? 'btn-primary'
+                : 'btn-ghost';
+        },
+
         get guidedMailHealthReasons() {
             return Array.isArray(this.guidedMailHealth?.reasons) ? this.guidedMailHealth.reasons : [];
         },
@@ -432,6 +438,11 @@ function dashboardApp() {
                 if (guidanceDisable && root.contains(guidanceDisable)) {
                     this.updateGuidancePreference(false);
                     return;
+                }
+
+                const guidanceContext = event.target.closest('[data-guidance-context]');
+                if (guidanceContext && root.contains(guidanceContext)) {
+                    this.updateGuidanceContext(guidanceContext.dataset.guidanceContext);
                 }
 
                 const remediationRefresh = event.target.closest('[data-dashboard-remediation-refresh]');
@@ -784,9 +795,19 @@ function dashboardApp() {
                 this.guidanceDepth = preference.depth || this.guidanceDepth;
                 this.guidanceContext = preference.context || this.guidanceContext;
                 if (this.guidedMailHealthEnabled) await this.fetchGuidedMailHealth();
+                return true;
             } catch (error) {
                 console.error('Could not update guided dashboard preference:', error);
+                return false;
             }
+        },
+
+        async updateGuidanceContext(context) {
+            if (!['watch', 'diagnose', 'evidence'].includes(context) || context === this.guidanceContext) return;
+            const previousContext = this.guidanceContext;
+            this.guidanceContext = context;
+            const saved = await this.updateGuidancePreference(this.guidedMailHealthEnabled);
+            if (!saved) this.guidanceContext = previousContext;
         },
 
         async fetchGuidedMailHealth() {

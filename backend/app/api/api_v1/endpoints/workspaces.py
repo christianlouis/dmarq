@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.security import require_admin_auth
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.workspace_access import (
@@ -35,7 +36,7 @@ class WorkspaceContextResponse(BaseModel):
 
 
 class GuidancePreferenceUpdate(BaseModel):
-    """Workspace-scoped opt-in for the focused mail-health dashboard."""
+    """Workspace opt-in with a user's optional presentation preference."""
 
     enabled: bool
     depth: str = "guided"
@@ -49,15 +50,17 @@ class GuidanceProfileUpdate(BaseModel):
     depth: str = "guided"
 
 
-def _guidance_payload(workspace: Workspace) -> Dict[str, Any]:
+def _guidance_payload(workspace: Workspace, user: Optional[User] = None) -> Dict[str, Any]:
     settings = get_settings()
     available = bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED)
+    has_user_preference = bool(user and (user.guidance_depth or user.guidance_context))
     return {
         "available": available,
         "enabled": bool(workspace.guided_mail_health_enabled) and available,
         "requested_enabled": bool(workspace.guided_mail_health_enabled),
-        "depth": workspace.guidance_depth or "standard",
-        "context": workspace.guidance_context or "watch",
+        "depth": (user.guidance_depth if user and user.guidance_depth else workspace.guidance_depth) or "standard",
+        "context": (user.guidance_context if user and user.guidance_context else workspace.guidance_context) or "watch",
+        "preference_scope": "user" if has_user_preference else "workspace",
         "goal": workspace.mail_health_goal,
         "interview_completed": workspace.guidance_interview_completed_at is not None,
     }
@@ -160,7 +163,7 @@ async def get_guidance_preference(
         PERMISSION_REPORTS_READ,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
-    return _guidance_payload(workspace)
+    return _guidance_payload(workspace, _auth_user(db, _auth))
 
 
 @router.put("/guidance")
@@ -182,11 +185,16 @@ async def update_guidance_preference(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.guided_mail_health_enabled = bool(payload.enabled)
-    workspace.guidance_depth = payload.depth
-    workspace.guidance_context = payload.context
+    user = _auth_user(db, _auth)
+    if user is not None:
+        user.guidance_depth = payload.depth
+        user.guidance_context = payload.context
+    else:
+        workspace.guidance_depth = payload.depth
+        workspace.guidance_context = payload.context
     db.commit()
     db.refresh(workspace)
-    return _guidance_payload(workspace)
+    return _guidance_payload(workspace, user)
 
 
 @router.put("/guidance/profile")
@@ -216,8 +224,12 @@ async def update_guidance_profile(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.mail_health_goal = payload.goal
-    workspace.guidance_depth = payload.depth
+    user = _auth_user(db, _auth)
+    if user is not None:
+        user.guidance_depth = payload.depth
+    else:
+        workspace.guidance_depth = payload.depth
     workspace.guidance_interview_completed_at = datetime.utcnow()
     db.commit()
     db.refresh(workspace)
-    return _guidance_payload(workspace)
+    return _guidance_payload(workspace, user)

@@ -17,16 +17,20 @@ The experience is protected by two independent controls:
 2. A workspace operator chooses **Try guided view** from its dashboard.
 
 Existing workspaces remain on the classic dashboard until the second step. An
-operator can return to it immediately with **Use classic dashboard**.
+operator can return to it immediately with **Use classic dashboard**. A user
+may independently choose how much explanation they see and whether the guided
+card opens in **Watch**, **Diagnose**, or **Evidence** context; API-key and
+single-user deployments retain the workspace default.
 
 ## Problem-first setup
 
 When `GUIDED_MAIL_HEALTH_UI_ENABLED=true`, a fresh self-hosted workspace can
 optionally state why it installed DMARQ: suspected delivery trouble, confusing
 reports, likely domain abuse, preventive monitoring, or simple curiosity. The
-answer and chosen explanation depth are stored per workspace. It selects a
-clear first action, but does not enable the guided dashboard, alter DNS, or
-hide the established setup and evidence workflows.
+answer is stored with the workspace; a signed-in person's chosen explanation
+depth is stored as their own presentation preference. It selects a clear first
+action, but does not enable the guided dashboard, alter DNS, or hide the
+established setup and evidence workflows.
 
 Guidance intentionally describes aggregate DMARC reports as authentication and
 receiver-policy evidence. It does not present them as proof of an individual
@@ -61,6 +65,11 @@ claims require later DSN or provider-delivery evidence.
 
 ## Next increments
 
-The initial view supports the `watch` context. Workspace preferences already
-reserve `diagnose` and `evidence` contexts plus guided, standard, and expert
-explanation depth for the subsequent product slices.
+The initial view supports all three presentation contexts over the same
+read-only assessment:
+
+- **Watch** keeps the conclusion and one next step prominent.
+- **Diagnose** adds the observed facts and verification condition.
+- **Evidence** links directly to the unchanged sender or report evidence.
+
+No context changes the underlying evidence, permissions, or DNS write safety.

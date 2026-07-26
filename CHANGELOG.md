@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unauthorized use already rejected by DMARC, keeps the classic dashboard as
   the default for existing workspaces, and never presents aggregate DMARC data
   as proof of individual message delivery or bounces.
+- Guided mail-health preferences now keep a workspace-safe default while
+  allowing signed-in users to select their own explanation depth and Watch,
+  Diagnose, or Evidence presentation context.
 - Added real English and German product localization with a persistent browser
   preference, `LANGUAGE`/`DMARQ_DEFAULT_LOCALE` instance defaults, English
   fallback, localized client-rendered states, and locale-aware date and number

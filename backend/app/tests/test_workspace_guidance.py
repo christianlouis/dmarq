@@ -80,6 +80,7 @@ def test_guided_dashboard_preference_can_be_opted_into_per_workspace(
         "requested_enabled": True,
         "depth": "guided",
         "context": "watch",
+        "preference_scope": "workspace",
         "goal": None,
         "interview_completed": False,
     }
@@ -147,3 +148,46 @@ def test_analysts_can_read_but_cannot_change_guidance_preferences(test_app, db_s
     assert read_response.status_code == 200
     assert preference_response.status_code == 403
     assert profile_response.status_code == 403
+
+
+def test_user_guidance_preference_overrides_workspace_default_without_changing_it(test_app, db_session):
+    workspace = Workspace(
+        slug="guidance-personal",
+        name="Guidance personal",
+        guided_mail_health_enabled=True,
+        guidance_depth="standard",
+        guidance_context="watch",
+    )
+    user = User(email="guidance-personal@example.com", is_active=True, is_verified=True)
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="workspace_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+    headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+    with _client_as_auth(test_app, db_session, {"auth_type": "session", "user_id": user.id}) as client:
+        response = client.put(
+            "/api/v1/workspaces/guidance",
+            headers=headers,
+            json={"enabled": True, "depth": "expert", "context": "evidence"},
+        )
+        read_response = client.get("/api/v1/workspaces/guidance", headers=headers)
+
+    assert response.status_code == 200
+    assert read_response.status_code == 200
+    assert read_response.json()["depth"] == "expert"
+    assert read_response.json()["context"] == "evidence"
+    assert read_response.json()["preference_scope"] == "user"
+    db_session.refresh(workspace)
+    db_session.refresh(user)
+    assert workspace.guidance_depth == "standard"
+    assert workspace.guidance_context == "watch"
+    assert user.guidance_depth == "expert"
+    assert user.guidance_context == "evidence"
