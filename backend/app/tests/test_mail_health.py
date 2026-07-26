@@ -104,6 +104,29 @@ def test_unknown_rejected_source_is_quietly_classified_as_likely_unauthorized_us
     assert "not proof" in result["evidence_scope"]
 
 
+def test_unknown_source_without_protective_handling_requires_investigation(db_session):
+    workspace = Workspace(slug="guided-unknown-open", name="Guided unknown open")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(
+        _projection(
+            domain.id,
+            ip="198.51.100.31",
+            failed=4,
+            disposition_counts={"none": 4},
+        )
+    )
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "investigation_required"
+    assert result["intended_mail_impact"] == "unknown"
+    assert result["urgency"] == "timely"
+    assert "approved service" in result["next_step"]
+
+
 def test_empty_workspace_requests_report_intake_before_any_technical_work(db_session):
     workspace = Workspace(slug="guided-empty", name="Guided empty")
     db_session.add(workspace)
