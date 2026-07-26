@@ -106,6 +106,53 @@ def _should_notify(
     return None
 
 
+def _resolve_active_incidents(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: Optional[str],
+    now: datetime,
+    evidence: str,
+) -> List[MailHealthIncident]:
+    query = db.query(MailHealthIncident).filter(
+        MailHealthIncident.workspace_id == workspace.id,
+        MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
+    )
+    if domain:
+        query = query.filter(MailHealthIncident.domain == domain)
+    resolved = query.all()
+    for row in resolved:
+        row.status = "resolved"
+        row.resolved_at = now
+        row.resolution_evidence = evidence
+        row.last_seen_at = now
+    return resolved
+
+
+def _resolve_superseded_incidents(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: Optional[str],
+    outcome: str,
+    now: datetime,
+) -> None:
+    for previous in (
+        db.query(MailHealthIncident)
+        .filter(
+            MailHealthIncident.workspace_id == workspace.id,
+            MailHealthIncident.domain == domain,
+            MailHealthIncident.outcome != outcome,
+            MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
+        )
+        .all()
+    ):
+        previous.status = "resolved"
+        previous.resolved_at = now
+        previous.resolution_evidence = "Superseded by a newer report-backed assessment."
+        previous.last_seen_at = now
+
+
 def record_mail_health_assessment(
     db: Session,
     *,
@@ -119,19 +166,13 @@ def record_mail_health_assessment(
     domain = assessment.get("domain")
 
     if outcome in {"healthy", "insufficient_evidence"}:
-        query = db.query(MailHealthIncident).filter(
-            MailHealthIncident.workspace_id == workspace.id,
-            MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
+        resolved = _resolve_active_incidents(
+            db,
+            workspace=workspace,
+            domain=domain,
+            now=now,
+            evidence="A fresh report-backed assessment no longer found this actionable state.",
         )
-        if domain:
-            query = query.filter(MailHealthIncident.domain == domain)
-        resolved: List[MailHealthIncident] = []
-        for row in query.all():
-            row.status = "resolved"
-            row.resolved_at = now
-            row.resolution_evidence = "A fresh report-backed assessment no longer found this actionable state."
-            row.last_seen_at = now
-            resolved.append(row)
         db.commit()
         return {"incident": None, "notification_reason": None, "resolved": [incident_to_dict(row) for row in resolved]}
 
@@ -142,20 +183,7 @@ def record_mail_health_assessment(
     if row is None:
         # A changed assessment supersedes older active interpretations for the
         # same domain. It is not a second unresolved problem for the operator.
-        for previous in (
-            db.query(MailHealthIncident)
-            .filter(
-                MailHealthIncident.workspace_id == workspace.id,
-                MailHealthIncident.domain == domain,
-                MailHealthIncident.outcome != outcome,
-                MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
-            )
-            .all()
-        ):
-            previous.status = "resolved"
-            previous.resolved_at = now
-            previous.resolution_evidence = "Superseded by a newer report-backed assessment."
-            previous.last_seen_at = now
+        _resolve_superseded_incidents(db, workspace=workspace, domain=domain, outcome=outcome, now=now)
         row = MailHealthIncident(
             workspace_id=workspace.id,
             domain=domain,
