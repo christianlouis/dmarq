@@ -1911,7 +1911,8 @@
                             <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="mtaSts.dns_record || 'No _mta-sts TXT record found'">-</div>
                             <div class="rounded border border-base-300 p-3 text-sm">
                                 <p class="mb-2 text-xs text-base-content/65">
-                                    Requires TLS for mail delivered to this domain once the matching HTTPS policy is published.
+                                    Sending mail servers use this policy when delivering to this domain:
+                                    <span x-text="mtaSts.mode === 'enforce' ? 'enforce requires valid TLS.' : (mtaSts.mode === 'testing' ? 'testing reports TLS problems without blocking delivery.' : (mtaSts.mode === 'none' ? 'none disables MTA-STS enforcement.' : 'publish a policy mode to define whether TLS is enforced or only observed.'))"></span>
                                     <a class="link link-primary" href="https://www.rfc-editor.org/rfc/rfc8461" target="_blank" rel="noopener noreferrer">Read the MTA-STS standard</a>
                                 </p>
                                 <div class="grid gap-1">
