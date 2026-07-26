@@ -246,6 +246,7 @@ def record_mail_health_assessment(
     state_hash = _material_state(assessment)
     row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one_or_none()
     is_new = row is None
+    materially_changed = False
     if row is None:
         row, is_new, materially_changed = _create_incident_row(
             db,
