@@ -756,7 +756,7 @@ function dashboardApp() {
         },
 
         async fetchGuidedMailHealth() {
-            if (!this.guidedMailHealthEnabled) return;
+            if (!this.guidedMailHealthEnabled || this.guidedMailHealthLoading) return;
             this.guidedMailHealthLoading = true;
             try {
                 const response = await fetch(this.guidedMailHealthUrl());
@@ -771,14 +771,18 @@ function dashboardApp() {
             }
         },
 
-        guidedMailHealthUrl() {
+        dashboardDateRangeParams() {
             const params = new URLSearchParams();
             params.set('interval', this.dateInterval);
             if (this.dateInterval === 'custom') {
                 if (this.customStartDate) params.set('start_date', this.customStartDate);
                 if (this.customEndDate) params.set('end_date', this.customEndDate);
             }
-            return `/api/v1/stats/mail-health/summary?${params.toString()}`;
+            return params;
+        },
+
+        guidedMailHealthUrl() {
+            return `/api/v1/stats/mail-health/summary?${this.dashboardDateRangeParams().toString()}`;
         },
 
         async fetchWorkspaceHealthHistory() {
@@ -797,13 +801,7 @@ function dashboardApp() {
         },
 
         dashboardStatsUrl() {
-            const params = new URLSearchParams();
-            params.set('interval', this.dateInterval);
-            if (this.dateInterval === 'custom') {
-                if (this.customStartDate) params.set('start_date', this.customStartDate);
-                if (this.customEndDate) params.set('end_date', this.customEndDate);
-            }
-            return `/api/v1/stats/dashboard?${params.toString()}`;
+            return `/api/v1/stats/dashboard?${this.dashboardDateRangeParams().toString()}`;
         },
 
         workspaceHealthHistoryUrl() {

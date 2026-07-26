@@ -102,3 +102,32 @@ def test_empty_workspace_requests_report_intake_before_any_technical_work(db_ses
 
     assert result["outcome"] == "insufficient_evidence"
     assert result["href"] == "/mail-sources"
+
+
+def test_sender_activity_without_authentication_results_is_not_reported_healthy(db_session):
+    workspace = Workspace(slug="guided-incomplete", name="Guided incomplete")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(_projection(domain.id, ip="203.0.113.25"))
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "insufficient_evidence"
+    assert result["next_step"] == "Review report intake"
+    assert "not enough" in result["evidence_scope"].lower()
+
+
+def test_successful_authentication_evidence_is_reported_as_healthy(db_session):
+    workspace = Workspace(slug="guided-healthy", name="Guided healthy")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(_projection(domain.id, ip="203.0.113.26", passed=12))
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "healthy"
+    assert result["confidence"] == "High"

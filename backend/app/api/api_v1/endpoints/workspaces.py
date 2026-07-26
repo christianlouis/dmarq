@@ -157,7 +157,7 @@ async def get_guidance_preference(
     workspace = resolve_authorized_workspace(
         db,
         _auth,
-        PERMISSION_REPORTS_WRITE,
+        PERMISSION_REPORTS_READ,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     return _guidance_payload(workspace)
@@ -212,7 +212,7 @@ async def update_guidance_profile(
     workspace = resolve_authorized_workspace(
         db,
         _auth,
-        PERMISSION_REPORTS_READ,
+        PERMISSION_REPORTS_WRITE,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.mail_health_goal = payload.goal

@@ -120,6 +120,12 @@ def build_workspace_mail_health_assessment(
             DomainSourceDailyProjection.observed_at >= start_ts,
             DomainSourceDailyProjection.observed_at < end_ts,
         )
+        .order_by(
+            Domain.name.asc(),
+            DomainSourceDailyProjection.source_ip.asc(),
+            DomainSourceDailyProjection.observed_at.asc(),
+            DomainSourceDailyProjection.id.asc(),
+        )
         .all()
     )
     sources = _merge_source_rows(rows)
@@ -233,6 +239,25 @@ def build_workspace_mail_health_assessment(
                 "Aggregate DMARC reports describe authentication and receiver policy evaluation, not end-user delivery."
             ),
             domain=source["domain"],
+        )
+
+    observed_passes = sum(_count(source["dmarc_pass_count"]) for source in sources.values())
+    if not observed_passes:
+        return _assessment(
+            outcome="insufficient_evidence",
+            title="Waiting for usable DMARC authentication evidence",
+            summary=(
+                "DMARQ found sender records in this period, but they do not yet contain "
+                "successful or failed DMARC authentication results. Keep report intake running "
+                "until receivers provide usable authentication evidence."
+            ),
+            next_step="Review report intake",
+            href="/reports",
+            confidence="Not enough evidence",
+            reasons=[
+                "Projected sender facts contain no successful or failed DMARC authentication counts."
+            ],
+            evidence_scope="Sender activity alone is not enough to assess mail authentication health.",
         )
 
     return _assessment(

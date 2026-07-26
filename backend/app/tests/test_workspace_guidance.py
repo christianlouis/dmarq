@@ -1,10 +1,34 @@
 """Workspace preference tests for the opt-in guided dashboard."""
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from app.core.database import get_db
+from app.core.security import require_admin_auth
+from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
+from app.services.workspace_access import ROLE_ANALYST
+
+
+@contextmanager
+def _client_as_auth(test_app, db_session, auth_context):
+    async def mock_admin_auth():
+        return auth_context
+
+    def override_get_db():
+        yield db_session
+
+    original_overrides = dict(test_app.dependency_overrides)
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    try:
+        with TestClient(test_app) as client:
+            yield client
+    finally:
+        test_app.dependency_overrides = original_overrides
 
 
 def test_guided_dashboard_stays_disabled_when_the_deployment_flag_is_off(
@@ -89,3 +113,37 @@ def test_guidance_profile_records_a_problem_first_goal_without_enabling_the_dash
     db_session.refresh(workspace)
     assert workspace.mail_health_goal == "reports_confusing"
     assert workspace.guidance_interview_completed_at is not None
+
+
+def test_analysts_can_read_but_cannot_change_guidance_preferences(test_app, db_session):
+    workspace = Workspace(slug="guidance-analyst", name="Guidance analyst")
+    user = User(email="guidance-analyst@example.com", is_active=True, is_verified=True)
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=ROLE_ANALYST,
+            active=True,
+        )
+    )
+    db_session.commit()
+    headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+    with _client_as_auth(test_app, db_session, {"auth_type": "session", "user_id": user.id}) as client:
+        read_response = client.get("/api/v1/workspaces/guidance", headers=headers)
+        preference_response = client.put(
+            "/api/v1/workspaces/guidance",
+            headers=headers,
+            json={"enabled": True, "depth": "guided", "context": "watch"},
+        )
+        profile_response = client.put(
+            "/api/v1/workspaces/guidance/profile",
+            headers=headers,
+            json={"goal": "curious", "depth": "guided"},
+        )
+
+    assert read_response.status_code == 200
+    assert preference_response.status_code == 403
+    assert profile_response.status_code == 403
