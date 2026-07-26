@@ -153,6 +153,72 @@ def _resolve_superseded_incidents(
         previous.last_seen_at = now
 
 
+def _create_incident_row(
+    db: Session,
+    *,
+    workspace: Workspace,
+    assessment: Dict[str, Any],
+    key: str,
+    state_hash: str,
+    outcome: str,
+    domain: Optional[str],
+    now: datetime,
+) -> tuple[MailHealthIncident, bool, bool]:
+    """Create an incident, tolerating a concurrent insert for the same key."""
+    _resolve_superseded_incidents(db, workspace=workspace, domain=domain, outcome=outcome, now=now)
+    row = MailHealthIncident(
+        workspace_id=workspace.id,
+        domain=domain,
+        incident_key=key,
+        outcome=outcome,
+        intended_mail_impact=str(assessment.get("intended_mail_impact") or "unknown"),
+        urgency=str(assessment.get("urgency") or "monitor"),
+        confidence=str(assessment.get("confidence") or "Not enough evidence"),
+        status="open",
+        material_state_hash=state_hash,
+        assessment=_json(assessment),
+        first_seen_at=now,
+        last_seen_at=now,
+        last_material_change_at=now,
+    )
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except IntegrityError:
+        # Concurrent scheduler/manual evaluations can reach this branch together.
+        # Reuse the first committed incident instead of failing.
+        row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one()
+        return row, False, row.material_state_hash != state_hash
+    return row, True, False
+
+
+def _update_incident_row(
+    row: MailHealthIncident,
+    *,
+    assessment: Dict[str, Any],
+    state_hash: str,
+    outcome: str,
+    domain: Optional[str],
+    now: datetime,
+) -> bool:
+    materially_changed = row.material_state_hash != state_hash
+    row.domain = domain
+    row.outcome = outcome
+    row.intended_mail_impact = str(assessment.get("intended_mail_impact") or "unknown")
+    row.urgency = str(assessment.get("urgency") or "monitor")
+    row.confidence = str(assessment.get("confidence") or "Not enough evidence")
+    row.assessment = _json(assessment)
+    row.last_seen_at = now
+    if row.status == "resolved":
+        row.status = "open"
+        materially_changed = True
+    if materially_changed:
+        row.material_state_hash = state_hash
+        row.last_material_change_at = now
+    return materially_changed
+
+
 def record_mail_health_assessment(
     db: Session,
     *,
@@ -181,51 +247,25 @@ def record_mail_health_assessment(
     row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one_or_none()
     is_new = row is None
     if row is None:
-        # A changed assessment supersedes older active interpretations for the
-        # same domain. It is not a second unresolved problem for the operator.
-        _resolve_superseded_incidents(db, workspace=workspace, domain=domain, outcome=outcome, now=now)
-        row = MailHealthIncident(
-            workspace_id=workspace.id,
-            domain=domain,
-            incident_key=key,
+        row, is_new, materially_changed = _create_incident_row(
+            db,
+            workspace=workspace,
+            assessment=assessment,
+            key=key,
+            state_hash=state_hash,
             outcome=outcome,
-            intended_mail_impact=str(assessment.get("intended_mail_impact") or "unknown"),
-            urgency=str(assessment.get("urgency") or "monitor"),
-            confidence=str(assessment.get("confidence") or "Not enough evidence"),
-            status="open",
-            material_state_hash=state_hash,
-            assessment=_json(assessment),
-            first_seen_at=now,
-            last_seen_at=now,
-            last_material_change_at=now,
+            domain=domain,
+            now=now,
         )
-        try:
-            with db.begin_nested():
-                db.add(row)
-                db.flush()
-        except IntegrityError:
-            # Concurrent scheduler/manual evaluations can reach this branch
-            # together. Reuse the first committed incident instead of failing.
-            row = db.query(MailHealthIncident).filter(MailHealthIncident.incident_key == key).one()
-            is_new = False
-            materially_changed = row.material_state_hash != state_hash
-        else:
-            materially_changed = False
     if not is_new:
-        materially_changed = row.material_state_hash != state_hash
-        row.domain = domain
-        row.outcome = outcome
-        row.intended_mail_impact = str(assessment.get("intended_mail_impact") or "unknown")
-        row.urgency = str(assessment.get("urgency") or "monitor")
-        row.confidence = str(assessment.get("confidence") or "Not enough evidence")
-        row.assessment = _json(assessment)
-        row.last_seen_at = now
-        if row.status == "resolved":
-            row.status = "open"
-            materially_changed = True
-        if materially_changed:
-            row.material_state_hash = state_hash
-            row.last_material_change_at = now
+        materially_changed = _update_incident_row(
+            row,
+            assessment=assessment,
+            state_hash=state_hash,
+            outcome=outcome,
+            domain=domain,
+            now=now,
+        )
 
     db.flush()
     reason = _should_notify(
