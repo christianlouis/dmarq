@@ -4793,6 +4793,29 @@ async def _resolve_summary_dns_results(
     return await asyncio.gather(*(_bounded(domain_name) for domain_name in domains))
 
 
+def _cached_bimi_logo_urls(db: Session, domains: List[str]) -> Dict[str, str]:
+    """Return the latest safe BIMI logo URL per domain without resolving DNS."""
+    if not domains:
+        return {}
+    logo_urls: Dict[str, str] = {}
+    cache_rows = (
+        db.query(DNSCache.domain, DNSCache.result_json)
+        .filter(DNSCache.domain.in_(domains), DNSCache.provider.like("%:bimi"))
+        .order_by(DNSCache.domain.asc(), DNSCache.checked_at.desc())
+        .all()
+    )
+    for cache_domain, result_json in cache_rows:
+        if cache_domain in logo_urls:
+            continue
+        try:
+            logo_url = str((json.loads(result_json) or {}).get("logo_url") or "")
+        except (TypeError, ValueError):
+            continue
+        if logo_url.startswith("https://"):
+            logo_urls[cache_domain] = logo_url
+    return logo_urls
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
@@ -4861,22 +4884,7 @@ async def get_domains_summary(
         domain.name: domain
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
-    bimi_logo_urls: Dict[str, str] = {}
-    bimi_cache_rows = (
-        db.query(DNSCache.domain, DNSCache.result_json)
-        .filter(DNSCache.domain.in_(domains), DNSCache.provider.like("%:bimi"))
-        .order_by(DNSCache.domain.asc(), DNSCache.checked_at.desc())
-        .all()
-    )
-    for cache_domain, result_json in bimi_cache_rows:
-        if cache_domain in bimi_logo_urls:
-            continue
-        try:
-            logo_url = str((json.loads(result_json) or {}).get("logo_url") or "")
-        except (TypeError, ValueError):
-            continue
-        if logo_url.startswith("https://"):
-            bimi_logo_urls[cache_domain] = logo_url
+    bimi_logo_urls = _cached_bimi_logo_urls(db, domains)
 
     selectors_by_summary_domain: Dict[str, List[str]] = {}
     for domain_name in domains:
