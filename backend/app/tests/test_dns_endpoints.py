@@ -1978,10 +1978,47 @@ def test_mta_sts_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["errors"] == ["No _mta-sts TXT record was found."]
 
 
+def test_mta_sts_endpoint_cached_only_disables_live_lookup(authed_client: TestClient):
+    """A cached-only MTA-STS request passes the no-live guard into the service."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    result = MTAStsResult(status="pending")
+    check_cached = AsyncMock(return_value=(result, True, checked_at))
+
+    with patch("app.api.api_v1.endpoints.domains.check_mta_sts_cached", new=check_cached):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/mta-sts?cached_only=true")
+
+    assert response.status_code == 200
+    _, _, domain = check_cached.await_args.args
+    assert domain == DOMAIN
+    assert check_cached.await_args.kwargs["allow_live"] is False
+
+
 def test_mta_sts_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
     response = authed_client.get("/api/v1/domains/unknown.example.com/dns/mta-sts")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mta_sts_cached_only_without_cache_returns_pending(db_session):
+    """Read-only MTA-STS requests report missing captured evidence without probing."""
+    provider = AsyncMock()
+
+    with patch(
+        "app.services.mta_sts.check_mta_sts_with_fallback",
+        new=AsyncMock(side_effect=AssertionError("live MTA-STS lookup")),
+    ):
+        result, cached, observed_at = await check_mta_sts_cached(
+            db_session,
+            provider,
+            DOMAIN,
+            allow_live=False,
+        )
+
+    assert cached is True
+    assert observed_at is not None
+    assert result.status == "pending"
+    assert result.errors == ["MTA-STS evidence has not been captured yet."]
 
 
 @pytest.mark.asyncio
@@ -2051,10 +2088,47 @@ def test_bimi_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["checked_at"] == checked_at.isoformat()
 
 
+def test_bimi_endpoint_cached_only_disables_live_lookup(authed_client: TestClient):
+    """A cached-only BIMI request passes the no-live guard into the service."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    result = BIMIResult(status="pending")
+    check_cached = AsyncMock(return_value=(result, True, checked_at))
+
+    with patch("app.api.api_v1.endpoints.domains.check_bimi_cached", new=check_cached):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/bimi?cached_only=true")
+
+    assert response.status_code == 200
+    _, _, domain = check_cached.await_args.args
+    assert domain == DOMAIN
+    assert check_cached.await_args.kwargs["allow_live"] is False
+
+
 def test_bimi_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
     response = authed_client.get("/api/v1/domains/unknown.example.com/dns/bimi")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bimi_cached_only_without_cache_returns_pending(db_session):
+    """Read-only BIMI requests report missing captured evidence without probing."""
+    provider = AsyncMock()
+
+    with patch(
+        "app.services.bimi.check_bimi_with_fallback",
+        new=AsyncMock(side_effect=AssertionError("live BIMI lookup")),
+    ):
+        result, cached, observed_at = await check_bimi_cached(
+            db_session,
+            provider,
+            DOMAIN,
+            allow_live=False,
+        )
+
+    assert cached is True
+    assert observed_at is not None
+    assert result.status == "pending"
+    assert result.errors == ["BIMI evidence has not been captured yet."]
 
 
 @pytest.mark.asyncio
@@ -2142,13 +2216,23 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     )
     calls = []
 
-    async def fake_check(db, provider, domain, *, port=25, refresh=False, derive_suggestions=False):
+    async def fake_check(
+        db,
+        provider,
+        domain,
+        *,
+        port=25,
+        refresh=False,
+        derive_suggestions=False,
+        allow_live=True,
+    ):
         calls.append(
             {
                 "domain": domain,
                 "port": port,
                 "refresh": refresh,
                 "derive_suggestions": derive_suggestions,
+                "allow_live": allow_live,
             }
         )
         return (live_result if derive_suggestions else passive_result), True, checked_at
@@ -2160,6 +2244,9 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
         response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/dane")
         live_response = authed_client.get(
             f"/api/v1/domains/{DOMAIN}/dns/dane?derive_suggestions=true"
+        )
+        cached_only_response = authed_client.get(
+            f"/api/v1/domains/{DOMAIN}/dns/dane?cached_only=true"
         )
 
     assert response.status_code == 200
@@ -2176,9 +2263,29 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     live_data = live_response.json()
     assert live_data["suggested_records"][0]["record"].startswith("3 1 1 ")
     assert live_data["suggested_records"][0]["status"] == "ready"
+    assert cached_only_response.status_code == 200
     assert calls == [
-        {"domain": DOMAIN, "port": 25, "refresh": False, "derive_suggestions": False},
-        {"domain": DOMAIN, "port": 25, "refresh": False, "derive_suggestions": True},
+        {
+            "domain": DOMAIN,
+            "port": 25,
+            "refresh": False,
+            "derive_suggestions": False,
+            "allow_live": True,
+        },
+        {
+            "domain": DOMAIN,
+            "port": 25,
+            "refresh": False,
+            "derive_suggestions": True,
+            "allow_live": True,
+        },
+        {
+            "domain": DOMAIN,
+            "port": 25,
+            "refresh": False,
+            "derive_suggestions": False,
+            "allow_live": False,
+        },
     ]
 
 
