@@ -1037,6 +1037,25 @@ def test_dns_endpoint_cached_only_reuses_stale_evidence_without_lookup(
     provider.check_domain.assert_not_awaited()
 
 
+def test_dns_endpoint_cached_only_without_cache_returns_pending_without_lookup(
+    authed_client: TestClient,
+):
+    """A cached-only DNS read reports missing evidence without starting DNS work."""
+    provider = AsyncMock(check_domain=AsyncMock(side_effect=AssertionError("live DNS read")))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns?cached_only=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["lookupStatus"] == "pending"
+    assert data["checkedAt"] is None
+    provider.check_domain.assert_not_awaited()
+
+
 def test_dns_lint_cached_only_keeps_passive_spf_and_dkim_findings(
     authed_client: TestClient, db_session
 ):
@@ -1952,6 +1971,26 @@ def test_dns_health_skips_optional_recommendations_for_pending_evidence(
     recommendation_types = {item["type"] for item in response.json()["recommendations"]}
     assert "missing_mta_sts" not in recommendation_types
     assert "missing_bimi" not in recommendation_types
+
+
+def test_dns_health_cached_only_without_cache_returns_pending_without_lookup(
+    authed_client: TestClient,
+):
+    """Cached-only health reads stay pending until evidence has been captured."""
+    provider = AsyncMock(check_domain=AsyncMock(side_effect=AssertionError("live DNS read")))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/health?cached_only=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "pending"
+    assert data["dns_lookup_status"] == "pending"
+    assert data["recommendations"] == []
+    provider.check_domain.assert_not_awaited()
 
 
 def test_mta_sts_endpoint_returns_cached_posture(authed_client: TestClient):
