@@ -34,7 +34,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
-from app.services.bimi import BIMIResult
+from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion, check_dane_cached
 from app.services.dns_cache import (
     _selectors_key,
@@ -50,7 +50,7 @@ from app.services.dns_resolver import (
     PublicRecursiveDNSProvider,
     SystemDNSProvider,
 )
-from app.services.mta_sts import MTAStsResult
+from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
@@ -1984,6 +1984,46 @@ def test_mta_sts_endpoint_returns_404_for_unknown_domain(authed_client: TestClie
     assert response.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_mta_sts_cached_only_reuses_stale_evidence_even_when_refreshing(db_session):
+    """Read-only MTA-STS requests should keep stale cache rows instead of probing."""
+    checked_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2)
+    cached_result = MTAStsResult(
+        status="pass",
+        dns_record="v=STSv1; id=20260727",
+        policy_url=f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt",
+        policy_text="version: STSv1\nmode: testing\nmx: mx.example.com\nmax_age: 86400",
+    )
+    provider = AsyncMock()
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=f"{provider.__class__.__name__}:mta-sts",
+            selectors_key="mta-sts-v1",
+            result_json=json.dumps(asdict(cached_result)),
+            checked_at=checked_at,
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.services.mta_sts.check_mta_sts_with_fallback",
+        new=AsyncMock(side_effect=AssertionError("live MTA-STS lookup")),
+    ):
+        result, cached, observed_at = await check_mta_sts_cached(
+            db_session,
+            provider,
+            DOMAIN,
+            refresh=True,
+            allow_live=False,
+        )
+
+    assert cached is True
+    assert observed_at == checked_at
+    assert result.status == "pass"
+    assert result.dns_record == "v=STSv1; id=20260727"
+
+
 def test_bimi_endpoint_returns_cached_posture(authed_client: TestClient):
     """The domain detail page can fetch BIMI posture with cache metadata."""
     checked_at = datetime(2026, 5, 23, 12, 0, 0)
@@ -2015,6 +2055,47 @@ def test_bimi_endpoint_returns_404_for_unknown_domain(authed_client: TestClient)
     response = authed_client.get("/api/v1/domains/unknown.example.com/dns/bimi")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bimi_cached_only_reuses_stale_evidence_even_when_refreshing(db_session):
+    """Read-only BIMI requests should keep stale cache rows instead of probing."""
+    checked_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2)
+    cached_result = BIMIResult(
+        status="pass",
+        selector="default",
+        query_name=f"default._bimi.{DOMAIN}",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=",
+        logo_url="https://example.com/logo.svg",
+    )
+    provider = AsyncMock()
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=f"{provider.__class__.__name__}:bimi",
+            selectors_key="bimi-v1:default",
+            result_json=json.dumps(asdict(cached_result)),
+            checked_at=checked_at,
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.services.bimi.check_bimi_with_fallback",
+        new=AsyncMock(side_effect=AssertionError("live BIMI lookup")),
+    ):
+        result, cached, observed_at = await check_bimi_cached(
+            db_session,
+            provider,
+            DOMAIN,
+            refresh=True,
+            allow_live=False,
+        )
+
+    assert cached is True
+    assert observed_at == checked_at
+    assert result.status == "pass"
+    assert result.logo_url == "https://example.com/logo.svg"
 
 
 def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
