@@ -94,6 +94,12 @@ summarizes coverage for DMARC, SPF, DKIM, MTA-STS, and BIMI, assigns a simple
 posture score, and shows each recommendation with links back to the DNS record,
 report trend, sending-source table, or posture evidence that triggered it.
 
+Opening the domain, score trend, or evidence export does not refresh DNS or
+write a new score history entry. DMARQ keeps showing the last recorded
+evidence until you choose **Refresh DNS evidence**. That explicit action is
+the current way to collect a new posture observation; a failed refresh must
+not silently turn the previous verified posture into a missing record.
+
 The same surface includes a **What Changed** panel when provider-backed DNS
 change tracking has observed additions, edits, or removals. Those summaries are
 designed for drift review: operators can see the previous and current values

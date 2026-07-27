@@ -510,9 +510,7 @@ function domainDetailsApp(domainId = '') {
                     this.fetchDNSRecords({ refresh: true }),
                     this.fetchDNSHealth({ refresh: true }),
                     this.fetchDNSGuidance({ refresh: true }),
-                    this.fetchPosture({ refresh: true }),
                     this.fetchRemediationQueue({ refresh: true }),
-                    this.fetchHealthHistory(),
                     this.fetchMtaSts({ refresh: true }),
                     this.fetchBimi({ refresh: true }),
                     this.fetchSelectors(),
@@ -520,6 +518,8 @@ function domainDetailsApp(domainId = '') {
                     this.fetchSources({ refresh: true, preserveOnFailure: true }),
                     this.fetchSourceIntelligence({ preserveOnFailure: true })
                 ]);
+                await this.fetchPosture({ refresh: true });
+                await this.fetchHealthHistory();
             } finally {
                 this.refreshingPage = false;
             }
@@ -529,9 +529,10 @@ function domainDetailsApp(domainId = '') {
             await Promise.allSettled([
                 this.fetchDNSRecords({ refresh: true, preserveEvidenceOnFailure: true }),
                 this.fetchDNSHealth({ refresh: true }),
-                this.fetchDNSGuidance({ refresh: true }),
-                this.fetchPosture({ refresh: true })
+                this.fetchDNSGuidance({ refresh: true })
             ]);
+            await this.fetchPosture({ refresh: true });
+            await this.fetchHealthHistory();
         },
 
         async refreshSourceReputation() {
@@ -2925,7 +2926,10 @@ function domainDetailsApp(domainId = '') {
             this.healthHistory.loading = true;
             this.healthHistory.error = '';
             try {
-                const captureCurrent = options.captureCurrent !== false;
+                // Health history is evidence, not a page-load side effect.
+                // Only an explicit caller may request a capture while the
+                // asynchronous posture snapshot worker is introduced.
+                const captureCurrent = options.captureCurrent === true;
                 const params = new URLSearchParams({
                     capture_current: captureCurrent ? 'true' : 'false',
                     limit: '30'

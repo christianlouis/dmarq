@@ -49,10 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
-- Started domain health history automatically with one persisted score snapshot
-  per domain and day. Existing domains receive their initial trend point when
-  their detail view opens, and later visits reuse that evidence rather than
-  repeating the expensive posture calculation.
+- Made domain health history and evidence exports read-only by default. A page
+  visit cannot create or overwrite a score snapshot; only an explicit DNS
+  refresh or an opt-in maintenance capture may record new evidence.
 - Reworked the domain DNS view into an email-authentication workflow. The next
   safe change and core DMARC, SPF, and DKIM evidence lead the view; provider
   connection details, optional standards, selector management, implementation

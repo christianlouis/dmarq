@@ -1,0 +1,2 @@
+ignore:
+  - "backend/app/tests/**"

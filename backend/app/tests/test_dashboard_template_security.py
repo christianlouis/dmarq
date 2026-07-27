@@ -2354,6 +2354,7 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "data-domain-detail-reload" in script
     assert "data-domain-detail-refresh-dns" in script
     assert "refreshDNSData" in script
+    assert "await this.fetchPosture({ refresh: true });\n            await this.fetchHealthHistory();" in script
     assert "data-domain-detail-delete" in script
     assert "data-domain-detail-verify-ownership" in script
     assert "data-domain-detail-verify-cloudflare" in script
