@@ -228,7 +228,12 @@ def store_dns_cache_result(
         )
         row_id = db.execute(statement).scalar_one()
         db.commit()
-        return db.query(DNSCache).filter(DNSCache.id == row_id).one()
+        return (
+            db.query(DNSCache)
+            .populate_existing()
+            .filter(DNSCache.id == row_id)
+            .one()
+        )
 
     if row is None:
         row = DNSCache(

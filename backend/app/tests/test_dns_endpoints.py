@@ -1604,6 +1604,10 @@ def test_dns_cache_uses_postgresql_upsert_without_integrity_error_retry():
             return cached_row.id
 
     class FakeQuery:
+        def populate_existing(self):
+            executed["populate_existing"] = True
+            return self
+
         def filter(self, *_args):
             return self
 
@@ -1636,8 +1640,48 @@ def test_dns_cache_uses_postgresql_upsert_without_integrity_error_retry():
 
     assert row is cached_row
     assert executed["committed"] is True
+    assert executed["populate_existing"] is True
     assert "ON CONFLICT" in str(executed["statement"])
     assert "uq_dns_cache_lookup" in str(executed["statement"])
+
+
+def test_dns_cache_store_returns_updated_identity_mapped_row(db_session):
+    """Cache writes should return the refreshed in-session row."""
+    stale_checked_at = datetime(2026, 7, 27, 9, 0, 0)
+    fresh_checked_at = datetime(2026, 7, 27, 9, 1, 0)
+    row = DNSCache(
+        domain=DOMAIN,
+        provider="CustomDNSProvider",
+        selectors_key="selector-key",
+        result_json='{"dmarc":false}',
+        checked_at=stale_checked_at,
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    loaded = (
+        db_session.query(DNSCache)
+        .filter(
+            DNSCache.domain == DOMAIN,
+            DNSCache.provider == "CustomDNSProvider",
+            DNSCache.selectors_key == "selector-key",
+        )
+        .one()
+    )
+
+    updated = store_dns_cache_result(
+        db_session,
+        loaded,
+        domain=DOMAIN,
+        provider_name="CustomDNSProvider",
+        selectors_key="selector-key",
+        payload='{"dmarc":true}',
+        checked_at=fresh_checked_at,
+    )
+
+    assert updated is loaded
+    assert updated.result_json == '{"dmarc":true}'
+    assert updated.checked_at == fresh_checked_at
 
 
 def test_dns_endpoint_refresh_bypasses_cache(authed_client: TestClient):
