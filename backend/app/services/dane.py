@@ -14,11 +14,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
-from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS, store_dns_cache_result
 from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
@@ -466,6 +465,7 @@ async def check_dane_cached(
     *,
     port: int = 25,
     derive_suggestions: bool = False,
+    allow_live: bool = True,
     ttl_seconds: int = DEFAULT_DNS_CACHE_TTL_SECONDS,
     refresh: bool = False,
 ) -> Tuple[DANEResult, bool, datetime]:
@@ -485,6 +485,17 @@ async def check_dane_cached(
         )
         .first()
     )
+    if derive_suggestions and not allow_live:
+        # Page reads must never open SMTP connections. Startup and scheduled
+        # prewarming populate this cache. Retain the last captured certificate
+        # evidence even when it is older than the normal DNS TTL: refreshing a
+        # browser view must not discard a useful TLSA proposal or open SMTP.
+        if row:
+            return _result_from_json(row.result_json), True, row.checked_at
+        # Absent evidence remains an honest "not yet captured" state rather
+        # than a browser-triggered probe.
+        return DANEResult(port=port), True, now
+
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
 
@@ -495,37 +506,13 @@ async def check_dane_cached(
         derive_suggestions=derive_suggestions,
     )
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
-    if row is None:
-        row = DNSCache(
-            domain=normalized_domain,
-            provider=provider_name,
-            selectors_key=cache_key,
-            result_json=payload,
-            checked_at=now,
-        )
-        db.add(row)
-    else:
-        row.result_json = payload
-        row.checked_at = now
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        row = (
-            db.query(DNSCache)
-            .filter(
-                DNSCache.domain == normalized_domain,
-                DNSCache.provider == provider_name,
-                DNSCache.selectors_key == cache_key,
-            )
-            .first()
-        )
-        if row is None:
-            raise
-        row.result_json = payload
-        row.checked_at = now
-        db.commit()
-
-    db.refresh(row)
+    row = store_dns_cache_result(
+        db,
+        row,
+        domain=normalized_domain,
+        provider_name=provider_name,
+        selectors_key=cache_key,
+        payload=payload,
+        checked_at=now,
+    )
     return result, False, row.checked_at

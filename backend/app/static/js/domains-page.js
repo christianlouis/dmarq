@@ -301,6 +301,7 @@ function domainsApp() {
                 emails_count: domain.total_emails,
                 compliance_rate: domain.pass_rate,
                 description: domain.description || '',
+                bimi_logo_url: domain.bimi_logo_url || '',
                 dkim_selectors: Array.isArray(domain.dkim_selectors) ? domain.dkim_selectors : [],
             };
             if (Object.prototype.hasOwnProperty.call(domain, 'dmarc_report_mailbox')) {

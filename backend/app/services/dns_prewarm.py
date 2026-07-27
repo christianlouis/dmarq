@@ -13,6 +13,7 @@ from app.core.database import SessionLocal
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.services.dns_cache import resolve_domain_dns_cached
+from app.services.dane import check_dane_cached
 from app.services.dns_resolver import get_default_provider
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,13 @@ async def _prewarm_domain(domain_id: int, domain_name: str, selectors: List[str]
             provider,
             domain_name,
             selectors=selectors,
+            refresh=True,
+        )
+        await check_dane_cached(
+            db,
+            provider,
+            domain_name,
+            derive_suggestions=True,
             refresh=True,
         )
         logger.info("Prewarmed DNS cache for domain id=%s", domain_id)

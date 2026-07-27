@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import (
     _domain_names_for_summary,
+    _filter_summary_domains,
     _remediation_loop_state,
     _spf_fix_hint,
 )
@@ -39,6 +40,7 @@ from app.services.dns_cache import (
     _selectors_key,
     get_latest_cached_domain_dns_evidence,
     resolve_domain_dns_cached,
+    store_dns_cache_result,
 )
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
@@ -1585,6 +1587,103 @@ async def test_dns_cache_reraises_when_conflict_row_missing(db_session, monkeypa
         )
 
 
+def test_dns_cache_uses_postgresql_upsert_without_integrity_error_retry():
+    """PostgreSQL cache writes should avoid noisy duplicate-key retries."""
+    cached_row = DNSCache(
+        id=123,
+        domain=DOMAIN,
+        provider="CustomDNSProvider",
+        selectors_key="selector-key",
+        result_json="{}",
+        checked_at=datetime(2026, 7, 27, 9, 0, 0),
+    )
+    executed = {}
+
+    class FakeResult:
+        def scalar_one(self):
+            return cached_row.id
+
+    class FakeQuery:
+        def populate_existing(self):
+            executed["populate_existing"] = True
+            return self
+
+        def filter(self, *_args):
+            return self
+
+        def one(self):
+            return cached_row
+
+    class FakeDb:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, statement):
+            executed["statement"] = statement
+            return FakeResult()
+
+        def commit(self):
+            executed["committed"] = True
+
+        def query(self, model):
+            assert model is DNSCache
+            return FakeQuery()
+
+    row = store_dns_cache_result(
+        FakeDb(),
+        None,
+        domain=DOMAIN,
+        provider_name="CustomDNSProvider",
+        selectors_key="selector-key",
+        payload='{"dmarc":true}',
+        checked_at=datetime(2026, 7, 27, 9, 1, 0),
+    )
+
+    assert row is cached_row
+    assert executed["committed"] is True
+    assert executed["populate_existing"] is True
+    assert "ON CONFLICT" in str(executed["statement"])
+    assert "uq_dns_cache_lookup" in str(executed["statement"])
+
+
+def test_dns_cache_store_returns_updated_identity_mapped_row(db_session):
+    """Cache writes should return the refreshed in-session row."""
+    stale_checked_at = datetime(2026, 7, 27, 9, 0, 0)
+    fresh_checked_at = datetime(2026, 7, 27, 9, 1, 0)
+    row = DNSCache(
+        domain=DOMAIN,
+        provider="CustomDNSProvider",
+        selectors_key="selector-key",
+        result_json='{"dmarc":false}',
+        checked_at=stale_checked_at,
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    loaded = (
+        db_session.query(DNSCache)
+        .filter(
+            DNSCache.domain == DOMAIN,
+            DNSCache.provider == "CustomDNSProvider",
+            DNSCache.selectors_key == "selector-key",
+        )
+        .one()
+    )
+
+    updated = store_dns_cache_result(
+        db_session,
+        loaded,
+        domain=DOMAIN,
+        provider_name="CustomDNSProvider",
+        selectors_key="selector-key",
+        payload='{"dmarc":true}',
+        checked_at=fresh_checked_at,
+    )
+
+    assert updated is loaded
+    assert updated.result_json == '{"dmarc":true}'
+    assert updated.checked_at == fresh_checked_at
+
+
 def test_dns_endpoint_refresh_bypasses_cache(authed_client: TestClient):
     """The refresh query parameter forces a new DNS lookup."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
@@ -2197,6 +2296,50 @@ def test_enforcement_recommendation_common_states(
 # ---------------------------------------------------------------------------
 
 
+def test_cached_bimi_logo_urls_uses_latest_safe_cached_logo_only(db_session):
+    """Domain summaries may display BIMI without a live DNS lookup."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.add_all(
+        [
+            DNSCache(
+                domain=DOMAIN,
+                provider="SystemDNSProvider:bimi",
+                selectors_key="older",
+                result_json=json.dumps({"logo_url": "https://example.com/old.svg"}),
+                checked_at=now - timedelta(minutes=2),
+            ),
+            DNSCache(
+                domain=DOMAIN,
+                provider="SystemDNSProvider:bimi",
+                selectors_key="newer",
+                result_json=json.dumps({"logo_url": "https://example.com/current.svg"}),
+                checked_at=now,
+            ),
+            DNSCache(
+                domain="invalid.example",
+                provider="SystemDNSProvider:bimi",
+                selectors_key="invalid",
+                result_json="not-json",
+                checked_at=now,
+            ),
+            DNSCache(
+                domain="unsafe.example",
+                provider="SystemDNSProvider:bimi",
+                selectors_key="unsafe",
+                result_json=json.dumps({"logo_url": "http://unsafe.example/logo.svg"}),
+                checked_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert domains_endpoint._cached_bimi_logo_urls(db_session, []) == {}
+    assert domains_endpoint._cached_bimi_logo_urls(
+        db_session,
+        [DOMAIN, "invalid.example", "unsafe.example"],
+    ) == {DOMAIN: "https://example.com/current.svg"}
+
+
 def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     """The summary endpoint should include dmarc_status, spf_status, dkim_status."""
     _persist_minimal_report(db_session)
@@ -2791,6 +2934,36 @@ def test_summary_endpoint_can_hide_empty_domains_before_dns_work(
     assert filtered_data["empty_domains_hidden"] == 1
     assert [domain["domain_name"] for domain in filtered_data["domains"]] == [DOMAIN]
     assert provider.check_domain.await_count == 1
+
+
+def test_filter_summary_domains_reports_hidden_empty_domains():
+    domains, empty_count, hidden_count = _filter_summary_domains(
+        ["active.example", "empty.example"],
+        {
+            "active.example": {"reports_processed": 1, "total_count": 5},
+            "empty.example": {"reports_processed": 0, "total_count": 0},
+        },
+        include_empty=False,
+    )
+
+    assert domains == ["active.example"]
+    assert empty_count == 1
+    assert hidden_count == 1
+
+
+def test_filter_summary_domains_keeps_empty_domains_when_requested():
+    domains, empty_count, hidden_count = _filter_summary_domains(
+        ["active.example", "empty.example"],
+        {
+            "active.example": {"reports_processed": 0, "total_count": 3},
+            "empty.example": {},
+        },
+        include_empty=True,
+    )
+
+    assert domains == ["active.example", "empty.example"]
+    assert empty_count == 1
+    assert hidden_count == 0
 
 
 def test_summary_endpoint_reuses_prewarmed_dns_evidence_with_different_selectors(

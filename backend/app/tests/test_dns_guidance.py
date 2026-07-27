@@ -1,8 +1,15 @@
 import pytest
 
 from app.services.bimi import BIMIResult
-from app.services.dane import DANEResult, TLSASuggestion
-from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
+from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
+from app.services.dns_guidance import (
+    DNSGuidanceRecord,
+    DNSLintFinding,
+    MailAuthSetupDefaults,
+    _plan_changes,
+    build_dns_change_plans,
+    build_dns_guidance,
+)
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 from app.services.mta_sts import MTAStsResult
 
@@ -97,6 +104,119 @@ async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
         "pct=50; adkim=s; aspf=s"
     )
     assert targets["target_tls_rpt"].value == "v=TLSRPTv1; rua=mailto:tls-reports@central.example"
+
+
+@pytest.mark.asyncio
+async def test_mta_sts_target_includes_policy_file_with_observed_mx_hosts():
+    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="fail"),
+        BIMIResult(status="pass"),
+        dane=DANEResult(mx_hosts=["mx1.example.com", "mx2.example.com"]),
+    )
+
+    target = next(record for record in guidance.target_records if record.code == "target_mta_sts")
+    assert target.supporting_content == (
+        "version: STSv1\nmode: testing\nmx: mx1.example.com\nmx: mx2.example.com\nmax_age: 86400"
+    )
+    assert target.supporting_content_url == "https://mta-sts.example.com/.well-known/mta-sts.txt"
+
+
+@pytest.mark.asyncio
+async def test_change_plan_shows_dmarc_tag_diff_and_suppresses_noop():
+    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    target = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=target,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+        dmarc_warnings=["DMARC adkim tag should be r or s."],
+    )
+    guidance = await build_dns_guidance(
+        "example.com", provider, dns, MTAStsResult(status="pass"), BIMIResult(status="pass")
+    )
+
+    assert not [plan for plan in guidance.change_plans if plan.finding_code == "dmarc_alignment_value_invalid"]
+
+    finding = next(
+        finding for finding in guidance.findings if finding.code == "dmarc_alignment_value_invalid"
+    )
+    finding.target_record.value = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100; adkim=r"
+    plans = build_dns_change_plans([finding])
+    assert plans[0].current_values == [target]
+    assert "Add adkim=r." in plans[0].changes
+
+
+def test_change_plan_keeps_consolidation_when_one_rrset_value_matches():
+    desired = "v=spf1 include:mail.example.com -all"
+    finding = DNSLintFinding(
+        code="spf_multiple_records",
+        severity="error",
+        title="Multiple SPF records found",
+        detail="SPF requires exactly one record.",
+        action="Merge the mechanisms into one SPF record.",
+        record_type="TXT",
+        record_name="example.com",
+        target_record=DNSGuidanceRecord(
+            code="target_spf",
+            record_type="TXT",
+            name="example.com",
+            value=desired,
+            purpose="SPF",
+        ),
+        evidence=[desired, "v=spf1 include:legacy.example.com -all"],
+    )
+
+    plans = build_dns_change_plans([finding])
+
+    assert len(plans) == 1
+    assert plans[0].operation == "consolidate"
+    assert plans[0].current_values == finding.evidence
+
+
+def test_change_plan_suppresses_equivalent_tag_values_in_different_order():
+    finding = DNSLintFinding(
+        code="dmarc_alignment_value_invalid",
+        severity="warning",
+        title="DMARC alignment mode needs review",
+        detail="The DMARC record is otherwise healthy.",
+        action="Use strict alignment for this domain.",
+        record_type="TXT",
+        record_name="_dmarc.example.com",
+        target_record=DNSGuidanceRecord(
+            code="target_dmarc",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            value="v=DMARC1; p=reject; rua=mailto:dmarc@example.com; adkim=s",
+            purpose="DMARC",
+        ),
+        evidence=["rua=mailto:dmarc@example.com; adkim=s; p=reject; v=DMARC1"],
+    )
+
+    assert build_dns_change_plans([finding]) == []
+
+
+def test_plan_changes_ignores_malformed_segments_in_tag_records():
+    changes = _plan_changes(
+        ["v=DMARC1; malformed-tag; p=none"],
+        "v=DMARC1; p=reject",
+    )
+
+    assert changes == ["Change p from none to reject."]
 
 
 @pytest.mark.asyncio
@@ -296,6 +416,118 @@ async def test_build_dns_guidance_uses_live_tlsa_suggestion_as_dane_target():
     assert target.name == "_25._tcp.mail.example.net"
     assert target.value == "3 1 1 " + "a" * 64
     assert "derived from the live STARTTLS certificate" in target.purpose
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_offers_each_uncovered_mx_tlsa_value():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    first_value = "3 1 1 " + "a" * 64
+    second_value = "3 1 1 " + "b" * 64
+    dane = DANEResult(
+        status="partial",
+        port=25,
+        mx_hosts=["mx1.example.com", "mx2.example.com"],
+        records=[
+            TLSARecord(
+                query_name="_25._tcp.mx1.example.com",
+                mx_host="mx1.example.com",
+                record=first_value,
+                valid=True,
+            )
+        ],
+        suggested_records=[
+            TLSASuggestion(
+                query_name="_25._tcp.mx1.example.com",
+                mx_host="mx1.example.com",
+                record=first_value,
+                status="ready",
+            ),
+            TLSASuggestion(
+                query_name="_25._tcp.mx2.example.com",
+                mx_host="mx2.example.com",
+                record=second_value,
+                status="ready",
+            ),
+        ],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dane=dane,
+    )
+
+    plans = [plan for plan in guidance.change_plans if plan.record_type == "TLSA"]
+    assert len(plans) == 1
+    assert plans[0].name == "_25._tcp.mx2.example.com"
+    assert plans[0].proposed_value == second_value
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_keeps_dane_review_when_covered_hosts_need_review():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    record_value = "3 1 1 " + "a" * 64
+    dane = DANEResult(
+        status="partial",
+        mx_hosts=["mx.example.com"],
+        records=[
+            TLSARecord(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=record_value,
+                valid=True,
+            )
+        ],
+        suggested_records=[
+            TLSASuggestion(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=record_value,
+                status="ready",
+            )
+        ],
+        warnings=["DNSSEC validation still needs operator review."],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dane=dane,
+    )
+
+    assert "dane_review" in {finding.code for finding in guidance.findings}
 
 
 @pytest.mark.asyncio

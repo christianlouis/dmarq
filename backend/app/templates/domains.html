@@ -65,6 +65,7 @@
                     {% call thead() %}
                         {% call tr() %}
                             {% call th() %}Domain{% endcall %}
+                            {% call th() %}Brand{% endcall %}
                             {% call th() %}DMARC Status{% endcall %}
                             {% call th() %}SPF Status{% endcall %}
                             {% call th() %}DKIM Status{% endcall %}
@@ -74,7 +75,7 @@
                     {% call tbody() %}
                         <template x-if="loading">
                             {% call tr() %}
-                                {% call td(colspan="5", class="text-center") %}
+                                {% call td(colspan="6", class="text-center") %}
                                     <div class="flex items-center justify-center gap-2 py-4 text-muted-foreground" role="status">
                                         <span class="loading loading-spinner loading-sm"></span>
                                         <span>Loading monitored domains...</span>
@@ -84,7 +85,7 @@
                         </template>
                         <template x-if="!loading && loadError">
                             {% call tr() %}
-                                {% call td(colspan="5", class="text-center") %}
+                                {% call td(colspan="6", class="text-center") %}
                                     <div class="flex flex-col items-center gap-3 py-4">
                                         <p class="text-red-700" x-text="loadError"></p>
                                         <button type="button" class="btn btn-outline btn-sm" data-domain-retry-load>
@@ -96,14 +97,14 @@
                         </template>
                         <template x-if="!loading && !loadError && domains.length === 0 && hiddenEmptyDomainCount() === 0">
                             {% call tr() %}
-                                {% call td(colspan="5", class="text-center") %}
+                                {% call td(colspan="6", class="text-center") %}
                                     <p class="py-4 text-muted-foreground">No domains found. Add a domain to get started.</p>
                                 {% endcall %}
                             {% endcall %}
                         </template>
                         <template x-if="showEmptyDomainHint()">
                             {% call tr() %}
-                                {% call td(colspan="5", class="text-center") %}
+                                {% call td(colspan="6", class="text-center") %}
                                     <div class="flex flex-col items-center gap-3 py-5 text-muted-foreground">
                                         <p>All monitored domains are currently hidden because no reports or mail volume have been observed yet.</p>
                                         <button type="button" class="btn btn-outline btn-sm" data-domain-toggle-empty>
@@ -131,6 +132,17 @@
                                               class="max-w-md truncate"
                                               x-text="domain.dns_lookup_error"></span>
                                     </div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <a x-show="domain.bimi_logo_url"
+                                       :href="domain.bimi_logo_url"
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       class="inline-flex h-9 w-9 items-center justify-center rounded border border-base-300 bg-white p-1"
+                                       title="Open published BIMI logo">
+                                        <img class="h-7 w-7 object-contain" :src="domain.bimi_logo_url" alt="Published BIMI logo" referrerpolicy="no-referrer" loading="lazy">
+                                    </a>
+                                    <span x-show="!domain.bimi_logo_url" class="text-xs text-base-content/45">-</span>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">

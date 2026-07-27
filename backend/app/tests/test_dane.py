@@ -339,6 +339,65 @@ async def test_check_dane_cached_keeps_live_suggestions_in_separate_cache(
     assert live.suggested_records[0].association_data == "a" * 64
 
 
+@pytest.mark.asyncio
+async def test_check_dane_cached_does_not_open_smtp_when_live_evidence_is_page_read_only(
+    db_session,
+):
+    provider = FakeDANEDNSProvider(mx_hosts=["mx.example.com"])
+
+    result, cached, _ = await check_dane_cached(
+        db_session,
+        provider,
+        "example.com",
+        derive_suggestions=True,
+        allow_live=False,
+    )
+
+    assert cached is True
+    assert result.suggested_records == []
+    provider.lookup_mx.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_dane_cached_retains_live_evidence_for_page_refresh(
+    db_session,
+    monkeypatch,
+):
+    provider = FakeDANEDNSProvider(mx_hosts=["mx.example.com"])
+
+    async def fake_suggestions(mx_hosts, *, port, timeout=5.0):
+        return [
+            TLSASuggestion(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record="3 1 1 " + "a" * 64,
+                association_data="a" * 64,
+                status="ready",
+            )
+        ]
+
+    monkeypatch.setattr("app.services.dane._derive_tlsa_suggestions", fake_suggestions)
+    await check_dane_cached(
+        db_session,
+        provider,
+        "example.com",
+        derive_suggestions=True,
+    )
+
+    refreshed, cached, _ = await check_dane_cached(
+        db_session,
+        provider,
+        "example.com",
+        derive_suggestions=True,
+        allow_live=False,
+        refresh=True,
+    )
+
+    assert cached is True
+    assert refreshed.suggested_records[0].record == "3 1 1 " + "a" * 64
+    provider.lookup_mx.assert_awaited_once()
+
+
 def test_parse_tlsa_record_missing_parts():
     record = parse_tlsa_record(
         "3 1 1",
