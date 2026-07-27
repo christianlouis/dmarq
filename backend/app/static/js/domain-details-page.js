@@ -273,6 +273,8 @@ function domainDetailsApp(domainId = '') {
         hasObservedVolume: false,
         lastComplianceTimeline: [],
         refreshingPage: false,
+        _loadedDetailSections: null,
+        _hashChangeHandler: null,
 
         init() {
             this.domainId = this.$el?.dataset?.domainId || this.domainId;
@@ -281,16 +283,24 @@ function domainDetailsApp(domainId = '') {
                 this.filters.dateRange = configuredSourceWindow;
             }
             this.bindPageControls();
+            this._loadedDetailSections = new Set();
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
                 this.volumeScale = storedVolumeScale;
             }
 
             this.loadInitialData();
+            this._hashChangeHandler = () => this.loadSectionForLocationHash();
+            window.addEventListener('hashchange', this._hashChangeHandler);
+            window.setTimeout(() => this.loadSectionForLocationHash(), 0);
 
             this.$watch('filters.dateRange', () => {
-                this.fetchSources({ preserveOnFailure: true });
-                this.fetchSourceIntelligence({ preserveOnFailure: true });
+                if (this._loadedDetailSections?.has('sending-sources')) {
+                    this.fetchSources({ preserveOnFailure: true });
+                }
+                if (this._loadedDetailSections?.has('source-intelligence')) {
+                    this.fetchSourceIntelligence({ preserveOnFailure: true });
+                }
             });
             this.$watch('remediationQueueSort', () => {
                 this.showAllRemediationQueueItems = false;
@@ -302,6 +312,20 @@ function domainDetailsApp(domainId = '') {
                 return;
             }
             this._pageControlsBound = true;
+            this.$root.addEventListener('toggle', event => {
+                const details = event.target instanceof HTMLDetailsElement ? event.target : null;
+                if (!details || !details.open || !this.$root.contains(details)) {
+                    return;
+                }
+                if (details.id === 'posture-dashboard') {
+                    this.loadDeferredSection('posture-dashboard');
+                    return;
+                }
+                const section = details.querySelector('section[id]');
+                if (section) {
+                    this.loadDeferredSection(section.id);
+                }
+            }, true);
             this.$root.addEventListener('click', event => {
                 const target = event.target instanceof Element ? event.target : null;
                 const button = target ? target.closest('button') : null;
@@ -452,36 +476,62 @@ function domainDetailsApp(domainId = '') {
         },
 
         async loadInitialData() {
-            const projectedDataLoads = Promise.allSettled([
-                this.fetchSources({ preserveOnFailure: true }),
-                this.fetchSourceIntelligence({ preserveOnFailure: true })
-            ]);
             await Promise.allSettled([
                 this.fetchDomainStats(),
-                this.fetchReports()
+                this.fetchReports(),
+                this.fetchRemediationQueue()
             ]);
-            void projectedDataLoads;
+        },
 
-            window.setTimeout(() => {
-                Promise.allSettled([
+        loadSectionForLocationHash() {
+            const sectionId = decodeURIComponent((window.location.hash || '').replace(/^#/, ''));
+            if (!sectionId) {
+                return;
+            }
+            const section = document.getElementById(sectionId);
+            const details = section?.closest('details');
+            if (details && !details.open) {
+                details.open = true;
+            }
+            this.loadDeferredSection(sectionId);
+        },
+
+        loadDeferredSection(sectionId) {
+            if (!sectionId || this._loadedDetailSections?.has(sectionId)) {
+                return;
+            }
+            this._loadedDetailSections?.add(sectionId);
+
+            let requests = [];
+            if (sectionId === 'sending-sources') {
+                requests = [this.fetchSources({ preserveOnFailure: true })];
+            } else if (sectionId === 'source-intelligence') {
+                requests = [this.fetchSourceIntelligence({ preserveOnFailure: true })];
+            } else if (sectionId === 'dns-records') {
+                requests = [
                     this.fetchDomainOwnership(),
                     this.fetchDNSRecords(),
                     this.fetchDNSHealth(),
                     this.fetchDNSGuidance(),
                     this.fetchDNSProviders(),
-                    this.fetchSelectors()
-                ]);
-            }, 250);
-
-            window.setTimeout(() => {
-                Promise.allSettled([
-                    this.fetchPosture(),
-                    this.fetchRemediationQueue(),
-                    this.fetchHealthHistory(),
+                    this.fetchSelectors(),
                     this.fetchMtaSts(),
                     this.fetchBimi()
-                ]);
-            }, 750);
+                ];
+            } else if (sectionId === 'posture-dashboard') {
+                requests = [
+                    this.fetchPosture(),
+                    this.fetchMtaSts(),
+                    this.fetchBimi()
+                ];
+            } else if (sectionId === 'health-score-history') {
+                requests = [this.fetchHealthHistory()];
+            } else if (sectionId === 'recent-reports') {
+                requests = [this.fetchReports()];
+            }
+            if (requests.length) {
+                void Promise.allSettled(requests);
+            }
         },
 
         async fetchWithTimeout(url, options = {}, timeoutMs = 12000) {

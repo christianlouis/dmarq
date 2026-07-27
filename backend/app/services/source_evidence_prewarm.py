@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -26,6 +26,28 @@ from app.services.source_reputation_feeds import (
 logger = logging.getLogger(__name__)
 
 _PTR_RETRY_MARKER = '%"ptr_retry_pending":true%'
+_SOURCE_EVIDENCE_PREWARM_LOCK_KEY = 1_144_591_955
+
+
+def _try_acquire_prewarm_lock(db) -> bool:
+    """Ensure only one replica performs remote sender enrichment at a time."""
+    if db.get_bind().dialect.name != "postgresql":
+        return True
+    return bool(
+        db.execute(
+            text("SELECT pg_try_advisory_lock(:lock_key)"),
+            {"lock_key": _SOURCE_EVIDENCE_PREWARM_LOCK_KEY},
+        ).scalar()
+    )
+
+
+def _release_prewarm_lock(db) -> None:
+    """Release the PostgreSQL session lock acquired by this worker."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_unlock(:lock_key)"),
+            {"lock_key": _SOURCE_EVIDENCE_PREWARM_LOCK_KEY},
+        )
 
 
 def ptr_from_source_evidence(evidence: object):
@@ -128,7 +150,7 @@ def _apply_evidence_snapshot(
     return True
 
 
-async def prewarm_source_evidence() -> int:
+async def prewarm_source_evidence() -> int:  # noqa: C901 - bounded enrichment pipeline
     """Capture point-in-time PTR, network, and reputation evidence for report rows."""
     settings = get_settings()
     if not settings.SOURCE_EVIDENCE_PREWARM_ENABLED:
@@ -140,7 +162,11 @@ async def prewarm_source_evidence() -> int:
         return 0
 
     db = SessionLocal()
+    has_lock = False
     try:
+        if not _try_acquire_prewarm_lock(db):
+            return 0
+        has_lock = True
         provider = get_default_provider(db)
         network_task = asyncio.create_task(
             lookup_sources_network_cached(
@@ -209,6 +235,8 @@ async def prewarm_source_evidence() -> int:
         logger.warning("Sender evidence prewarm failed with %s", type(exc).__name__)
         return 0
     finally:
+        if has_lock:
+            _release_prewarm_lock(db)
         db.close()
 
     logger.info(
