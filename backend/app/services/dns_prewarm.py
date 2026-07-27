@@ -15,6 +15,8 @@ from app.models.report import DMARCReport, ReportRecord
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dane import check_dane_cached
 from app.services.dns_resolver import get_default_provider
+from app.services.bimi import check_bimi_cached
+from app.services.mta_sts import check_mta_sts_cached
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,18 @@ async def _prewarm_domain(domain_id: int, domain_name: str, selectors: List[str]
             provider,
             domain_name,
             selectors=selectors,
+            refresh=True,
+        )
+        await check_mta_sts_cached(
+            db,
+            provider,
+            domain_name,
+            refresh=True,
+        )
+        await check_bimi_cached(
+            db,
+            provider,
+            domain_name,
             refresh=True,
         )
         await check_dane_cached(

@@ -178,8 +178,13 @@ async def check_bimi_cached(
     selector: str = "default",
     ttl_seconds: int = DEFAULT_DNS_CACHE_TTL_SECONDS,
     refresh: bool = False,
+    allow_live: bool = True,
 ) -> Tuple[BIMIResult, bool, datetime]:
-    """Resolve BIMI posture, reusing the shared DNS cache semantics."""
+    """Resolve BIMI posture, reusing the shared DNS cache semantics.
+
+    Opening a domain page is a read operation. It may surface stale captured
+    evidence, but it must not initiate a DNS probe.
+    """
     normalized_selector = (selector or "default").strip().lower()
     cache_key = f"{_CACHE_KEY_PREFIX}:{normalized_selector}"
     now = _utcnow_naive()
@@ -193,8 +198,20 @@ async def check_bimi_cached(
         )
         .first()
     )
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
+    if row and not refresh and (_is_fresh(row, ttl_seconds, now) or not allow_live):
         return _result_from_json(row.result_json), True, row.checked_at
+
+    if not allow_live:
+        return (
+            BIMIResult(
+                status="pending",
+                selector=normalized_selector,
+                query_name=f"{normalized_selector}._bimi.{domain}",
+                errors=["BIMI evidence has not been captured yet."],
+            ),
+            True,
+            now,
+        )
 
     result = await check_bimi_with_fallback(domain, provider, selector=normalized_selector)
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))

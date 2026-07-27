@@ -1009,6 +1009,79 @@ def test_dns_endpoint_uses_cached_result(authed_client: TestClient, db_session):
     assert db_session.query(DNSCache).count() == 1
 
 
+def test_dns_endpoint_cached_only_reuses_stale_evidence_without_lookup(
+    authed_client: TestClient, db_session
+):
+    """The domain UI can render old captured DNS evidence without probing DNS."""
+    provider = AsyncMock(check_domain=AsyncMock(side_effect=AssertionError("live DNS read")))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key(["google"]),
+            result_json=json.dumps(asdict(MOCK_DNS_RESULT)),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns?cached_only=true")
+
+    assert response.status_code == 200
+    assert response.json()["dmarc"] is True
+    assert response.json()["cached"] is True
+    provider.check_domain.assert_not_awaited()
+
+
+def test_dns_lint_cached_only_keeps_passive_spf_and_dkim_findings(
+    authed_client: TestClient, db_session
+):
+    """Cached DNS lint still reports passive SPF/DKIM gaps without live probes."""
+    cached_result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=False,
+        dkim=False,
+        selectors_checked=["google"],
+    )
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(side_effect=AssertionError("live DNS read"))
+    provider.lookup_txt = AsyncMock(side_effect=AssertionError("live TXT lookup"))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key(["google"]),
+            result_json=json.dumps(asdict(cached_result)),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    with (
+        patch("app.api.api_v1.endpoints.domains.get_default_provider", return_value=provider),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pending"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pending"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint?cached_only=true")
+
+    assert response.status_code == 200
+    codes = {finding["code"] for finding in response.json()["findings"]}
+    assert {"spf_missing", "dkim_selector_missing"}.issubset(codes)
+    provider.check_domain.assert_not_awaited()
+    provider.lookup_txt.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_dns_cache_recovers_from_concurrent_insert(db_session, monkeypatch):
     """Concurrent DNS widgets should not fail on a duplicate cache insert."""
@@ -1847,6 +1920,38 @@ def test_dns_health_marks_all_missing_records_critical(authed_client: TestClient
     assert recommendation_types.count("missing_mta_sts") == 1
     assert recommendation_types.count("missing_bimi") == 1
     assert any(item["type"] == "policy_needs_more_data" for item in data["recommendations"])
+
+
+def test_dns_health_skips_optional_recommendations_for_pending_evidence(
+    authed_client: TestClient,
+):
+    """Pending optional posture remains unknown instead of speculative repair advice."""
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com ~all",
+        dkim=True,
+        selectors_checked=["google"],
+    )
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pending"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pending"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+
+    assert response.status_code == 200
+    recommendation_types = {item["type"] for item in response.json()["recommendations"]}
+    assert "missing_mta_sts" not in recommendation_types
+    assert "missing_bimi" not in recommendation_types
 
 
 def test_mta_sts_endpoint_returns_cached_posture(authed_client: TestClient):

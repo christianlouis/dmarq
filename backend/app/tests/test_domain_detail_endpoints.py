@@ -14,6 +14,7 @@ import json
 from datetime import date, datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -2060,6 +2061,21 @@ def test_domain_remediation_queue_bounds_slow_enrichment(
     assert body["enrichment_pending"] is True
     assert body["items"] == []
     assert elapsed < 2.0
+
+
+def test_domain_remediation_queue_never_starts_live_dns_enrichment(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Queue reads remain available when no DNS cache has been captured yet."""
+    live_dns = AsyncMock(side_effect=AssertionError("queue must not resolve DNS"))
+    monkeypatch.setattr(domains_endpoint, "resolve_domain_dns_cached", live_dns)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    assert response.json()["domain"] == DOMAIN
+    live_dns.assert_not_awaited()
 
 
 def test_domain_remediation_queue_keeps_completed_evidence_when_one_task_times_out(

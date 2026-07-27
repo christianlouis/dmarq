@@ -215,8 +215,13 @@ async def check_mta_sts_cached(
     *,
     ttl_seconds: int = DEFAULT_DNS_CACHE_TTL_SECONDS,
     refresh: bool = False,
+    allow_live: bool = True,
 ) -> Tuple[MTAStsResult, bool, datetime]:
-    """Resolve MTA-STS posture, reusing the shared DNS cache semantics."""
+    """Resolve MTA-STS posture, reusing the shared DNS cache semantics.
+
+    Normal product reads may use the last captured result even after its TTL.
+    They must not turn opening a domain page into an HTTPS or DNS probe.
+    """
     now = _utcnow_naive()
     provider_name = f"{provider.__class__.__name__}:mta-sts"
     row = (
@@ -228,8 +233,19 @@ async def check_mta_sts_cached(
         )
         .first()
     )
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
+    if row and not refresh and (_is_fresh(row, ttl_seconds, now) or not allow_live):
         return _result_from_json(row.result_json), True, row.checked_at
+
+    if not allow_live:
+        return (
+            MTAStsResult(
+                status="pending",
+                policy_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
+                errors=["MTA-STS evidence has not been captured yet."],
+            ),
+            True,
+            now,
+        )
 
     result = await check_mta_sts_with_fallback(domain, provider)
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))

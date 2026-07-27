@@ -8,6 +8,7 @@ import ipaddress
 import json
 import logging
 import secrets
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -177,6 +178,10 @@ from app.services.workspaces import (
 from app.utils.domain_validator import normalize_domain_name, validate_domain_config
 
 logger = logging.getLogger(__name__)
+
+# Queue reads run in this request-scoped context so they can never initiate
+# enrichment work. ContextVar is copied into the concurrent queue tasks.
+_CACHED_DNS_READ = ContextVar("cached_dns_read", default=False)
 
 
 def _safe_log_value(value: Any) -> str:
@@ -3612,6 +3617,8 @@ def _bimi_recommendation(
     dmarc_issues: List[str],
     dmarc_evidence: List[DNSHealthEvidence],
 ) -> Optional[DNSHealthRecommendation]:
+    if result.status == "pending":
+        return None
     bimi_evidence = _bimi_check(result, dmarc_ready).evidence
     if result.status == "pass" and dmarc_ready and not result.warnings:
         return None
@@ -3674,6 +3681,8 @@ def _mta_sts_check(result: MTAStsResult) -> DNSHealthCheck:
 
 
 def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommendation]:
+    if result.status == "pending":
+        return None
     if result.status == "pass" and not result.warnings:
         return None
     severity = "warning" if result.status == "pass" else "error"
@@ -3721,8 +3730,10 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     domain_id: str,
     *,
     refresh: bool = False,
+    cached_only: bool = False,
 ) -> DNSHealthResponse:
     """Build the shared DNS/posture health payload for a monitored domain."""
+    cached_only = cached_only or _CACHED_DNS_READ.get()
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
     selector_evidence = store.get_domain_selector_evidence(
         domain_id,
@@ -3736,26 +3747,58 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
-    result, _, _ = await resolve_domain_dns_cached(
-        db,
-        provider,
-        domain_id,
-        selectors=combined_selectors,
-        refresh=refresh,
-    )
+    if cached_only:
+        result = await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=False,
+        )
+    else:
+        result, _, _ = await resolve_domain_dns_cached(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=refresh,
+        )
+    summary = store.get_domain_summary(domain_id)
+    if bool(getattr(result, "pending", False)):
+        pending_check = DNSHealthCheck(
+            key="dns_evidence",
+            label="DNS evidence",
+            status="review",
+            message=(
+                "DNS posture has not been captured yet. Use Refresh DNS evidence "
+                "to collect it without blocking this page."
+            ),
+            evidence=[],
+        )
+        return DNSHealthResponse(
+            status="pending",
+            policy="none",
+            compliance_rate=float(summary.get("compliance_rate", 0.0) or 0.0),
+            total_emails=int(summary.get("total_count", 0) or 0),
+            failed_emails=int(summary.get("failed_count", 0) or 0),
+            dns_lookup_status="pending",
+            checks=[pending_check],
+            recommendations=[],
+        )
     mta_sts_result, _, _ = await check_mta_sts_cached(
         db,
         provider,
         domain_id,
         refresh=refresh,
+        allow_live=not cached_only,
     )
     bimi_result, _, _ = await check_bimi_cached(
         db,
         provider,
         domain_id,
         refresh=refresh,
+        allow_live=not cached_only,
     )
-    summary = store.get_domain_summary(domain_id)
     policy = extract_dmarc_policy(result.dmarc_record) or "none"
     bimi_dmarc_ready, bimi_dmarc_issues, bimi_dmarc_evidence = _bimi_dmarc_readiness(
         result.dmarc_record
@@ -3871,8 +3914,10 @@ async def _build_domain_dns_guidance(
     *,
     refresh: bool = False,
     locale: Optional[str] = None,
+    cached_only: bool = False,
 ) -> Dict[str, Any]:
     """Build typed DNS lint findings and target records for a monitored domain."""
+    cached_only = cached_only or _CACHED_DNS_READ.get()
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
     selector_evidence = store.get_domain_selector_evidence(
         domain_id,
@@ -3886,24 +3931,46 @@ async def _build_domain_dns_guidance(
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
-    dns_result, _, _ = await resolve_domain_dns_cached(
-        db,
-        provider,
-        domain_id,
-        selectors=combined_selectors,
-        refresh=refresh,
-    )
+    if cached_only:
+        dns_result = await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=False,
+        )
+    else:
+        dns_result, _, _ = await resolve_domain_dns_cached(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=refresh,
+        )
+    if bool(getattr(dns_result, "pending", False)):
+        return {
+            "domain": domain_id,
+            "status": "pending",
+            "findings": [],
+            "target_records": [],
+            "dns_provider": None,
+            "change_plans": [],
+            "selector_evidence": selector_evidence,
+            "enrichment_pending": True,
+        }
     mta_sts_result, _, _ = await check_mta_sts_cached(
         db,
         provider,
         domain_id,
         refresh=refresh,
+        allow_live=not cached_only,
     )
     bimi_result, _, _ = await check_bimi_cached(
         db,
         provider,
         domain_id,
         refresh=refresh,
+        allow_live=not cached_only,
     )
     dane_result, _, _ = await check_dane_cached(
         db,
@@ -3928,6 +3995,7 @@ async def _build_domain_dns_guidance(
         mail_service_records=mail_service_records,
         setup_defaults=_mail_auth_setup_defaults(db, stored_domain),
         locale=locale or get_settings().default_locale,
+        allow_live=not cached_only,
     )
     return asdict(guidance)
 
@@ -4117,20 +4185,31 @@ async def _build_domain_health_grade(
     store: ReportStore,
     *,
     refresh: bool = False,
+    cached_only: bool = False,
 ) -> Dict[str, Any]:
     """Build the dashboard-grade health object for a domain detail page."""
+    cached_only = cached_only or _CACHED_DNS_READ.get()
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
     report_selectors = _get_selectors_from_reports(store, domain_id)
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
     provider = get_default_provider(db)
     try:
-        dns, _, _ = await resolve_domain_dns_cached(
-            db,
-            provider,
-            domain_id,
-            selectors=combined_selectors,
-            refresh=refresh,
-        )
+        if cached_only:
+            dns = await _resolve_summary_dns_result(
+                db,
+                provider,
+                domain_id,
+                selectors=combined_selectors,
+                refresh=False,
+            )
+        else:
+            dns, _, _ = await resolve_domain_dns_cached(
+                db,
+                provider,
+                domain_id,
+                selectors=combined_selectors,
+                refresh=refresh,
+            )
     except (asyncio.TimeoutError, LookupError, OSError) as exc:
         dns = DomainDNSResult(
             lookup_status="failed",
@@ -4168,6 +4247,7 @@ async def _build_domain_health_grade(
         anomalies_by_ip=intelligence.get("anomalies_by_ip", {}),
         days=30,
         refresh=refresh,
+        allow_live=not cached_only,
     )
     dmarc_policy, dmarc_policy_source = _dmarc_policy_with_source(
         dns,
@@ -6094,6 +6174,7 @@ async def preview_domain_migration_import(
 async def get_domain_dns_records(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
+    cached_only: bool = Query(False, title="Use stored DNS evidence without a live lookup"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -6119,13 +6200,24 @@ async def get_domain_dns_records(
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
-    result, cached, checked_at = await resolve_domain_dns_cached(
-        db,
-        provider,
-        domain_id,
-        selectors=combined_selectors,
-        refresh=refresh,
-    )
+    if cached_only:
+        result = await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=False,
+        )
+        cached = bool(getattr(result, "cached", False))
+        checked_at = getattr(result, "checked_at", None)
+    else:
+        result, cached, checked_at = await resolve_domain_dns_cached(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=refresh,
+        )
 
     return DNSRecordResponse(
         dmarc=result.dmarc,
@@ -6135,7 +6227,7 @@ async def get_domain_dns_records(
         dkim=result.dkim,
         dkimSelectors=result.dkim_selectors,
         cached=cached,
-        checkedAt=checked_at.isoformat(),
+        checkedAt=checked_at.isoformat() if checked_at else None,
         dmarcWarnings=result.dmarc_warnings,
         dmarcSuggestions=result.dmarc_suggestions,
         nameservers=result.nameservers,
@@ -6154,6 +6246,7 @@ async def get_domain_dns_records(
 async def get_domain_dns_lint(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
+    cached_only: bool = Query(False, title="Use stored DNS evidence without live DNS probes"),
     locale: Optional[str] = Query(None, title="Operator guidance locale"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -6169,7 +6262,10 @@ async def get_domain_dns_lint(
             detail="Domain not found",
         )
 
-    return await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh, locale=locale)
+    guidance_kwargs: Dict[str, Any] = {"refresh": refresh, "locale": locale}
+    if cached_only:
+        guidance_kwargs["cached_only"] = True
+    return await _build_domain_dns_guidance(db, store, domain_id, **guidance_kwargs)
 
 
 @router.get("/{domain_id}/dns/change-plan", response_model=DNSChangePlanResponse)
@@ -6431,6 +6527,7 @@ async def apply_domain_dns_change_plan(
 async def get_domain_dns_health(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
+    cached_only: bool = Query(False, title="Use stored DNS evidence without a live lookup"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -6444,13 +6541,17 @@ async def get_domain_dns_health(
             detail="Domain not found",
         )
 
-    return await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
+    health_kwargs: Dict[str, Any] = {"refresh": refresh}
+    if cached_only:
+        health_kwargs["cached_only"] = True
+    return await _build_domain_dns_health(db, store, domain_id, **health_kwargs)
 
 
 @router.get("/{domain_id}/posture", response_model=PostureDashboardResponse)
 async def get_domain_posture_dashboard(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    cached_only: bool = Query(False, title="Use stored posture evidence without live enrichment"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -6461,6 +6562,7 @@ async def get_domain_posture_dashboard(
         workspace=workspace,
         domain_id=domain_id,
         refresh=refresh,
+        cached_only=cached_only,
         # A normal page read must not create or overwrite health evidence.
         # Explicit DNS refresh is the current operator-owned capture path until
         # the durable posture-refresh worker in #873 takes over.
@@ -6475,17 +6577,18 @@ async def _build_domain_posture_dashboard_for_workspace(
     domain_id: str,
     refresh: bool = False,
     capture_snapshot: bool = True,
+    cached_only: bool = False,
 ) -> PostureDashboardResponse:
     """Build a posture dashboard, optionally persisting the current health snapshot."""
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    health = await _build_domain_dns_health(db, store, domain_name, refresh=refresh)
-    domain_health = await _build_domain_health_grade(
-        db,
-        domain_name,
-        store,
-        refresh=refresh,
-    )
+    health_kwargs: Dict[str, Any] = {"refresh": refresh}
+    grade_kwargs: Dict[str, Any] = {"refresh": refresh}
+    if cached_only:
+        health_kwargs["cached_only"] = True
+        grade_kwargs["cached_only"] = True
+    health = await _build_domain_dns_health(db, store, domain_name, **health_kwargs)
+    domain_health = await _build_domain_health_grade(db, domain_name, store, **grade_kwargs)
     summary = store.get_domain_summary(domain_name)
     if capture_snapshot:
         _record_health_snapshot_from_posture(
@@ -6500,7 +6603,7 @@ async def _build_domain_posture_dashboard_for_workspace(
     return _build_posture_dashboard(domain_name, health, domain_health, changes)
 
 
-async def _build_domain_remediation_queue_for_workspace(
+async def _build_domain_remediation_queue_for_workspace(  # noqa: C901
     db: Session,
     *,
     workspace: Workspace,
@@ -6541,24 +6644,28 @@ async def _build_domain_remediation_queue_for_workspace(
         "dns_provider": None,
         "enrichment_pending": True,
     }
-    enrichment_tasks = {
-        "health": asyncio.create_task(
-            _build_domain_health_grade(
-                db,
-                domain_name,
-                store,
-                refresh=refresh,
-            )
-        ),
-        "guidance": asyncio.create_task(
-            _build_domain_dns_guidance(
-                db,
-                store,
-                domain_name,
-                refresh=refresh,
-            )
-        ),
-    }
+    cached_read_token = _CACHED_DNS_READ.set(True)
+    try:
+        enrichment_tasks = {
+            "health": asyncio.create_task(
+                _build_domain_health_grade(
+                    db,
+                    domain_name,
+                    store,
+                    refresh=refresh,
+                )
+            ),
+            "guidance": asyncio.create_task(
+                _build_domain_dns_guidance(
+                    db,
+                    store,
+                    domain_name,
+                    refresh=refresh,
+                )
+            ),
+        }
+    finally:
+        _CACHED_DNS_READ.reset(cached_read_token)
     completed, pending = await asyncio.wait(
         set(enrichment_tasks.values()),
         timeout=timeout_seconds,
@@ -7006,6 +7113,7 @@ async def export_domain_health_evidence(
 async def get_domain_mta_sts(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached MTA-STS result"),
+    cached_only: bool = Query(False, title="Use stored MTA-STS evidence without a live check"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -7018,11 +7126,14 @@ async def get_domain_mta_sts(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
         )
+    mta_sts_kwargs: Dict[str, Any] = {"refresh": refresh}
+    if cached_only:
+        mta_sts_kwargs["allow_live"] = False
     result, cached, checked_at = await check_mta_sts_cached(
         db,
         get_default_provider(db),
         domain_id,
-        refresh=refresh,
+        **mta_sts_kwargs,
     )
     return MTAStsResponse(
         status=result.status,
@@ -7044,6 +7155,7 @@ async def get_domain_bimi(
     domain_id: str = Path(..., title="The domain ID or name"),
     selector: str = Query("default", title="BIMI selector"),
     refresh: bool = Query(False, title="Refresh cached BIMI result"),
+    cached_only: bool = Query(False, title="Use stored BIMI evidence without a live lookup"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -7056,12 +7168,14 @@ async def get_domain_bimi(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
         )
+    bimi_kwargs: Dict[str, Any] = {"selector": selector, "refresh": refresh}
+    if cached_only:
+        bimi_kwargs["allow_live"] = False
     result, cached, checked_at = await check_bimi_cached(
         db,
         get_default_provider(db),
         domain_id,
-        selector=selector,
-        refresh=refresh,
+        **bimi_kwargs,
     )
     return BIMIResponse(
         status=result.status,
@@ -7087,6 +7201,7 @@ async def get_domain_dane(
         False,
         title="Derive live SMTP STARTTLS TLSA suggestions",
     ),
+    cached_only: bool = Query(False, title="Use stored DANE evidence without a live lookup"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -7099,13 +7214,18 @@ async def get_domain_dane(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
         )
+    dane_kwargs: Dict[str, Any] = {
+        "port": port,
+        "refresh": refresh,
+        "derive_suggestions": derive_suggestions,
+    }
+    if cached_only:
+        dane_kwargs["allow_live"] = False
     result, cached, checked_at = await check_dane_cached(
         db,
         get_default_provider(db),
         domain_id,
-        port=port,
-        refresh=refresh,
-        derive_suggestions=derive_suggestions,
+        **dane_kwargs,
     )
     return DANEResponse(
         status=result.status,

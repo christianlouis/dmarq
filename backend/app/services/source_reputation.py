@@ -644,6 +644,7 @@ async def build_source_reputation_cached(
     days: int = 30,
     ttl_seconds: int = DEFAULT_DNS_CACHE_TTL_SECONDS,
     refresh: bool = False,
+    allow_live: bool = True,
 ) -> Tuple[DomainReputation, bool, datetime]:
     """Build source reputation with persisted cache semantics."""
     now = _utcnow_naive()
@@ -669,8 +670,24 @@ async def build_source_reputation_cached(
         )
         .first()
     )
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
+    if row and not refresh and (_is_fresh(row, ttl_seconds, now) or not allow_live):
         return _result_from_json(row.result_json), True, row.checked_at
+
+    if not allow_live:
+        # Keep the overview useful when the background enrichment has not
+        # captured this exact source set yet, without contacting feeds from a
+        # page-read request.
+        return (
+            build_source_reputation(
+                domain,
+                report_rows,
+                source_rows,
+                senders_by_ip=senders_by_ip,
+                anomalies_by_ip=anomalies_by_ip,
+            ),
+            True,
+            now,
+        )
 
     feed_results_by_ip = await lookup_sources_reputation_cached(
         db,
