@@ -2800,6 +2800,10 @@ def test_domain_details_defers_hidden_sections_until_opened_or_linked():
     assert "window.addEventListener('hashchange'" in script
     assert "this.$root.addEventListener('toggle'" in script
     assert "this.fetchSources({ preserveOnFailure: true })" in script
+    assert "details.id === 'domain-ownership'" in script
+    assert "this.loadDeferredSection('domain-ownership')" in script
+    assert "sectionId === 'domain-ownership'" in script
+    assert "this.fetchDomainOwnership()" in script
     assert "this.fetchDNSRecords()" in script
 
 

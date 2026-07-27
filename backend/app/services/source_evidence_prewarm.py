@@ -35,19 +35,10 @@ def _try_acquire_prewarm_lock(db) -> bool:
         return True
     return bool(
         db.execute(
-            text("SELECT pg_try_advisory_lock(:lock_key)"),
+            text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
             {"lock_key": _SOURCE_EVIDENCE_PREWARM_LOCK_KEY},
         ).scalar()
     )
-
-
-def _release_prewarm_lock(db) -> None:
-    """Release the PostgreSQL session lock acquired by this worker."""
-    if db.get_bind().dialect.name == "postgresql":
-        db.execute(
-            text("SELECT pg_advisory_unlock(:lock_key)"),
-            {"lock_key": _SOURCE_EVIDENCE_PREWARM_LOCK_KEY},
-        )
 
 
 def ptr_from_source_evidence(evidence: object):
@@ -162,11 +153,9 @@ async def prewarm_source_evidence() -> int:  # noqa: C901 - bounded enrichment p
         return 0
 
     db = SessionLocal()
-    has_lock = False
     try:
         if not _try_acquire_prewarm_lock(db):
             return 0
-        has_lock = True
         provider = get_default_provider(db)
         network_task = asyncio.create_task(
             lookup_sources_network_cached(
@@ -235,8 +224,6 @@ async def prewarm_source_evidence() -> int:  # noqa: C901 - bounded enrichment p
         logger.warning("Sender evidence prewarm failed with %s", type(exc).__name__)
         return 0
     finally:
-        if has_lock:
-            _release_prewarm_lock(db)
         db.close()
 
     logger.info(

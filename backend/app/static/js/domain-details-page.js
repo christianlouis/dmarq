@@ -273,7 +273,7 @@ function domainDetailsApp(domainId = '') {
         hasObservedVolume: false,
         lastComplianceTimeline: [],
         refreshingPage: false,
-        _loadedDetailSections: null,
+        _loadedDetailSections: {},
         _hashChangeHandler: null,
 
         init() {
@@ -283,7 +283,7 @@ function domainDetailsApp(domainId = '') {
                 this.filters.dateRange = configuredSourceWindow;
             }
             this.bindPageControls();
-            this._loadedDetailSections = new Set();
+            this._loadedDetailSections = {};
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
                 this.volumeScale = storedVolumeScale;
@@ -295,10 +295,10 @@ function domainDetailsApp(domainId = '') {
             window.setTimeout(() => this.loadSectionForLocationHash(), 0);
 
             this.$watch('filters.dateRange', () => {
-                if (this._loadedDetailSections?.has('sending-sources')) {
+                if (this._loadedDetailSections?.['sending-sources']) {
                     this.fetchSources({ preserveOnFailure: true });
                 }
-                if (this._loadedDetailSections?.has('source-intelligence')) {
+                if (this._loadedDetailSections?.['source-intelligence']) {
                     this.fetchSourceIntelligence({ preserveOnFailure: true });
                 }
             });
@@ -319,6 +319,10 @@ function domainDetailsApp(domainId = '') {
                 }
                 if (details.id === 'posture-dashboard') {
                     this.loadDeferredSection('posture-dashboard');
+                    return;
+                }
+                if (details.id === 'domain-ownership') {
+                    this.loadDeferredSection('domain-ownership');
                     return;
                 }
                 const section = details.querySelector('section[id]');
@@ -497,16 +501,18 @@ function domainDetailsApp(domainId = '') {
         },
 
         loadDeferredSection(sectionId) {
-            if (!sectionId || this._loadedDetailSections?.has(sectionId)) {
+            if (!sectionId || this._loadedDetailSections?.[sectionId]) {
                 return;
             }
-            this._loadedDetailSections?.add(sectionId);
+            this._loadedDetailSections[sectionId] = true;
 
             let requests = [];
             if (sectionId === 'sending-sources') {
                 requests = [this.fetchSources({ preserveOnFailure: true })];
             } else if (sectionId === 'source-intelligence') {
                 requests = [this.fetchSourceIntelligence({ preserveOnFailure: true })];
+            } else if (sectionId === 'domain-ownership') {
+                requests = [this.fetchDomainOwnership()];
             } else if (sectionId === 'dns-records') {
                 requests = [
                     this.fetchDomainOwnership(),
