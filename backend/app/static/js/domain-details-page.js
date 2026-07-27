@@ -510,9 +510,7 @@ function domainDetailsApp(domainId = '') {
                     this.fetchDNSRecords({ refresh: true }),
                     this.fetchDNSHealth({ refresh: true }),
                     this.fetchDNSGuidance({ refresh: true }),
-                    this.fetchPosture({ refresh: true }),
                     this.fetchRemediationQueue({ refresh: true }),
-                    this.fetchHealthHistory(),
                     this.fetchMtaSts({ refresh: true }),
                     this.fetchBimi({ refresh: true }),
                     this.fetchSelectors(),
@@ -520,6 +518,8 @@ function domainDetailsApp(domainId = '') {
                     this.fetchSources({ refresh: true, preserveOnFailure: true }),
                     this.fetchSourceIntelligence({ preserveOnFailure: true })
                 ]);
+                await this.fetchPosture({ refresh: true });
+                await this.fetchHealthHistory();
             } finally {
                 this.refreshingPage = false;
             }
@@ -529,9 +529,10 @@ function domainDetailsApp(domainId = '') {
             await Promise.allSettled([
                 this.fetchDNSRecords({ refresh: true, preserveEvidenceOnFailure: true }),
                 this.fetchDNSHealth({ refresh: true }),
-                this.fetchDNSGuidance({ refresh: true }),
-                this.fetchPosture({ refresh: true })
+                this.fetchDNSGuidance({ refresh: true })
             ]);
+            await this.fetchPosture({ refresh: true });
+            await this.fetchHealthHistory();
         },
 
         async refreshSourceReputation() {
