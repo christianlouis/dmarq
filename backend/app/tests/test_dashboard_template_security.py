@@ -2804,8 +2804,14 @@ def test_domain_details_defers_hidden_sections_until_opened_or_linked():
     assert "this.loadDeferredSection('domain-ownership')" in script
     assert "sectionId === 'domain-ownership'" in script
     assert "this.fetchDomainOwnership()" in script
-    assert "this.fetchCachedDomainDetail()" in script
-    assert "this.fetchCachedDomainDetail()" in script
+    dns_records_branch = _template_section_between_markers(
+        script, "sectionId === 'dns-records'", "sectionId === 'posture-dashboard'"
+    )
+    posture_branch = _template_section_between_markers(
+        script, "sectionId === 'posture-dashboard'", "sectionId === 'health-score-history'"
+    )
+    assert "this.fetchCachedDomainDetail()" in dns_records_branch
+    assert "this.fetchCachedDomainDetail()" in posture_branch
     assert "/detail/cached" in script
     assert "cachedDetailReadPromise" in script
 

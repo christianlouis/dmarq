@@ -26,6 +26,7 @@ function domainDetailsApp(domainId = '') {
         dnsRecordsError: '',
         cachedDetailReadLoaded: false,
         cachedDetailReadPromise: null,
+        dnsDataGeneration: 0,
         dnsHealth: {
             status: '',
             checks: [],
@@ -2431,6 +2432,9 @@ function domainDetailsApp(domainId = '') {
         },
 
         async fetchDNSRecords(options = {}) {
+            if (options.refresh) {
+                this.dnsDataGeneration += 1;
+            }
             this.dnsRecordsLoading = true;
             this.dnsRecordsError = '';
             try {
@@ -2464,6 +2468,7 @@ function domainDetailsApp(domainId = '') {
             if (this.cachedDetailReadLoaded) return;
             if (this.cachedDetailReadPromise) return this.cachedDetailReadPromise;
 
+            const generation = this.dnsDataGeneration;
             this.dnsRecordsLoading = true;
             this.dnsRecordsError = '';
             this.cachedDetailReadPromise = (async () => {
@@ -2479,6 +2484,9 @@ function domainDetailsApp(domainId = '') {
                         throw new Error(detail || 'Cached domain detail could not be loaded.');
                     }
                     const data = await response.json();
+                    if (generation !== this.dnsDataGeneration) {
+                        return;
+                    }
                     this.dns = data.dns || this.dns;
                     this.dnsHealth = data.dns_health || this.dnsHealth;
                     this.dnsGuidance = data.dns_guidance || this.dnsGuidance;

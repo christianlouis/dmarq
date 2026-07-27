@@ -3915,6 +3915,7 @@ async def _build_domain_dns_guidance(
     refresh: bool = False,
     locale: Optional[str] = None,
     cached_only: bool = False,
+    dns_result: Optional[DomainDNSResult] = None,
 ) -> Dict[str, Any]:
     """Build typed DNS lint findings and target records for a monitored domain."""
     cached_only = cached_only or _CACHED_DNS_READ.get()
@@ -3931,22 +3932,23 @@ async def _build_domain_dns_guidance(
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
-    if cached_only:
-        dns_result = await _resolve_summary_dns_result(
-            db,
-            provider,
-            domain_id,
-            selectors=combined_selectors,
-            refresh=False,
-        )
-    else:
-        dns_result, _, _ = await resolve_domain_dns_cached(
-            db,
-            provider,
-            domain_id,
-            selectors=combined_selectors,
-            refresh=refresh,
-        )
+    if dns_result is None:
+        if cached_only:
+            dns_result = await _resolve_summary_dns_result(
+                db,
+                provider,
+                domain_id,
+                selectors=combined_selectors,
+                refresh=False,
+            )
+        else:
+            dns_result, _, _ = await resolve_domain_dns_cached(
+                db,
+                provider,
+                domain_id,
+                selectors=combined_selectors,
+                refresh=refresh,
+            )
     if bool(getattr(dns_result, "pending", False)):
         return {
             "domain": domain_id,
@@ -6605,8 +6607,8 @@ async def _build_domain_posture_dashboard_for_workspace(
             store,
             **grade_kwargs,
         )
-    summary = store.get_domain_summary(domain_name)
     if capture_snapshot:
+        summary = store.get_domain_summary(domain_name)
         _record_health_snapshot_from_posture(
             db,
             workspace_id=workspace.id,
@@ -6657,6 +6659,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
         store,
         domain_name,
         cached_only=True,
+        dns_result=dns_result,
     )
     domain_health = await _build_domain_health_grade(
         db,
