@@ -150,7 +150,7 @@ def _apply_evidence_snapshot(
     return True
 
 
-async def prewarm_source_evidence() -> int:
+async def prewarm_source_evidence() -> int:  # noqa: C901 - bounded enrichment pipeline
     """Capture point-in-time PTR, network, and reputation evidence for report rows."""
     settings = get_settings()
     if not settings.SOURCE_EVIDENCE_PREWARM_ENABLED:

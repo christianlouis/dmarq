@@ -2693,17 +2693,6 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationNextSafeAction" in script
     assert "primaryRemediationScopeNote" in script
     assert "primaryRemediationReadinessContext" in script
-
-
-def test_domain_details_defers_hidden_sections_until_opened_or_linked():
-    script = _domain_details_script()
-
-    assert "loadSectionForLocationHash" in script
-    assert "loadDeferredSection" in script
-    assert "window.addEventListener('hashchange'" in script
-    assert "this.$root.addEventListener('toggle'" in script
-    assert "this.fetchSources({ preserveOnFailure: true })" in script
-    assert "this.fetchDNSRecords()" in script
     assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
     assert "primaryRemediationFreshnessText" in script
@@ -2801,6 +2790,17 @@ def test_domain_details_defers_hidden_sections_until_opened_or_linked():
         in template
     )
     assert "x-html" not in template
+
+
+def test_domain_details_defers_hidden_sections_until_opened_or_linked():
+    script = _domain_details_script()
+
+    assert "loadSectionForLocationHash" in script
+    assert "loadDeferredSection" in script
+    assert "window.addEventListener('hashchange'" in script
+    assert "this.$root.addEventListener('toggle'" in script
+    assert "this.fetchSources({ preserveOnFailure: true })" in script
+    assert "this.fetchDNSRecords()" in script
 
 
 def test_domain_details_redirects_to_domain_management_after_delete_success():
