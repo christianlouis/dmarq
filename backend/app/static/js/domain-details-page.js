@@ -321,6 +321,10 @@ function domainDetailsApp(domainId = '') {
                     this.loadDeferredSection('posture-dashboard');
                     return;
                 }
+                if (details.id === 'domain-ownership') {
+                    this.loadDeferredSection('domain-ownership');
+                    return;
+                }
                 const section = details.querySelector('section[id]');
                 if (section) {
                     this.loadDeferredSection(section.id);
@@ -507,6 +511,8 @@ function domainDetailsApp(domainId = '') {
                 requests = [this.fetchSources({ preserveOnFailure: true })];
             } else if (sectionId === 'source-intelligence') {
                 requests = [this.fetchSourceIntelligence({ preserveOnFailure: true })];
+            } else if (sectionId === 'domain-ownership') {
+                requests = [this.fetchDomainOwnership()];
             } else if (sectionId === 'dns-records') {
                 requests = [
                     this.fetchDomainOwnership(),
