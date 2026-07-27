@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
@@ -199,7 +200,7 @@ def _cache_row(
     )
 
 
-def _store_cache_result(
+def store_dns_cache_result(
     db: Session,
     row: Optional[DNSCache],
     *,
@@ -209,6 +210,26 @@ def _store_cache_result(
     payload: str,
     checked_at: datetime,
 ) -> DNSCache:
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        statement = (
+            postgresql_insert(DNSCache)
+            .values(
+                domain=domain,
+                provider=provider_name,
+                selectors_key=selectors_key,
+                result_json=payload,
+                checked_at=checked_at,
+            )
+            .on_conflict_do_update(
+                constraint="uq_dns_cache_lookup",
+                set_={"result_json": payload, "checked_at": checked_at},
+            )
+            .returning(DNSCache.id)
+        )
+        row_id = db.execute(statement).scalar_one()
+        db.commit()
+        return db.query(DNSCache).filter(DNSCache.id == row_id).one()
+
     if row is None:
         row = DNSCache(
             domain=domain,
@@ -240,6 +261,27 @@ def _store_cache_result(
 
     db.refresh(row)
     return row
+
+
+def _store_cache_result(
+    db: Session,
+    row: Optional[DNSCache],
+    *,
+    domain: str,
+    provider_name: str,
+    selectors_key: str,
+    payload: str,
+    checked_at: datetime,
+) -> DNSCache:
+    return store_dns_cache_result(
+        db,
+        row,
+        domain=domain,
+        provider_name=provider_name,
+        selectors_key=selectors_key,
+        payload=payload,
+        checked_at=checked_at,
+    )
 
 
 DNSCandidateResult = Tuple[str, Optional[DomainDNSResult], Optional[Exception]]

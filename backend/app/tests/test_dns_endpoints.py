@@ -40,6 +40,7 @@ from app.services.dns_cache import (
     _selectors_key,
     get_latest_cached_domain_dns_evidence,
     resolve_domain_dns_cached,
+    store_dns_cache_result,
 )
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
@@ -1584,6 +1585,59 @@ async def test_dns_cache_reraises_when_conflict_row_missing(db_session, monkeypa
             DOMAIN,
             selectors=["google"],
         )
+
+
+def test_dns_cache_uses_postgresql_upsert_without_integrity_error_retry():
+    """PostgreSQL cache writes should avoid noisy duplicate-key retries."""
+    cached_row = DNSCache(
+        id=123,
+        domain=DOMAIN,
+        provider="CustomDNSProvider",
+        selectors_key="selector-key",
+        result_json="{}",
+        checked_at=datetime(2026, 7, 27, 9, 0, 0),
+    )
+    executed = {}
+
+    class FakeResult:
+        def scalar_one(self):
+            return cached_row.id
+
+    class FakeQuery:
+        def filter(self, *_args):
+            return self
+
+        def one(self):
+            return cached_row
+
+    class FakeDb:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, statement):
+            executed["statement"] = statement
+            return FakeResult()
+
+        def commit(self):
+            executed["committed"] = True
+
+        def query(self, model):
+            assert model is DNSCache
+            return FakeQuery()
+
+    row = store_dns_cache_result(
+        FakeDb(),
+        None,
+        domain=DOMAIN,
+        provider_name="CustomDNSProvider",
+        selectors_key="selector-key",
+        payload='{"dmarc":true}',
+        checked_at=datetime(2026, 7, 27, 9, 1, 0),
+    )
+
+    assert row is cached_row
+    assert executed["committed"] is True
+    assert "ON CONFLICT" in str(executed["statement"])
+    assert "uq_dns_cache_lookup" in str(executed["statement"])
 
 
 def test_dns_endpoint_refresh_bypasses_cache(authed_client: TestClient):

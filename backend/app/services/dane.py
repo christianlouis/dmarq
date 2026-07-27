@@ -14,11 +14,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
-from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS, store_dns_cache_result
 from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
@@ -507,37 +506,13 @@ async def check_dane_cached(
         derive_suggestions=derive_suggestions,
     )
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
-    if row is None:
-        row = DNSCache(
-            domain=normalized_domain,
-            provider=provider_name,
-            selectors_key=cache_key,
-            result_json=payload,
-            checked_at=now,
-        )
-        db.add(row)
-    else:
-        row.result_json = payload
-        row.checked_at = now
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        row = (
-            db.query(DNSCache)
-            .filter(
-                DNSCache.domain == normalized_domain,
-                DNSCache.provider == provider_name,
-                DNSCache.selectors_key == cache_key,
-            )
-            .first()
-        )
-        if row is None:
-            raise
-        row.result_json = payload
-        row.checked_at = now
-        db.commit()
-
-    db.refresh(row)
+    row = store_dns_cache_result(
+        db,
+        row,
+        domain=normalized_domain,
+        provider_name=provider_name,
+        selectors_key=cache_key,
+        payload=payload,
+        checked_at=now,
+    )
     return result, False, row.checked_at
