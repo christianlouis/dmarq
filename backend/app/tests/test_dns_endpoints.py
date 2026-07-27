@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import (
     _domain_names_for_summary,
+    _filter_summary_domains,
     _remediation_loop_state,
     _spf_fix_hint,
 )
@@ -2791,6 +2792,36 @@ def test_summary_endpoint_can_hide_empty_domains_before_dns_work(
     assert filtered_data["empty_domains_hidden"] == 1
     assert [domain["domain_name"] for domain in filtered_data["domains"]] == [DOMAIN]
     assert provider.check_domain.await_count == 1
+
+
+def test_filter_summary_domains_reports_hidden_empty_domains():
+    domains, empty_count, hidden_count = _filter_summary_domains(
+        ["active.example", "empty.example"],
+        {
+            "active.example": {"reports_processed": 1, "total_count": 5},
+            "empty.example": {"reports_processed": 0, "total_count": 0},
+        },
+        include_empty=False,
+    )
+
+    assert domains == ["active.example"]
+    assert empty_count == 1
+    assert hidden_count == 1
+
+
+def test_filter_summary_domains_keeps_empty_domains_when_requested():
+    domains, empty_count, hidden_count = _filter_summary_domains(
+        ["active.example", "empty.example"],
+        {
+            "active.example": {"reports_processed": 0, "total_count": 3},
+            "empty.example": {},
+        },
+        include_empty=True,
+    )
+
+    assert domains == ["active.example", "empty.example"]
+    assert empty_count == 1
+    assert hidden_count == 0
 
 
 def test_summary_endpoint_reuses_prewarmed_dns_evidence_with_different_selectors(
