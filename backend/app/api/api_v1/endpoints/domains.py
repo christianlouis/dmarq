@@ -4816,6 +4816,66 @@ def _cached_bimi_logo_urls(db: Session, domains: List[str]) -> Dict[str, str]:
     return logo_urls
 
 
+def _summary_domains_and_selectors(
+    db: Session,
+    workspace: Workspace,
+    *,
+    demo_mode: bool,
+) -> Tuple[Dict[str, Dict[str, Any]], List[str], Dict[str, List[str]]]:
+    """Load dashboard summaries and report-derived selectors for one workspace."""
+    if demo_mode:
+        store = ReportStore()
+        hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+        domains = _domain_names_for_summary(
+            db,
+            store,
+            workspace,
+            include_unscoped_report_domains=True,
+        )
+        return (
+            store.get_all_domain_summaries(),
+            domains,
+            {
+                domain_name: _get_selectors_from_reports(store, domain_name)
+                for domain_name in domains
+            },
+        )
+
+    summaries = domain_summaries_from_db(db, workspace_id=workspace.id)
+    domains = list(summaries)
+    return (
+        summaries,
+        domains,
+        _get_report_selectors_map_from_db(db, domains, workspace_id=workspace.id),
+    )
+
+
+def _filter_summary_domains(
+    domains: List[str],
+    summaries: Dict[str, Dict[str, Any]],
+    *,
+    include_empty: bool,
+) -> Tuple[List[str], int, int]:
+    """Apply the include-empty flag while preserving summary counters."""
+
+    def _has_activity(domain_name: str) -> bool:
+        summary = summaries.get(domain_name, {})
+        return bool(
+            int(summary.get("reports_processed", 0) or 0) > 0
+            or int(summary.get("total_count", 0) or 0) > 0
+        )
+
+    empty_domains = [domain_name for domain_name in domains if not _has_activity(domain_name)]
+    if include_empty or not empty_domains:
+        return domains, len(empty_domains), 0
+    hidden = set(empty_domains)
+    return (
+        [domain_name for domain_name in domains if domain_name not in hidden],
+        len(empty_domains),
+        len(empty_domains),
+    )
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
@@ -4838,44 +4898,16 @@ async def get_domains_summary(
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
     settings = get_settings()
     demo_mode = settings.DEMO_MODE
-    store: Optional[ReportStore] = None
-    report_selectors_by_domain: Dict[str, List[str]] = {}
-    if demo_mode:
-        store = ReportStore()
-        hydrate_report_store_from_db(
-            db,
-            store,
-            workspace_id=workspace.id,
-        )
-        domains = _domain_names_for_summary(
-            db,
-            store,
-            workspace,
-            include_unscoped_report_domains=True,
-        )
-        summaries = store.get_all_domain_summaries()
-    else:
-        summaries = domain_summaries_from_db(db, workspace_id=workspace.id)
-        domains = list(summaries)
-        report_selectors_by_domain = _get_report_selectors_map_from_db(
-            db,
-            domains,
-            workspace_id=workspace.id,
-        )
-
-    def _has_activity(domain_name: str) -> bool:
-        summary = summaries.get(domain_name, {})
-        return bool(
-            int(summary.get("reports_processed", 0) or 0) > 0
-            or int(summary.get("total_count", 0) or 0) > 0
-        )
-
-    empty_domains = [domain_name for domain_name in domains if not _has_activity(domain_name)]
-    empty_domains_count = len(empty_domains)
-    if not include_empty and empty_domains:
-        hidden = set(empty_domains)
-        domains = [domain_name for domain_name in domains if domain_name not in hidden]
-    empty_domains_hidden = empty_domains_count if not include_empty else 0
+    summaries, domains, report_selectors_by_domain = _summary_domains_and_selectors(
+        db,
+        workspace,
+        demo_mode=demo_mode,
+    )
+    domains, empty_domains_count, empty_domains_hidden = _filter_summary_domains(
+        domains,
+        summaries,
+        include_empty=include_empty,
+    )
 
     # Perform DNS checks for all domains, reusing fresh cached results.
     provider = get_default_provider(db)
@@ -4889,10 +4921,7 @@ async def get_domains_summary(
     selectors_by_summary_domain: Dict[str, List[str]] = {}
     for domain_name in domains:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
-        if demo_mode and store is not None:
-            report_selectors = _get_selectors_from_reports(store, domain_name)
-        else:
-            report_selectors = report_selectors_by_domain.get(domain_name, [])
+        report_selectors = report_selectors_by_domain.get(domain_name, [])
         selectors_by_summary_domain[domain_name] = list(
             dict.fromkeys(manual_selectors + report_selectors)
         )
