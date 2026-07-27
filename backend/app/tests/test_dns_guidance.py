@@ -6,6 +6,7 @@ from app.services.dns_guidance import (
     DNSGuidanceRecord,
     DNSLintFinding,
     MailAuthSetupDefaults,
+    _plan_changes,
     build_dns_change_plans,
     build_dns_guidance,
 )
@@ -185,6 +186,15 @@ def test_change_plan_keeps_consolidation_when_one_rrset_value_matches():
     assert len(plans) == 1
     assert plans[0].operation == "consolidate"
     assert plans[0].current_values == finding.evidence
+
+
+def test_plan_changes_ignores_malformed_segments_in_tag_records():
+    changes = _plan_changes(
+        ["v=DMARC1; malformed-tag; p=none"],
+        "v=DMARC1; p=reject",
+    )
+
+    assert changes == ["Change p from none to reject."]
 
 
 @pytest.mark.asyncio
@@ -445,6 +455,57 @@ async def test_build_dns_guidance_offers_each_uncovered_mx_tlsa_value():
     assert len(plans) == 1
     assert plans[0].name == "_25._tcp.mx2.example.com"
     assert plans[0].proposed_value == second_value
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_keeps_dane_review_when_covered_hosts_need_review():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    record_value = "3 1 1 " + "a" * 64
+    dane = DANEResult(
+        status="partial",
+        mx_hosts=["mx.example.com"],
+        records=[
+            TLSARecord(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=record_value,
+                valid=True,
+            )
+        ],
+        suggested_records=[
+            TLSASuggestion(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=record_value,
+                status="ready",
+            )
+        ],
+        warnings=["DNSSEC validation still needs operator review."],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dane=dane,
+    )
+
+    assert "dane_review" in {finding.code for finding in guidance.findings}
 
 
 @pytest.mark.asyncio

@@ -2296,6 +2296,50 @@ def test_enforcement_recommendation_common_states(
 # ---------------------------------------------------------------------------
 
 
+def test_cached_bimi_logo_urls_uses_latest_safe_cached_logo_only(db_session):
+    """Domain summaries may display BIMI without a live DNS lookup."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.add_all(
+        [
+            DNSCache(
+                domain=DOMAIN,
+                provider="SystemDNSProvider:bimi",
+                selectors_key="older",
+                result_json=json.dumps({"logo_url": "https://example.com/old.svg"}),
+                checked_at=now - timedelta(minutes=2),
+            ),
+            DNSCache(
+                domain=DOMAIN,
+                provider="SystemDNSProvider:bimi",
+                selectors_key="newer",
+                result_json=json.dumps({"logo_url": "https://example.com/current.svg"}),
+                checked_at=now,
+            ),
+            DNSCache(
+                domain="invalid.example",
+                provider="SystemDNSProvider:bimi",
+                selectors_key="invalid",
+                result_json="not-json",
+                checked_at=now,
+            ),
+            DNSCache(
+                domain="unsafe.example",
+                provider="SystemDNSProvider:bimi",
+                selectors_key="unsafe",
+                result_json=json.dumps({"logo_url": "http://unsafe.example/logo.svg"}),
+                checked_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert domains_endpoint._cached_bimi_logo_urls(db_session, []) == {}
+    assert domains_endpoint._cached_bimi_logo_urls(
+        db_session,
+        [DOMAIN, "invalid.example", "unsafe.example"],
+    ) == {DOMAIN: "https://example.com/current.svg"}
+
+
 def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     """The summary endpoint should include dmarc_status, spf_status, dkim_status."""
     _persist_minimal_report(db_session)
