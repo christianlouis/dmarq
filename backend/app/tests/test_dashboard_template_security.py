@@ -2804,7 +2804,15 @@ def test_domain_details_defers_hidden_sections_until_opened_or_linked():
     assert "this.loadDeferredSection('domain-ownership')" in script
     assert "sectionId === 'domain-ownership'" in script
     assert "this.fetchDomainOwnership()" in script
-    assert "this.fetchDNSRecords()" in script
+    dns_records_start = script.index("sectionId === 'dns-records'")
+    posture_start = script.index("sectionId === 'posture-dashboard'")
+    history_start = script.index("sectionId === 'health-score-history'")
+    dns_records_branch = script[dns_records_start:posture_start]
+    posture_branch = script[posture_start:history_start]
+    assert "this.fetchCachedDomainDetail()" in dns_records_branch
+    assert "this.fetchCachedDomainDetail()" in posture_branch
+    assert "/detail/cached" in script
+    assert "cachedDetailReadPromise" in script
 
 
 def test_domain_details_redirects_to_domain_management_after_delete_success():
