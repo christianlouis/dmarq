@@ -233,7 +233,7 @@ async def check_mta_sts_cached(
         )
         .first()
     )
-    if row and (not refresh and _is_fresh(row, ttl_seconds, now) or not allow_live):
+    if row and ((not refresh and _is_fresh(row, ttl_seconds, now)) or not allow_live):
         return _result_from_json(row.result_json), True, row.checked_at
 
     if not allow_live:
