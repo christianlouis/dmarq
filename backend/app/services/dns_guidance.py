@@ -27,6 +27,9 @@ class DNSGuidanceRecord:
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
     learn_more_label: Optional[str] = None
+    supporting_content: Optional[str] = None
+    supporting_content_label: Optional[str] = None
+    supporting_content_url: Optional[str] = None
 
 
 @dataclass
@@ -79,6 +82,7 @@ class DNSChangePlan:
     applies_automatically: bool = False
     provider_write_available: bool = False
     provider_value_required: bool = False
+    changes: List[str] = field(default_factory=list)
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
     learn_more_label: Optional[str] = None
@@ -128,11 +132,22 @@ def _dmarc_record_value(domain: str, defaults: MailAuthSetupDefaults) -> str:
     )
 
 
+def _mta_sts_policy_example(mx_hosts: List[str]) -> str:
+    """Build a safe first MTA-STS policy from observed MX hosts."""
+    mx_lines = [f"mx: {host}" for host in mx_hosts if host]
+    if not mx_lines:
+        mx_lines = ["mx: <replace-with-your-mx-host>"]
+    return "\n".join(
+        ["version: STSv1", "mode: testing", *mx_lines, "max_age: 86400"]
+    )
+
+
 def _target_records(
     domain: str,
     result: DomainDNSResult,
     *,
     setup_defaults: Optional[MailAuthSetupDefaults] = None,
+    mx_hosts: Optional[List[str]] = None,
 ) -> List[DNSGuidanceRecord]:
     defaults = setup_defaults or MailAuthSetupDefaults()
     dmarc_value = result.dmarc_record or (_dmarc_record_value(domain, defaults))
@@ -180,6 +195,9 @@ def _target_records(
             ),
             learn_more_url="https://www.rfc-editor.org/rfc/rfc8461",
             learn_more_label="Read the MTA-STS standard",
+            supporting_content=_mta_sts_policy_example(mx_hosts or []),
+            supporting_content_label="Policy file to publish first",
+            supporting_content_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
         ),
         DNSGuidanceRecord(
             code="target_tls_rpt",
@@ -216,45 +234,49 @@ def _target_by_code(records: List[DNSGuidanceRecord], code: str) -> DNSGuidanceR
     return next(record for record in records if record.code == code)
 
 
-def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
-    ready_suggestion = next(
-        (
-            suggestion
-            for suggestion in result.suggested_records
-            if suggestion.status == "ready" and suggestion.record
-        ),
-        None,
-    )
-    mx_host = (
-        ready_suggestion.mx_host
-        if ready_suggestion
-        else result.mx_hosts[0] if result.mx_hosts else f"<mx-host>.{domain}"
-    )
-    value = (
-        ready_suggestion.record
-        if ready_suggestion
-        else "3 1 1 <derive-sha256-spki-from-live-mx-certificate>"
-    )
-    purpose = (
-        f"DANE SMTP TLSA value derived from the live STARTTLS certificate for {mx_host}. "
-        "Publish it only after DNSSEC is signed and validating, and rotate it with "
-        "certificate changes."
-        if ready_suggestion
-        else (
-            "DANE SMTP TLSA certificate pinning for one MX host. The value is not "
-            "guessable: derive one matching TLSA record from each live MX certificate, "
-            "publish it only after DNSSEC is signed and validating, and rotate it with "
-            "certificate changes."
+def _dane_target_records(domain: str, result: DANEResult) -> List[DNSGuidanceRecord]:
+    """Return one publishable TLSA target per MX host with cached certificate evidence."""
+    ready_suggestions = [
+        suggestion
+        for suggestion in result.suggested_records
+        if suggestion.status == "ready" and suggestion.record
+    ]
+    if not ready_suggestions:
+        mx_host = result.mx_hosts[0] if result.mx_hosts else f"<mx-host>.{domain}"
+        return [
+            DNSGuidanceRecord(
+                code="target_dane",
+                record_type="TLSA",
+                name=f"_{result.port}._tcp.{mx_host}",
+                value="3 1 1 <derive-sha256-spki-from-live-mx-certificate>",
+                purpose=(
+                    "DANE SMTP TLSA certificate pinning. DMARQ has not yet captured a "
+                    "usable STARTTLS certificate for this MX host, so it will not propose "
+                    "a DNS value."
+                ),
+                priority="optional",
+            )
+        ]
+
+    targets: List[DNSGuidanceRecord] = []
+    for index, suggestion in enumerate(ready_suggestions):
+        targets.append(
+            DNSGuidanceRecord(
+                code="target_dane" if index == 0 else f"target_dane_{index + 1}",
+                record_type="TLSA",
+                name=suggestion.query_name,
+                value=suggestion.record,
+                purpose=(
+                    f"DANE SMTP TLSA value derived from the live STARTTLS certificate "
+                    f"cached for {suggestion.mx_host}. This is a SHA-256 hash of "
+                    "the certificate public key (SPKI), not a generic certificate hash. "
+                    "Publish only after DNSSEC is signed and validating, and rotate it "
+                    "with certificate changes."
+                ),
+                priority="optional",
+            )
         )
-    )
-    return DNSGuidanceRecord(
-        code="target_dane",
-        record_type="TLSA",
-        name=ready_suggestion.query_name if ready_suggestion else f"_{result.port}._tcp.{mx_host}",
-        value=value,
-        purpose=purpose,
-        priority="optional",
-    )
+    return targets
 
 
 def _finding(
@@ -1241,13 +1263,41 @@ def _actionable_dane_warnings(result: DANEResult) -> List[str]:
 
 
 def _dane_findings(result: DANEResult, targets: List[DNSGuidanceRecord]) -> List[DNSLintFinding]:
-    target = _target_by_code(targets, "target_dane")
+    dane_targets = [record for record in targets if record.code.startswith("target_dane")]
+    target = dane_targets[0]
     warnings = _actionable_dane_warnings(result)
     if result.status == "pass" and not warnings:
         return []
     detail = "; ".join(warnings or result.errors or ["No DANE/TLSA records were found."])
-    evidence = [record.record for record in result.records] or result.mx_hosts
+    evidence = [record.record for record in result.records]
     if result.status == "fail":
+        publishable_targets = [
+            record for record in dane_targets if "<derive-" not in record.value
+        ]
+        if publishable_targets:
+            findings: List[DNSLintFinding] = []
+            for index, candidate in enumerate(publishable_targets):
+                mx_host = candidate.name.split("._tcp.", 1)[-1]
+                current_values = [
+                    record.record for record in result.records if record.mx_host == mx_host
+                ]
+                findings.append(
+                    _finding(
+                        "dane_missing" if index == 0 else f"dane_missing_{index + 1}",
+                        "info",
+                        "DANE TLSA record is ready for review",
+                        (
+                            f"DMARQ captured a STARTTLS certificate for {mx_host} and "
+                            "derived a publishable TLSA 3 1 1 value."
+                        ),
+                        "Review DNSSEC and the cached certificate evidence before publishing this host-specific TLSA record.",
+                        "TLSA",
+                        candidate.name,
+                        target_record=candidate,
+                        evidence=current_values,
+                    )
+                )
+            return findings
         return [
             _finding(
                 "dane_missing",
@@ -1378,7 +1428,7 @@ def _plan_id(finding: DNSLintFinding) -> str:
 
 def _operation_for_finding(finding: DNSLintFinding) -> str:
     code = finding.code
-    if code.endswith("_missing") or code in {"dmarc_missing", "spf_missing"}:
+    if code.endswith("_missing") or code.startswith("dane_missing") or code in {"dmarc_missing", "spf_missing"}:
         return "create"
     if code in {"dkim_selector_stale"}:
         return "review-remove"
@@ -1408,6 +1458,8 @@ def _proposed_value(finding: DNSLintFinding) -> Optional[str]:
     if finding.code == "dkim_selector_stale":
         return None
     if finding.target_record:
+        if "<derive-" in finding.target_record.value:
+            return None
         return finding.target_record.value
     return None
 
@@ -1509,6 +1561,47 @@ def _manual_steps_for_plan(finding: DNSLintFinding, operation: str) -> List[str]
     return list(dict.fromkeys(steps))
 
 
+def _dns_record_parts(value: str) -> Optional[Dict[str, str]]:
+    """Parse semicolon-delimited DNS tag records without rewriting the value."""
+    if ";" not in value or "=" not in value:
+        return None
+    parts: Dict[str, str] = {}
+    for part in value.split(";"):
+        if "=" not in part:
+            continue
+        key, item_value = part.split("=", 1)
+        key = key.strip().lower()
+        if key:
+            parts[key] = item_value.strip()
+    return parts or None
+
+
+def _plan_changes(current_values: List[str], proposed_value: Optional[str]) -> List[str]:
+    """Explain the exact record change an operator is being asked to review."""
+    if not proposed_value:
+        return ["No exact DNS value is available; this item requires manual review."]
+    if not current_values:
+        return ["Create this record; no current value was observed."]
+    current = current_values[0]
+    current_parts = _dns_record_parts(current)
+    proposed_parts = _dns_record_parts(proposed_value)
+    if current_parts is not None and proposed_parts is not None:
+        changes: List[str] = []
+        for key in sorted(set(current_parts) | set(proposed_parts)):
+            before = current_parts.get(key)
+            after = proposed_parts.get(key)
+            if before == after:
+                continue
+            if before is None:
+                changes.append(f"Add {key}={after}.")
+            elif after is None:
+                changes.append(f"Remove {key}={before}.")
+            else:
+                changes.append(f"Change {key} from {before} to {after}.")
+        return changes or ["No value change is required."]
+    return ["Replace the observed value with the proposed value."]
+
+
 def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan]:
     """Create read-only operator change plans from DNS lint findings."""
     plans: List[DNSChangePlan] = []
@@ -1519,6 +1612,12 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
         proposed_value = _proposed_value(finding)
         if operation == "defer":
             continue
+        current_values = list(finding.evidence)
+        if proposed_value and any(
+            _normalize_dns_value(value) == _normalize_dns_value(proposed_value)
+            for value in current_values
+        ):
+            continue
         plans.append(
             DNSChangePlan(
                 plan_id=_plan_id(finding),
@@ -1528,13 +1627,14 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
                 record_type=finding.record_type,
                 name=finding.record_name,
                 proposed_value=proposed_value,
-                current_values=list(finding.evidence),
+                current_values=current_values,
                 rationale=finding.action,
                 risk=_risk_for_finding(finding),
                 rollback=_rollback_for_plan(finding, operation),
                 expected_health_impact=_expected_health_impact(finding),
                 manual_steps=_manual_steps_for_plan(finding, operation),
                 provider_value_required=_provider_value_required(finding),
+                changes=_plan_changes(current_values, proposed_value),
                 what_it_does=(finding.target_record.what_it_does if finding.target_record else None),
                 learn_more_url=(finding.target_record.learn_more_url if finding.target_record else None),
                 learn_more_label=(finding.target_record.learn_more_label if finding.target_record else None),
@@ -1561,7 +1661,12 @@ async def build_dns_guidance(
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
     dane_result = dane or DANEResult(errors=["No DANE/TLSA context was evaluated."])
-    targets = _target_records(normalized_domain, result, setup_defaults=setup_defaults)
+    targets = _target_records(
+        normalized_domain,
+        result,
+        setup_defaults=setup_defaults,
+        mx_hosts=dane_result.mx_hosts,
+    )
     if selector_evidence is not None:
         active_selector = next(
             (
@@ -1573,7 +1678,7 @@ async def build_dns_guidance(
         )
         target_dkim = _target_by_code(targets, "target_dkim")
         target_dkim.name = f"{active_selector}._domainkey.{normalized_domain}"
-    targets.append(_dane_target_record(normalized_domain, dane_result))
+    targets.extend(_dane_target_records(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     normalized_selector_evidence = [dict(item) for item in selector_evidence or []]
     findings.extend(_dmarc_findings(normalized_domain, result, targets))

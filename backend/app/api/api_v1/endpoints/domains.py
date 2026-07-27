@@ -23,6 +23,7 @@ from app.core.database import SessionLocal, get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
+from app.models.dns_cache import DNSCache
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
@@ -542,6 +543,9 @@ class DNSGuidanceRecordResponse(BaseModel):
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
     learn_more_label: Optional[str] = None
+    supporting_content: Optional[str] = None
+    supporting_content_label: Optional[str] = None
+    supporting_content_url: Optional[str] = None
 
 
 class DNSLintFindingResponse(BaseModel):
@@ -600,6 +604,7 @@ class DNSChangePlanItemResponse(BaseModel):
     applies_automatically: bool = False
     provider_write_available: bool = False
     provider_value_required: bool = False
+    changes: List[str] = Field(default_factory=list)
     safety_notes: List[str] = Field(default_factory=list)
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
@@ -3905,6 +3910,8 @@ async def _build_domain_dns_guidance(
         provider,
         domain_id,
         refresh=refresh,
+        derive_suggestions=True,
+        allow_live=False,
     )
     mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
     stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
@@ -4854,6 +4861,22 @@ async def get_domains_summary(
         domain.name: domain
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
+    bimi_logo_urls: Dict[str, str] = {}
+    bimi_cache_rows = (
+        db.query(DNSCache.domain, DNSCache.result_json)
+        .filter(DNSCache.domain.in_(domains), DNSCache.provider.like("%:bimi"))
+        .order_by(DNSCache.domain.asc(), DNSCache.checked_at.desc())
+        .all()
+    )
+    for cache_domain, result_json in bimi_cache_rows:
+        if cache_domain in bimi_logo_urls:
+            continue
+        try:
+            logo_url = str((json.loads(result_json) or {}).get("logo_url") or "")
+        except (TypeError, ValueError):
+            continue
+        if logo_url.startswith("https://"):
+            bimi_logo_urls[cache_domain] = logo_url
 
     selectors_by_summary_domain: Dict[str, List[str]] = {}
     for domain_name in domains:
@@ -4908,6 +4931,7 @@ async def get_domains_summary(
             "id": domain_name,
             "domain_name": domain_name,
             "description": stored_domain.description if stored_domain else None,
+            "bimi_logo_url": bimi_logo_urls.get(domain_name),
             "dkim_selectors": manual_selectors_by_domain.get(domain_name, []),
             "dmarc_report_mailbox": (stored_domain.dmarc_report_mailbox if stored_domain else None),
             "total_emails": summary.get("total_count", 0),

@@ -316,11 +316,14 @@ email addresses and domains; secrets and opaque tokens are still redacted in
 every mode. Demo mode keeps these plans template-backed and heavily cached.
 
 The same section also shows a proposed DNS change plan when findings are
-actionable. These plans include the record name, type, proposed value, captured
-current values when available, risk notes, rollback guidance, and expected
-health impact. Operators can copy/paste the records manually, preview a
-provider mutation, or apply safe TXT/CNAME changes through a configured DNS
-provider after explicit browser confirmation.
+actionable. Every plan shows the observed value (**Before**), proposed value
+(**After**), exact tag/value changes, and the lint evidence explaining **Why**
+the change is suggested. If the proposed value already matches DNS, DMARQ
+suppresses the plan rather than presenting a misleading write. Plans also
+include risk notes, rollback guidance, and expected health impact. Operators
+can copy/paste the records manually, preview a provider mutation, or apply safe
+TXT/CNAME changes through a configured DNS provider after explicit browser
+confirmation.
 
 When DMARQ can detect the authoritative DNS provider from nameservers and a
 matching connector is available, the change-plan section highlights the
@@ -400,17 +403,29 @@ When `_mta-sts.<domain>` exists but `mta-sts.<domain>` does not resolve or the H
 
 MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS health checks. Use the DNS refresh action when you publish or update a policy and need DMARQ to re-check immediately.
 
+For a new policy, DMARQ provides a copyable starter policy at the policy URL.
+It begins in `testing` mode and contains every observed MX host. Publish the
+file before changing to `enforce`; then update the `_mta-sts` TXT `id` so
+receivers refetch the policy.
+
 ### DANE/TLSA Posture
 
 When a domain has MX records, DMARQ can inspect passive DANE/TLSA readiness for
 the `_25._tcp.<mx-host>` names on a best-effort basis. The check is read-only:
 it reports whether TLSA records exist, whether their syntax is usable, and
 whether capped live SMTP STARTTLS probing can reach an MX certificate that
-produces an operator-ready `3 1 1` SPKI SHA-256 suggestion.
+produces an operator-ready `3 1 1` SPKI SHA-256 suggestion. When evidence is
+available, DMARQ creates one reviewable suggestion for each reachable MX host,
+because each host has its own `_25._tcp.<mx-host>` record and may use a
+different certificate.
 
 Treat generated TLSA values as review evidence, not an automatic DNS change.
 The operator still needs to confirm DNSSEC posture, MX certificate rotation
 policy, and maintenance timing before publishing or replacing TLSA records.
+The value is the SHA-256 digest of the certificate SubjectPublicKeyInfo (SPKI),
+not a generic certificate fingerprint. To keep page loads fast and avoid new
+network activity while reviewing a domain, DMARQ collects this bounded SMTP
+evidence during DNS prewarming; the page only reads cached evidence.
 
 ### BIMI Readiness
 
@@ -425,7 +440,9 @@ published `sp=` subdomain policy must also enforce.
 
 BIMI posture is read-only. Findings link back to the BIMI TXT record, logo URL,
 certificate URL, and DMARC policy evidence so operators can see which
-prerequisite is blocking readiness.
+prerequisite is blocking readiness. When the published `l=` URL is available,
+DMARQ also displays the logo in the domain detail view and the cached domain
+list; opening it still goes directly to the publisher's HTTPS asset.
 
 ## Domain Groups
 

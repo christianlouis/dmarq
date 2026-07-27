@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- DNS change plans now show the observed value, proposed value, exact tag/value
+  diff, and the lint rationale for every proposed record. Identical values are
+  treated as no-op evidence rather than a misleading DNS change.
+- MTA-STS guidance now includes a copyable `testing` policy-file example at
+  `https://mta-sts.<domain>/.well-known/mta-sts.txt`, populated with observed
+  MX hosts when available. BIMI posture now renders the published logo next to
+  its URL on domain detail and cached domain-list views.
+- DANE guidance now creates one reviewable TLSA `3 1 1` proposal per MX host
+  with cached STARTTLS certificate evidence. DNS plan page reads do not open
+  SMTP connections; bounded certificate probes run during DNS prewarming.
 - Guided workspaces now persist Calm Watch incidents by workspace, with stable
   identity, material-change detection, `actionable_only` notification posture,
   and auditable acknowledge/snooze actions. Protected unknown-source abuse is

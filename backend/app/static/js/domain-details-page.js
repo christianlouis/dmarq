@@ -3097,6 +3097,24 @@ function domainDetailsApp(domainId = '') {
             }
         },
 
+        mtaStsPolicyExampleRecord() {
+            return (this.dnsGuidance?.target_records || []).find(
+                (record) => record.code === 'target_mta_sts'
+            ) || null;
+        },
+
+        mtaStsPolicyExample() {
+            return this.mtaStsPolicyExampleRecord()?.supporting_content || '';
+        },
+
+        mtaStsPolicyExampleLabel() {
+            return this.mtaStsPolicyExampleRecord()?.supporting_content_label || 'Policy file to publish first';
+        },
+
+        mtaStsPolicyExampleUrl() {
+            return this.mtaStsPolicyExampleRecord()?.supporting_content_url || '';
+        },
+
         async fetchSelectors() {
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/selectors`);

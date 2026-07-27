@@ -339,6 +339,25 @@ async def test_check_dane_cached_keeps_live_suggestions_in_separate_cache(
     assert live.suggested_records[0].association_data == "a" * 64
 
 
+@pytest.mark.asyncio
+async def test_check_dane_cached_does_not_open_smtp_when_live_evidence_is_page_read_only(
+    db_session,
+):
+    provider = FakeDANEDNSProvider(mx_hosts=["mx.example.com"])
+
+    result, cached, _ = await check_dane_cached(
+        db_session,
+        provider,
+        "example.com",
+        derive_suggestions=True,
+        allow_live=False,
+    )
+
+    assert cached is True
+    assert result.suggested_records == []
+    provider.lookup_mx.assert_not_awaited()
+
+
 def test_parse_tlsa_record_missing_parts():
     record = parse_tlsa_record(
         "3 1 1",

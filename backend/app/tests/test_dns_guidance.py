@@ -2,7 +2,11 @@ import pytest
 
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSASuggestion
-from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
+from app.services.dns_guidance import (
+    MailAuthSetupDefaults,
+    build_dns_change_plans,
+    build_dns_guidance,
+)
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 from app.services.mta_sts import MTAStsResult
 
@@ -97,6 +101,61 @@ async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
         "pct=50; adkim=s; aspf=s"
     )
     assert targets["target_tls_rpt"].value == "v=TLSRPTv1; rua=mailto:tls-reports@central.example"
+
+
+@pytest.mark.asyncio
+async def test_mta_sts_target_includes_policy_file_with_observed_mx_hosts():
+    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="fail"),
+        BIMIResult(status="pass"),
+        dane=DANEResult(mx_hosts=["mx1.example.com", "mx2.example.com"]),
+    )
+
+    target = next(record for record in guidance.target_records if record.code == "target_mta_sts")
+    assert target.supporting_content == (
+        "version: STSv1\nmode: testing\nmx: mx1.example.com\nmx: mx2.example.com\nmax_age: 86400"
+    )
+    assert target.supporting_content_url == "https://mta-sts.example.com/.well-known/mta-sts.txt"
+
+
+@pytest.mark.asyncio
+async def test_change_plan_shows_dmarc_tag_diff_and_suppresses_noop():
+    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    target = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=target,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+        dmarc_warnings=["DMARC adkim tag should be r or s."],
+    )
+    guidance = await build_dns_guidance(
+        "example.com", provider, dns, MTAStsResult(status="pass"), BIMIResult(status="pass")
+    )
+
+    assert not [plan for plan in guidance.change_plans if plan.finding_code == "dmarc_alignment_value_invalid"]
+
+    finding = next(
+        finding for finding in guidance.findings if finding.code == "dmarc_alignment_value_invalid"
+    )
+    finding.target_record.value = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100; adkim=r"
+    plans = build_dns_change_plans([finding])
+    assert plans[0].current_values == [target]
+    assert "Add adkim=r." in plans[0].changes
 
 
 @pytest.mark.asyncio

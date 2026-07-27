@@ -466,6 +466,7 @@ async def check_dane_cached(
     *,
     port: int = 25,
     derive_suggestions: bool = False,
+    allow_live: bool = True,
     ttl_seconds: int = DEFAULT_DNS_CACHE_TTL_SECONDS,
     refresh: bool = False,
 ) -> Tuple[DANEResult, bool, datetime]:
@@ -487,6 +488,12 @@ async def check_dane_cached(
     )
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
+
+    if derive_suggestions and not allow_live:
+        # Page reads must never open SMTP connections. Startup and scheduled
+        # prewarming populate this cache; absent evidence remains an honest
+        # "not yet captured" state rather than a browser-triggered probe.
+        return DANEResult(port=port), True, now
 
     result = await check_dane_with_fallback(
         normalized_domain,
