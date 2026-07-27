@@ -327,10 +327,15 @@ async def mail_service_dns_records_for_domain(
     domain: str,
     *,
     workspace_id: Optional[int] = None,
+    allow_live: bool = True,
 ) -> List[Dict[str, str]]:
-    """Return provider-required DNS records for one sender domain."""
+    """Return provider-required DNS records for one sender domain.
+
+    Provider discovery is an explicit refresh concern. A normal cached domain
+    read must never turn a DNS guidance render into a third-party API call.
+    """
     normalized_domain = domain.strip().strip(".").lower()
-    if not normalized_domain:
+    if not normalized_domain or not allow_live:
         return []
     try:
         domains = await discover_postmark_sender_domains(db, workspace_id=workspace_id)

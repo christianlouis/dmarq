@@ -360,6 +360,27 @@ def test_mail_service_dns_records_for_domain_is_optional(db_session):
     assert records == []
 
 
+def test_mail_service_dns_records_for_domain_skips_provider_discovery_for_cached_reads(
+    db_session,
+):
+    """Cached domain renders must not turn into Postmark API requests."""
+    discover = AsyncMock()
+    with patch(
+        "app.services.mail_service_imports.discover_postmark_sender_domains",
+        new=discover,
+    ):
+        records = asyncio.run(
+            mail_service_imports.mail_service_dns_records_for_domain(
+                db_session,
+                "example.com",
+                allow_live=False,
+            )
+        )
+
+    assert records == []
+    discover.assert_not_awaited()
+
+
 def test_mail_service_import_treats_existing_global_domain_as_existing(db_session):
     db_session.add(Domain(name="shared.example", active=True, verified=True))
     db_session.commit()

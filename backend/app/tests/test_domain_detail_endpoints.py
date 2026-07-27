@@ -27,6 +27,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.bimi import BIMIResult
+from app.services.mta_sts import MTAStsResult
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_store import ReportStore
@@ -895,6 +896,83 @@ def test_domain_posture_dashboard_is_read_only_without_explicit_refresh(
         domain_name=DOMAIN,
     )
     assert snapshots == []
+
+
+def test_cached_domain_detail_combines_dns_and_posture_reads(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """The deferred detail UI receives one cached payload, not an endpoint fan-out."""
+    calls = {"dns": 0, "health": 0, "guidance": 0, "grade": 0, "posture": 0}
+
+    async def fake_dns_result(*_args, **kwargs):
+        calls["dns"] += 1
+        assert kwargs["refresh"] is False
+        return domains_endpoint.DomainDNSResult(
+            dmarc=True,
+            dmarc_record="v=DMARC1; p=reject",
+            spf=True,
+            spf_record="v=spf1 -all",
+            dkim=True,
+            dkim_selectors=["selector1"],
+        )
+
+    async def fake_health(*_args, **kwargs):
+        calls["health"] += 1
+        assert kwargs["cached_only"] is True
+        return domains_endpoint.DNSHealthResponse(
+            status="healthy",
+            policy="reject",
+            compliance_rate=100,
+            total_emails=10,
+            failed_emails=0,
+            checks=[],
+            recommendations=[],
+        )
+
+    async def fake_guidance(*_args, **kwargs):
+        calls["guidance"] += 1
+        assert kwargs["cached_only"] is True
+        return {"domain": DOMAIN, "status": "healthy", "findings": [], "change_plans": []}
+
+    async def fake_grade(*_args, **kwargs):
+        calls["grade"] += 1
+        assert kwargs["cached_only"] is True
+        return {"domain": DOMAIN, "score": 96, "grade": "A", "status": "healthy"}
+
+    async def fake_posture(*_args, **kwargs):
+        calls["posture"] += 1
+        assert kwargs["store"] is not None
+        assert kwargs["health"].status == "healthy"
+        assert kwargs["domain_health"]["score"] == 96
+        return {"domain": DOMAIN, "health": {"score": 96, "grade": "A"}}
+
+    monkeypatch.setattr(domains_endpoint, "_resolve_summary_dns_result", fake_dns_result)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_guidance)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_grade)
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_build_domain_posture_dashboard_for_workspace",
+        fake_posture,
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "check_mta_sts_cached",
+        AsyncMock(return_value=(MTAStsResult(status="pass"), True, None)),
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "check_bimi_cached",
+        AsyncMock(return_value=(BIMIResult(status="pass"), True, None)),
+    )
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/detail/cached")
+
+    assert response.status_code == 200
+    assert response.json()["posture"]["health"]["score"] == 96
+    assert response.json()["freshness"]["mode"] == "cached"
+    assert calls == {"dns": 1, "health": 1, "guidance": 1, "grade": 1, "posture": 1}
 
 
 def test_domain_remediation_queue_groups_dns_and_health_actions(

@@ -3980,7 +3980,11 @@ async def _build_domain_dns_guidance(
         derive_suggestions=True,
         allow_live=False,
     )
-    mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
+    mail_service_records = await mail_service_dns_records_for_domain(
+        db,
+        domain_id,
+        allow_live=not cached_only,
+    )
     stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
     guidance = await build_dns_guidance(
         domain_id,
@@ -6578,17 +6582,29 @@ async def _build_domain_posture_dashboard_for_workspace(
     refresh: bool = False,
     capture_snapshot: bool = True,
     cached_only: bool = False,
+    store: Optional[ReportStore] = None,
+    domain_name: Optional[str] = None,
+    health: Optional[DNSHealthResponse] = None,
+    domain_health: Optional[Dict[str, Any]] = None,
 ) -> PostureDashboardResponse:
     """Build a posture dashboard, optionally persisting the current health snapshot."""
-    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    if store is None or domain_name is None:
+        domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
     health_kwargs: Dict[str, Any] = {"refresh": refresh}
     grade_kwargs: Dict[str, Any] = {"refresh": refresh}
     if cached_only:
         health_kwargs["cached_only"] = True
         grade_kwargs["cached_only"] = True
-    health = await _build_domain_dns_health(db, store, domain_name, **health_kwargs)
-    domain_health = await _build_domain_health_grade(db, domain_name, store, **grade_kwargs)
+    if health is None:
+        health = await _build_domain_dns_health(db, store, domain_name, **health_kwargs)
+    if domain_health is None:
+        domain_health = await _build_domain_health_grade(
+            db,
+            domain_name,
+            store,
+            **grade_kwargs,
+        )
     summary = store.get_domain_summary(domain_name)
     if capture_snapshot:
         _record_health_snapshot_from_posture(
@@ -6601,6 +6617,130 @@ async def _build_domain_posture_dashboard_for_workspace(
         )
     changes = list_dns_record_changes(db, domain_name, limit=10)
     return _build_posture_dashboard(domain_name, health, domain_health, changes)
+
+
+@router.get("/{domain_id}/detail/cached")
+async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-locals
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return the cached DNS and posture view from one domain-scoped read model.
+
+    The detail page used to fan out into several overlapping endpoints. Each
+    endpoint hydrated the same report set, which made a cached page read queue
+    behind other synchronous work. This endpoint deliberately shares one
+    domain-scoped store and forbids live DNS/provider/reputation enrichment.
+    """
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+
+    manual_selectors = _get_domain_selectors_from_db(db, domain_name)
+    report_selectors = _get_selectors_from_reports(store, domain_name)
+    selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+    provider = get_default_provider(db)
+    dns_result = await _resolve_summary_dns_result(
+        db,
+        provider,
+        domain_name,
+        selectors=selectors,
+        refresh=False,
+    )
+    health = await _build_domain_dns_health(
+        db,
+        store,
+        domain_name,
+        cached_only=True,
+    )
+    guidance = await _build_domain_dns_guidance(
+        db,
+        store,
+        domain_name,
+        cached_only=True,
+    )
+    domain_health = await _build_domain_health_grade(
+        db,
+        domain_name,
+        store,
+        cached_only=True,
+    )
+    posture = await _build_domain_posture_dashboard_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_name,
+        cached_only=True,
+        capture_snapshot=False,
+        store=store,
+        domain_name=domain_name,
+        health=health,
+        domain_health=domain_health,
+    )
+    mta_sts, mta_cached, mta_checked_at = await check_mta_sts_cached(
+        db,
+        provider,
+        domain_name,
+        refresh=False,
+        allow_live=False,
+    )
+    bimi, bimi_cached, bimi_checked_at = await check_bimi_cached(
+        db,
+        provider,
+        domain_name,
+        refresh=False,
+        allow_live=False,
+    )
+
+    return {
+        "domain": domain_name,
+        "freshness": {
+            "mode": "cached",
+            "dns_checked_at": getattr(dns_result, "checked_at", None),
+            "dns_pending": bool(getattr(dns_result, "pending", False)),
+        },
+        "dns": DNSRecordResponse(
+            dmarc=dns_result.dmarc,
+            dmarcRecord=dns_result.dmarc_record,
+            spf=dns_result.spf,
+            spfRecord=dns_result.spf_record,
+            dkim=dns_result.dkim,
+            dkimSelectors=dns_result.dkim_selectors,
+            cached=bool(getattr(dns_result, "cached", False)),
+            checkedAt=(
+                dns_result.checked_at.isoformat()
+                if getattr(dns_result, "checked_at", None)
+                else None
+            ),
+        ),
+        "dns_health": health,
+        "dns_guidance": guidance,
+        "posture": posture,
+        "mta_sts": MTAStsResponse(
+            status=mta_sts.status,
+            dns_record=mta_sts.dns_record,
+            policy_url=mta_sts.policy_url,
+            policy_text=mta_sts.policy_text,
+            mode=mta_sts.mode,
+            max_age=mta_sts.max_age,
+            mx=mta_sts.mx,
+            errors=mta_sts.errors,
+            warnings=mta_sts.warnings,
+            cached=mta_cached,
+            checked_at=mta_checked_at.isoformat() if mta_checked_at else None,
+        ),
+        "bimi": BIMIResponse(
+            status=bimi.status,
+            selector=bimi.selector,
+            query_name=bimi.query_name,
+            dns_record=bimi.dns_record,
+            logo_url=bimi.logo_url,
+            certificate_url=bimi.certificate_url,
+            evidence_url=bimi.evidence_url,
+            errors=bimi.errors,
+            warnings=bimi.warnings,
+            cached=bimi_cached,
+            checked_at=bimi_checked_at.isoformat() if bimi_checked_at else None,
+        ),
+    }
 
 
 async def _build_domain_remediation_queue_for_workspace(  # noqa: C901

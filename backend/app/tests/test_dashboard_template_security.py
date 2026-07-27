@@ -2804,7 +2804,10 @@ def test_domain_details_defers_hidden_sections_until_opened_or_linked():
     assert "this.loadDeferredSection('domain-ownership')" in script
     assert "sectionId === 'domain-ownership'" in script
     assert "this.fetchDomainOwnership()" in script
-    assert "this.fetchDNSRecords()" in script
+    assert "this.fetchCachedDomainDetail()" in script
+    assert "this.fetchCachedDomainDetail()" in script
+    assert "/detail/cached" in script
+    assert "cachedDetailReadPromise" in script
 
 
 def test_domain_details_redirects_to_domain_management_after_delete_success():

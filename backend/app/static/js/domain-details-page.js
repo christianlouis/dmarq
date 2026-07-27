@@ -24,6 +24,8 @@ function domainDetailsApp(domainId = '') {
         },
         dnsRecordsLoading: true,
         dnsRecordsError: '',
+        cachedDetailReadLoaded: false,
+        cachedDetailReadPromise: null,
         dnsHealth: {
             status: '',
             checks: [],
@@ -515,21 +517,13 @@ function domainDetailsApp(domainId = '') {
                 requests = [this.fetchDomainOwnership()];
             } else if (sectionId === 'dns-records') {
                 requests = [
+                    this.fetchCachedDomainDetail(),
                     this.fetchDomainOwnership(),
-                    this.fetchDNSRecords(),
-                    this.fetchDNSHealth(),
-                    this.fetchDNSGuidance(),
                     this.fetchDNSProviders(),
-                    this.fetchSelectors(),
-                    this.fetchMtaSts(),
-                    this.fetchBimi()
+                    this.fetchSelectors()
                 ];
             } else if (sectionId === 'posture-dashboard') {
-                requests = [
-                    this.fetchPosture(),
-                    this.fetchMtaSts(),
-                    this.fetchBimi()
-                ];
+                requests = [this.fetchCachedDomainDetail()];
             } else if (sectionId === 'health-score-history') {
                 requests = [this.fetchHealthHistory()];
             } else if (sectionId === 'recent-reports') {
@@ -2464,6 +2458,44 @@ function domainDetailsApp(domainId = '') {
             } finally {
                 this.dnsRecordsLoading = false;
             }
+        },
+
+        async fetchCachedDomainDetail() {
+            if (this.cachedDetailReadLoaded) return;
+            if (this.cachedDetailReadPromise) return this.cachedDetailReadPromise;
+
+            this.dnsRecordsLoading = true;
+            this.dnsRecordsError = '';
+            this.cachedDetailReadPromise = (async () => {
+                try {
+                    const response = await this.fetchWithTimeout(
+                        `/api/v1/domains/${encodeURIComponent(this.domainId)}/detail/cached`,
+                        {},
+                        15000
+                    );
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                        throw new Error(detail || 'Cached domain detail could not be loaded.');
+                    }
+                    const data = await response.json();
+                    this.dns = data.dns || this.dns;
+                    this.dnsHealth = data.dns_health || this.dnsHealth;
+                    this.dnsGuidance = data.dns_guidance || this.dnsGuidance;
+                    this.posture = data.posture || this.posture;
+                    this.mtaSts = data.mta_sts || this.mtaSts;
+                    this.bimi = data.bimi || this.bimi;
+                    this.cachedDetailReadLoaded = true;
+                    this.syncDetectedDnsProvider();
+                } catch (error) {
+                    this.dnsRecordsError = error.message || 'Cached domain detail could not be loaded.';
+                    console.error('Error fetching cached domain detail:', error);
+                } finally {
+                    this.dnsRecordsLoading = false;
+                    this.cachedDetailReadPromise = null;
+                }
+            })();
+            return this.cachedDetailReadPromise;
         },
 
         async fetchDNSHealth(options = {}) {
