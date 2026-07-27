@@ -188,6 +188,28 @@ def test_change_plan_keeps_consolidation_when_one_rrset_value_matches():
     assert plans[0].current_values == finding.evidence
 
 
+def test_change_plan_suppresses_equivalent_tag_values_in_different_order():
+    finding = DNSLintFinding(
+        code="dmarc_alignment_value_invalid",
+        severity="warning",
+        title="DMARC alignment mode needs review",
+        detail="The DMARC record is otherwise healthy.",
+        action="Use strict alignment for this domain.",
+        record_type="TXT",
+        record_name="_dmarc.example.com",
+        target_record=DNSGuidanceRecord(
+            code="target_dmarc",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            value="v=DMARC1; p=reject; rua=mailto:dmarc@example.com; adkim=s",
+            purpose="DMARC",
+        ),
+        evidence=["rua=mailto:dmarc@example.com; adkim=s; p=reject; v=DMARC1"],
+    )
+
+    assert build_dns_change_plans([finding]) == []
+
+
 def test_plan_changes_ignores_malformed_segments_in_tag_records():
     changes = _plan_changes(
         ["v=DMARC1; malformed-tag; p=none"],

@@ -1333,7 +1333,14 @@ def _dane_findings(result: DANEResult, targets: List[DNSGuidanceRecord]) -> List
 
 
 def _normalize_dns_value(value: str) -> str:
-    return " ".join(str(value or "").strip().strip(".").split()).lower()
+    normalized = " ".join(str(value or "").strip().strip(".").split()).lower()
+    tag_parts = _dns_record_parts(normalized)
+    if tag_parts is None:
+        return normalized
+    # DMARC, TLS-RPT, MTA-STS, and BIMI tags are an unordered map. Preserve
+    # the individual values but compare a stable key order so a provider's
+    # formatting alone does not create a misleading DNS change plan.
+    return ";".join(f"{key}={tag_parts[key]}" for key in sorted(tag_parts))
 
 
 async def _current_mail_service_values(
