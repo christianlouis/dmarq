@@ -754,14 +754,14 @@ def _stub_current_health(monkeypatch):
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
 
 
-def test_domain_health_history_capture_current_snapshot(
+def test_domain_health_history_explicit_capture_current_snapshot(
     seeded_client: TestClient,
     monkeypatch,
 ):
     """Health history can capture today's computed posture before reading history."""
     _stub_current_health(monkeypatch)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history?capture_current=true")
 
     assert response.status_code == 200
     data = response.json()
@@ -770,7 +770,32 @@ def test_domain_health_history_capture_current_snapshot(
     assert data["top_drivers"][0]["title"] == "Keep monitoring"
 
 
-def test_domain_health_history_does_not_recalculate_an_existing_daily_snapshot(
+def test_domain_health_history_is_read_only_by_default(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Opening history must not create a new DNS or score observation."""
+    calls = {"dns": 0, "health": 0}
+
+    async def fake_dns_health(*_args, **_kwargs):
+        calls["dns"] += 1
+        raise AssertionError("history reads must not resolve DNS")
+
+    async def fake_domain_grade(*_args, **_kwargs):
+        calls["health"] += 1
+        raise AssertionError("history reads must not recalculate health")
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+
+    assert response.status_code == 200
+    assert response.json()["points"] == []
+    assert calls == {"dns": 0, "health": 0}
+
+
+def test_domain_health_history_explicit_capture_does_not_recalculate_an_existing_daily_snapshot(
     seeded_client: TestClient,
     monkeypatch,
 ):
@@ -803,8 +828,8 @@ def test_domain_health_history_does_not_recalculate_an_existing_daily_snapshot(
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
 
-    first = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
-    second = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+    first = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history?capture_current=true")
+    second = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history?capture_current=true")
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -812,14 +837,16 @@ def test_domain_health_history_does_not_recalculate_an_existing_daily_snapshot(
     assert calls == {"dns": 1, "health": 1}
 
 
-def test_domain_health_evidence_export_capture_current_snapshot(
+def test_domain_health_evidence_export_explicit_capture_current_snapshot(
     seeded_client: TestClient,
     monkeypatch,
 ):
     """Evidence export can capture the current score before writing CSV."""
     _stub_current_health(monkeypatch)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/evidence/export")
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/posture/evidence/export?capture_current=true"
+    )
 
     assert response.status_code == 200
     rows = list(csv.DictReader(StringIO(response.text)))
@@ -828,7 +855,7 @@ def test_domain_health_evidence_export_capture_current_snapshot(
     assert rows[0]["top_actions"] == "low:Keep monitoring"
 
 
-def test_domain_posture_dashboard_records_current_snapshot(
+def test_domain_posture_dashboard_explicit_refresh_records_current_snapshot(
     seeded_client: TestClient,
     db_session,
     monkeypatch,
@@ -836,7 +863,7 @@ def test_domain_posture_dashboard_records_current_snapshot(
     """The posture dashboard records today's health score outside demo mode."""
     _stub_current_health(monkeypatch)
 
-    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture?refresh=true")
 
     assert response.status_code == 200
     assert response.json()["health"]["score"] == 96
@@ -847,6 +874,26 @@ def test_domain_posture_dashboard_records_current_snapshot(
         domain_name=DOMAIN,
     )
     assert snapshots[-1].score == 96
+
+
+def test_domain_posture_dashboard_is_read_only_without_explicit_refresh(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A posture page visit must not add a health-score history point."""
+    _stub_current_health(monkeypatch)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+
+    assert response.status_code == 200
+    workspace = get_or_create_default_workspace(db_session)
+    snapshots = domains_endpoint.list_health_score_snapshots(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+    )
+    assert snapshots == []
 
 
 def test_domain_remediation_queue_groups_dns_and_health_actions(

@@ -6400,7 +6400,10 @@ async def get_domain_posture_dashboard(
         workspace=workspace,
         domain_id=domain_id,
         refresh=refresh,
-        capture_snapshot=not get_settings().DEMO_MODE,
+        # A normal page read must not create or overwrite health evidence.
+        # Explicit DNS refresh is the current operator-owned capture path until
+        # the durable posture-refresh worker in #873 takes over.
+        capture_snapshot=bool(refresh and not get_settings().DEMO_MODE),
     )
 
 
@@ -6832,7 +6835,7 @@ async def get_domain_health_score_history(
     start_date: Optional[date] = Query(None, title="Start date for score history"),
     end_date: Optional[date] = Query(None, title="End date for score history"),
     limit: int = Query(120, ge=1, le=400, title="Maximum history points"),
-    capture_current: bool = Query(True, title="Capture today's current posture first"),
+    capture_current: bool = Query(False, title="Capture today's current posture first"),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -6853,9 +6856,10 @@ async def get_domain_health_score_history(
             detail="Domain not found",
         )
 
-    # The page requests this endpoint on every visit.  Capture the first
-    # snapshot of the day, then read the persisted evidence on later visits
-    # instead of repeating DNS and report aggregation work.
+    # This endpoint is read-only by default. A page visit must not calculate
+    # new DNS posture or mutate the score history. The opt-in capture path is
+    # retained for controlled maintenance/backfill callers during the #873
+    # snapshot-projection migration.
     snapshots_today = list_health_score_snapshots(
         db,
         workspace_id=workspace.id,
@@ -6906,7 +6910,7 @@ async def export_domain_health_evidence(
     start_date: Optional[date] = Query(None, title="Start date for evidence export"),
     end_date: Optional[date] = Query(None, title="End date for evidence export"),
     limit: int = Query(400, ge=1, le=1000, title="Maximum exported snapshots"),
-    capture_current: bool = Query(True, title="Capture today's current posture first"),
+    capture_current: bool = Query(False, title="Capture today's current posture first"),
     export_format: str = Query(
         "csv",
         alias="format",
