@@ -35,7 +35,7 @@ from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.bimi import BIMIResult
-from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
+from app.services.dane import DANEResult, TLSARecord, TLSASuggestion, check_dane_cached
 from app.services.dns_cache import (
     _selectors_key,
     get_latest_cached_domain_dns_evidence,
@@ -2105,6 +2105,61 @@ def test_dane_endpoint_returns_404_for_unknown_domain(authed_client: TestClient)
     response = authed_client.get("/api/v1/domains/unknown.example.com/dns/dane")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_dane_cached_only_reuses_stale_evidence_even_when_refreshing(db_session):
+    """Read-only DANE requests should keep stale cache rows instead of live probing."""
+    checked_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2)
+    cached_result = DANEResult(
+        status="pass",
+        port=25,
+        mx_hosts=["mx.example.com"],
+        records=[
+            TLSARecord(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=(
+                    "3 1 1 " "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                certificate_usage=3,
+                selector=1,
+                matching_type=1,
+                association_data=(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                valid=True,
+            )
+        ],
+    )
+    provider = AsyncMock()
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=f"{provider.__class__.__name__}:dane",
+            selectors_key="dane-v1:25",
+            result_json=json.dumps(asdict(cached_result)),
+            checked_at=checked_at,
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.services.dane.check_dane_with_fallback",
+        new=AsyncMock(side_effect=AssertionError("live DANE lookup")),
+    ):
+        result, cached, observed_at = await check_dane_cached(
+            db_session,
+            provider,
+            DOMAIN,
+            refresh=True,
+            allow_live=False,
+        )
+
+    assert cached is True
+    assert observed_at == checked_at
+    assert result.status == "pass"
+    assert result.mx_hosts == ["mx.example.com"]
 
 
 def test_posture_dashboard_links_recommendations_changes_and_playbooks(

@@ -485,11 +485,11 @@ async def check_dane_cached(
         )
         .first()
     )
-    if derive_suggestions and not allow_live:
-        # Page reads must never open SMTP connections. Startup and scheduled
-        # prewarming populate this cache. Retain the last captured certificate
+    if not allow_live:
+        # Page reads must never open DNS or SMTP connections. Startup and
+        # scheduled prewarming populate this cache. Retain the last captured
         # evidence even when it is older than the normal DNS TTL: refreshing a
-        # browser view must not discard a useful TLSA proposal or open SMTP.
+        # browser view must not discard useful posture or open the network.
         if row:
             return _result_from_json(row.result_json), True, row.checked_at
         # Absent evidence remains an honest "not yet captured" state rather
