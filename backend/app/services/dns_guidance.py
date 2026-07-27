@@ -1270,34 +1270,40 @@ def _dane_findings(result: DANEResult, targets: List[DNSGuidanceRecord]) -> List
         return []
     detail = "; ".join(warnings or result.errors or ["No DANE/TLSA records were found."])
     evidence = [record.record for record in result.records]
-    if result.status == "fail":
-        publishable_targets = [
-            record for record in dane_targets if "<derive-" not in record.value
-        ]
-        if publishable_targets:
-            findings: List[DNSLintFinding] = []
-            for index, candidate in enumerate(publishable_targets):
-                mx_host = candidate.name.split("._tcp.", 1)[-1]
-                current_values = [
-                    record.record for record in result.records if record.mx_host == mx_host
-                ]
-                findings.append(
-                    _finding(
-                        "dane_missing" if index == 0 else f"dane_missing_{index + 1}",
-                        "info",
-                        "DANE TLSA record is ready for review",
-                        (
-                            f"DMARQ captured a STARTTLS certificate for {mx_host} and "
-                            "derived a publishable TLSA 3 1 1 value."
-                        ),
-                        "Review DNSSEC and the cached certificate evidence before publishing this host-specific TLSA record.",
-                        "TLSA",
-                        candidate.name,
-                        target_record=candidate,
-                        evidence=current_values,
-                    )
+    publishable_targets = [record for record in dane_targets if "<derive-" not in record.value]
+    missing_targets: List[tuple[DNSGuidanceRecord, List[str]]] = []
+    for candidate in publishable_targets:
+        mx_host = candidate.name.split("._tcp.", 1)[-1]
+        current_values = [record.record for record in result.records if record.mx_host == mx_host]
+        if not any(
+            _normalize_dns_value(value) == _normalize_dns_value(candidate.value)
+            for value in current_values
+        ):
+            missing_targets.append((candidate, current_values))
+
+    if missing_targets:
+        findings: List[DNSLintFinding] = []
+        for index, (candidate, current_values) in enumerate(missing_targets):
+            mx_host = candidate.name.split("._tcp.", 1)[-1]
+            findings.append(
+                _finding(
+                    "dane_missing" if index == 0 else f"dane_missing_{index + 1}",
+                    "info",
+                    "DANE TLSA record is ready for review",
+                    (
+                        f"DMARQ captured a STARTTLS certificate for {mx_host} and "
+                        "derived a publishable TLSA 3 1 1 value."
+                    ),
+                    "Review DNSSEC and the cached certificate evidence before publishing this host-specific TLSA record.",
+                    "TLSA",
+                    candidate.name,
+                    target_record=candidate,
+                    evidence=current_values,
                 )
-            return findings
+            )
+        return findings
+
+    if result.status == "fail":
         return [
             _finding(
                 "dane_missing",
@@ -1613,7 +1619,11 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
         if operation == "defer":
             continue
         current_values = list(finding.evidence)
-        if proposed_value and any(
+        # A matching value is only a no-op when it is the sole RRset member.
+        # Consolidation findings (for example, multiple SPF or TLS-RPT TXT
+        # values) still need an update plan even if one member is already the
+        # intended final value.
+        if proposed_value and len(current_values) == 1 and any(
             _normalize_dns_value(value) == _normalize_dns_value(proposed_value)
             for value in current_values
         ):

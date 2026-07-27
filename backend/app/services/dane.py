@@ -486,14 +486,19 @@ async def check_dane_cached(
         )
         .first()
     )
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
-        return _result_from_json(row.result_json), True, row.checked_at
-
     if derive_suggestions and not allow_live:
         # Page reads must never open SMTP connections. Startup and scheduled
-        # prewarming populate this cache; absent evidence remains an honest
-        # "not yet captured" state rather than a browser-triggered probe.
+        # prewarming populate this cache. Retain the last captured certificate
+        # evidence even when it is older than the normal DNS TTL: refreshing a
+        # browser view must not discard a useful TLSA proposal or open SMTP.
+        if row:
+            return _result_from_json(row.result_json), True, row.checked_at
+        # Absent evidence remains an honest "not yet captured" state rather
+        # than a browser-triggered probe.
         return DANEResult(port=port), True, now
+
+    if row and not refresh and _is_fresh(row, ttl_seconds, now):
+        return _result_from_json(row.result_json), True, row.checked_at
 
     result = await check_dane_with_fallback(
         normalized_domain,
