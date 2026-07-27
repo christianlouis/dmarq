@@ -2384,8 +2384,9 @@ function domainDetailsApp(domainId = '') {
             this.dnsRecordsLoading = true;
             this.dnsRecordsError = '';
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await this.fetchWithTimeout(
-                    `/api/v1/domains/${this.domainId}/dns${options.refresh ? '?refresh=true' : ''}`,
+                    `/api/v1/domains/${this.domainId}/dns${query}`,
                     {},
                     options.refresh ? 60000 : 45000
                 );
@@ -2411,8 +2412,9 @@ function domainDetailsApp(domainId = '') {
 
         async fetchDNSHealth(options = {}) {
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/dns/health${options.refresh ? '?refresh=true' : ''}`
+                    `/api/v1/domains/${this.domainId}/dns/health${query}`
                 );
                 if (response.ok) {
                     this.dnsHealth = await response.json();
@@ -2424,8 +2426,9 @@ function domainDetailsApp(domainId = '') {
 
         async fetchDNSGuidance(options = {}) {
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/dns/lint${options.refresh ? '?refresh=true' : ''}`
+                    `/api/v1/domains/${this.domainId}/dns/lint${query}`
                 );
                 if (response.ok) {
                     this.dnsGuidance = await response.json();
@@ -2548,8 +2551,9 @@ function domainDetailsApp(domainId = '') {
 
         async fetchPosture(options = {}) {
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/posture${options.refresh ? '?refresh=true' : ''}`
+                    `/api/v1/domains/${this.domainId}/posture${query}`
                 );
                 if (response.ok) {
                     this.posture = await response.json();
@@ -3073,8 +3077,9 @@ function domainDetailsApp(domainId = '') {
 
         async fetchMtaSts(options = {}) {
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/dns/mta-sts${options.refresh ? '?refresh=true' : ''}`
+                    `/api/v1/domains/${this.domainId}/dns/mta-sts${query}`
                 );
                 if (response.ok) {
                     this.mtaSts = await response.json();
@@ -3086,8 +3091,9 @@ function domainDetailsApp(domainId = '') {
 
         async fetchBimi(options = {}) {
             try {
+                const query = options.refresh ? '?refresh=true' : '?cached_only=true';
                 const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/dns/bimi${options.refresh ? '?refresh=true' : ''}`
+                    `/api/v1/domains/${this.domainId}/dns/bimi${query}`
                 );
                 if (response.ok) {
                     this.bimi = await response.json();

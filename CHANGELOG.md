@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Made normal domain-detail and remediation reads use persisted DNS, MTA-STS,
+  BIMI, DANE, and reputation evidence instead of triggering live enrichment
+  after a cache TTL expires. The UI now reports missing evidence honestly and
+  reserves live network checks for explicit refreshes and background prewarming.
 - Made domain health history and evidence exports read-only by default. A page
   visit cannot create or overwrite a score snapshot; only an explicit DNS
   refresh or an opt-in maintenance capture may record new evidence.

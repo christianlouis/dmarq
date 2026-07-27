@@ -786,6 +786,8 @@ async def _spf_findings(
     provider: BaseDNSProvider,
     result: DomainDNSResult,
     targets: List[DNSGuidanceRecord],
+    *,
+    allow_live: bool = True,
 ) -> List[DNSLintFinding]:
     findings: List[DNSLintFinding] = []
     target = _target_by_code(targets, "target_spf")
@@ -803,32 +805,34 @@ async def _spf_findings(
             )
         ]
 
-    try:
-        root_records = await provider.lookup_txt(domain)
-    except LookupError:
-        root_records = []
-    spf_records = [record for record in root_records if record.lower().startswith("v=spf1")]
-    if len(spf_records) > 1:
-        findings.append(
-            _finding(
-                "spf_multiple_records",
-                "error",
-                "Multiple SPF records found",
-                "SPF requires exactly one SPF TXT record at the domain root.",
-                "Merge the mechanisms into a single v=spf1 record.",
-                "TXT",
-                target.name,
-                target_record=target,
-                evidence=spf_records,
+    if allow_live:
+        try:
+            root_records = await provider.lookup_txt(domain)
+        except LookupError:
+            root_records = []
+        spf_records = [record for record in root_records if record.lower().startswith("v=spf1")]
+        if len(spf_records) > 1:
+            findings.append(
+                _finding(
+                    "spf_multiple_records",
+                    "error",
+                    "Multiple SPF records found",
+                    "SPF requires exactly one SPF TXT record at the domain root.",
+                    "Merge the mechanisms into a single v=spf1 record.",
+                    "TXT",
+                    target.name,
+                    target_record=target,
+                    evidence=spf_records,
+                )
             )
-        )
 
     terms = _spf_terms(result.spf_record)
     findings.extend(_spf_all_policy_findings(terms, target, result.spf_record))
     dns_lookup_terms = _spf_dns_lookup_terms(terms)
     findings.extend(_spf_lookup_budget_findings(dns_lookup_terms, target))
     findings.extend(_spf_duplicate_include_findings(terms, target))
-    findings.extend(await _spf_void_lookup_findings(provider, dns_lookup_terms, target))
+    if allow_live:
+        findings.extend(await _spf_void_lookup_findings(provider, dns_lookup_terms, target))
     return findings
 
 
@@ -1087,11 +1091,31 @@ async def _dkim_findings(
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
     selector_evidence: Optional[List[Dict[str, object]]] = None,
+    allow_live: bool = True,
 ) -> List[DNSLintFinding]:
     target = _target_by_code(targets, "target_dkim")
     selectors_for_detail = list(
         dict.fromkeys(monitored_selectors or result.selectors_checked or [])
     )
+    if not allow_live:
+        if result.dkim:
+            return []
+        checked = ", ".join(selectors_for_detail)
+        detail = "Cached evidence does not contain a resolving DKIM selector."
+        if checked:
+            detail = f"{detail} Cached selectors: {checked}."
+        return [
+            _finding(
+                "dkim_selector_missing",
+                "warning",
+                "DKIM selector is missing",
+                detail,
+                "Refresh DNS evidence or publish the sending provider's DKIM TXT record.",
+                "TXT",
+                target.name,
+                target_record=target,
+            )
+        ]
     if selectors_for_detail and (result.dkim or selector_evidence is not None):
         return await _dkim_selector_findings(
             provider,
@@ -1113,7 +1137,7 @@ async def _dkim_findings(
             "dkim_selector_missing",
             "warning",
             "DKIM selector is missing",
-            detail,
+            "No DKIM selector resolved for the stored DNS evidence.",
             "Add the sending provider's selector in DMARQ and publish its DKIM TXT record.",
             "TXT",
             target.name,
@@ -1674,6 +1698,7 @@ async def build_dns_guidance(
     mail_service_records: Optional[List[Dict[str, str]]] = None,
     setup_defaults: Optional[MailAuthSetupDefaults] = None,
     locale: Optional[str] = None,
+    allow_live: bool = True,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
@@ -1699,7 +1724,15 @@ async def build_dns_guidance(
     findings: List[DNSLintFinding] = []
     normalized_selector_evidence = [dict(item) for item in selector_evidence or []]
     findings.extend(_dmarc_findings(normalized_domain, result, targets))
-    findings.extend(await _spf_findings(normalized_domain, provider, result, targets))
+    findings.extend(
+        await _spf_findings(
+            normalized_domain,
+            provider,
+            result,
+            targets,
+            allow_live=allow_live,
+        )
+    )
     findings.extend(
         await _dkim_findings(
             provider,
@@ -1709,13 +1742,18 @@ async def build_dns_guidance(
             monitored_selectors=monitored_selectors,
             observed_selectors=observed_selectors,
             selector_evidence=normalized_selector_evidence,
+            allow_live=allow_live,
         )
     )
-    findings.extend(_mta_sts_findings(mta_sts, targets))
-    findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
-    findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
+    if mta_sts.status != "pending":
+        findings.extend(_mta_sts_findings(mta_sts, targets))
+    if allow_live:
+        findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
+    if bimi.status != "pending":
+        findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
     findings.extend(_dane_findings(dane_result, targets))
-    findings.extend(await _mail_service_dns_findings(provider, mail_service_records or []))
+    if allow_live:
+        findings.extend(await _mail_service_dns_findings(provider, mail_service_records or []))
     _localize_default_remediation_steps(findings, locale=locale)
     return DNSGuidanceResult(
         domain=normalized_domain,

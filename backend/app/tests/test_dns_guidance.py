@@ -73,6 +73,33 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
 
 
 @pytest.mark.asyncio
+async def test_cached_guidance_keeps_proven_core_findings_without_dns_queries():
+    """Cached page reads retain stored SPF/DKIM evidence without resolving DNS."""
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pending"),
+        BIMIResult(status="pending"),
+        allow_live=False,
+    )
+
+    codes = {finding.code for finding in guidance.findings}
+    assert {"spf_missing", "dkim_selector_missing"}.issubset(codes)
+    assert "mta_sts_missing" not in codes
+    assert "bimi_missing" not in codes
+
+
+@pytest.mark.asyncio
 async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
     provider = FakeDNSProvider({})
     dns = DomainDNSResult(
