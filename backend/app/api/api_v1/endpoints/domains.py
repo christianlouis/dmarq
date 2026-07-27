@@ -6710,6 +6710,19 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
                 if getattr(dns_result, "checked_at", None)
                 else None
             ),
+            dmarcWarnings=dns_result.dmarc_warnings,
+            dmarcSuggestions=dns_result.dmarc_suggestions,
+            nameservers=dns_result.nameservers,
+            dnsProvider=asdict(dns_result.dns_provider) if dns_result.dns_provider else None,
+            providerContext=_dns_provider_repair_context(
+                db,
+                dns_provider=(
+                    asdict(dns_result.dns_provider) if dns_result.dns_provider else None
+                ),
+                nameservers=dns_result.nameservers,
+            ),
+            lookupStatus=dns_result.lookup_status,
+            lookupError=dns_result.lookup_error,
         ),
         "dns_health": health,
         "dns_guidance": guidance,
