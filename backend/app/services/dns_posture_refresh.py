@@ -111,7 +111,9 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
         db.rollback()
-        logger.warning("DNS posture refresh failed for domain id=%s with %s", domain_id, type(exc).__name__)
+        logger.warning(
+            "DNS posture refresh failed for domain id=%s with %s", domain_id, type(exc).__name__
+        )
         return False
     finally:
         db.close()
@@ -122,7 +124,9 @@ async def refresh_requested_dns_posture() -> int:
     if not settings.DNS_POSTURE_REFRESH_ENABLED:
         return 0
     count = 0
-    for domain_id, _domain_name in _candidates(max(0, int(settings.DNS_POSTURE_REFRESH_LIMIT or 0))):
+    for domain_id, _domain_name in _candidates(
+        max(0, int(settings.DNS_POSTURE_REFRESH_LIMIT or 0))
+    ):
         if await refresh_domain_dns_posture(domain_id):
             count += 1
     return count

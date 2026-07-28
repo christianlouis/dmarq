@@ -26,7 +26,9 @@ def _utcnow() -> datetime:
 
 
 def _canonical_selectors(selectors: Iterable[str] | None) -> list[str]:
-    return sorted({str(selector).strip().lower() for selector in selectors or [] if str(selector).strip()})
+    return sorted(
+        {str(selector).strip().lower() for selector in selectors or [] if str(selector).strip()}
+    )
 
 
 def selector_fingerprint(selectors: Iterable[str] | None) -> str:
@@ -45,7 +47,9 @@ def _result_fingerprint(payload: Dict[str, Any]) -> str:
         for key, value in payload.items()
         if key not in {"checked_at", "cached", "pending", "fallback_attempts"}
     }
-    return hashlib.sha256(json.dumps(stable, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(stable, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _has_dns_evidence(result: DomainDNSResult) -> bool:
@@ -117,7 +121,11 @@ def request_dns_posture_refresh(
     stale_request = current.requested_at is None or current.requested_at <= now - timedelta(
         seconds=max(1, minimum_interval_seconds)
     )
-    if selectors_changed or stale_request or trigger in {"operator_refresh", "provider_verification"}:
+    if (
+        selectors_changed
+        or stale_request
+        or trigger in {"operator_refresh", "provider_verification"}
+    ):
         current.requested_at = now
         current.next_trigger = trigger
     current.selector_hash = requested_hash
