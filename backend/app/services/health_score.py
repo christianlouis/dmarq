@@ -484,6 +484,15 @@ def _path_to_100(
         "source_reputation_listed": "source_reputation",
         "source_reputation_review": "source_reputation",
     }
+    action_href = {
+        "missing_dmarc": "#dns-records",
+        "missing_spf": "#dns-records",
+        "missing_dkim": "#dns-records",
+        "dmarc_lint": "#dns-records",
+        "low_compliance": "#sending-sources",
+        "source_reputation_listed": "#sending-sources",
+        "source_reputation_review": "#sending-sources",
+    }
     by_factor: Dict[str, List[Dict[str, Any]]] = {}
     for action in actions:
         factor = action_factor.get(str(action.get("type") or ""))
@@ -526,6 +535,9 @@ def _path_to_100(
                         "verification": "Refresh the stored DNS and report evidence after the change.",
                         "evidence": list(action.get("evidence") or []),
                         "primary": index == 0,
+                        "href": action_href.get(
+                            str(action.get("type") or ""), "#health-score-history"
+                        ),
                     }
                 )
         else:
@@ -540,16 +552,30 @@ def _path_to_100(
                     "next_step": "Open the linked evidence before making a change.",
                     "verification": "A new persisted assessment identifies a specific change or confirms healthy evidence.",
                     "evidence": [],
+                    "href": (
+                        "#recent-reports"
+                        if factor == "report_confidence"
+                        else "#health-score-history"
+                    ),
                 }
             )
     items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
+    remaining_budget = float(max(0, 100 - int(score)))
+    capped_items = []
+    for item in items:
+        delta = min(float(item.get("expected_score_delta") or 0), remaining_budget)
+        if delta <= 0:
+            continue
+        item["expected_score_delta"] = int(delta) if delta.is_integer() else round(delta, 1)
+        capped_items.append(item)
+        remaining_budget -= delta
     return {
         "score": int(score),
         "remaining_points": max(0, 100 - int(score)),
-        "items": items,
+        "items": capped_items,
         "summary": (
             "Core mail health is at 100/100. Optional hardening and DMARC protection are shown separately."
-            if not items
+            if not capped_items
             else "These are the verified core mail-health gaps; optional hardening is shown separately."
         ),
     }

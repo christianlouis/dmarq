@@ -97,6 +97,50 @@ def test_health_score_snapshot_upsert_history_and_export(db_session):
     assert "not exported" not in str(export_rows)
 
 
+def test_legacy_history_path_uses_saved_sender_action_and_caps_remaining_points(db_session):
+    """Older snapshots still lead an operator to the right evidence."""
+    workspace = get_or_create_default_workspace(db_session)
+    snapshot = upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="example.com",
+        health={
+            "score": 93,
+            "grade": "A",
+            "status": "attention",
+            "factors": {
+                "dmarc_compliance": 100,
+                "dns_posture": 100,
+                "report_confidence": 100,
+                "source_reputation": 0,
+            },
+            "actions": [
+                {
+                    "type": "source_reputation_listed",
+                    "title": "Review listed sending IPs",
+                    "detail": "One or more observed senders require review.",
+                    "next_step": "Open the sender list and verify the listed IPs.",
+                    "score_impact": 18,
+                }
+            ],
+        },
+        policy="reject",
+        compliance_rate=100,
+        total_emails=748,
+        failed_emails=0,
+        report_count=10,
+        snapshot_date=date(2026, 7, 28),
+    )
+
+    point = snapshot_to_history_point(snapshot)
+    item = point["path_to_100"]["items"][0]
+
+    assert point["path_to_100"]["remaining_points"] == 7
+    assert item["title"] == "Review listed sending IPs"
+    assert item["expected_score_delta"] == 7
+    assert item["href"] == "#sending-sources"
+
+
 def test_health_score_snapshot_defensive_serialization(db_session):
     workspace = get_or_create_default_workspace(db_session)
     snapshot = upsert_health_score_snapshot(
