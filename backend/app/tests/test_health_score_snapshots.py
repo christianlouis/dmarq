@@ -186,6 +186,8 @@ def test_latest_snapshot_restores_the_complete_persisted_health_assessment(db_se
     assert assessment["assessment_version"] == "2"
     assert assessment["domain_protection"]["status"] == "enforced"
     assert assessment["monitoring_confidence"]["band"] == "high"
+    assert assessment["path_to_100"]["remaining_points"] == 10
+    assert assessment["path_to_100"]["items"][0]["factor"] == "dns_posture"
 
 
 def test_health_snapshot_explains_dns_provenance_and_factor_delta(db_session):
@@ -216,7 +218,11 @@ def test_health_snapshot_explains_dns_provenance_and_factor_delta(db_session):
         db_session,
         workspace_id=workspace.id,
         domain_name="auditable.example",
-        health={**base_health, "score": 96, "factors": {"dns_posture": 100, "report_confidence": 100}},
+        health={
+            **base_health,
+            "score": 96,
+            "factors": {"dns_posture": 100, "report_confidence": 100},
+        },
         snapshot_date=date(2026, 7, 28),
     )
 

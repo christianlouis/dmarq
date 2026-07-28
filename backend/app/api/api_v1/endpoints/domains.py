@@ -23,8 +23,8 @@ from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import SessionLocal, get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
-from app.models.domain import Domain
 from app.models.dns_cache import DNSCache
+from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
@@ -58,8 +58,8 @@ from app.services.dns_cache import (
     get_latest_cached_domain_dns_evidence,
     resolve_domain_dns_cached,
 )
-from app.services.dns_posture_snapshots import accepted_dns_posture_result
 from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
+from app.services.dns_posture_snapshots import accepted_dns_posture_result
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
     provider_connector_registry,
@@ -128,8 +128,8 @@ from app.services.remediation_readiness import (
 )
 from app.services.report_persistence import (
     domain_reports_and_timeline_from_db,
-    domain_summary_from_db,
     domain_summaries_from_db,
+    domain_summary_from_db,
     hydrate_domain_report_store_from_db,
     hydrate_report_store_from_db,
 )
@@ -144,13 +144,13 @@ from app.services.source_evidence_prewarm import (
     network_from_source_evidence,
     ptr_from_source_evidence,
 )
-from app.services.source_read_projection import (
-    load_domain_source_read_projection,
-)
 from app.services.source_network import (
     SourceNetworkIntelligence,
     lookup_sources_network_cached,
     merge_network_into_geo,
+)
+from app.services.source_read_projection import (
+    load_domain_source_read_projection,
 )
 from app.services.source_reputation import (
     SourceReputation,
@@ -4279,9 +4279,7 @@ async def _build_domain_health_grade(
     dns_pending = bool(getattr(dns, "pending", False))
     dns_lookup_status = _dns_lookup_status(dns)
     dns_evidence = {
-        "checked_at": (
-            dns.checked_at.isoformat() if getattr(dns, "checked_at", None) else None
-        ),
+        "checked_at": (dns.checked_at.isoformat() if getattr(dns, "checked_at", None) else None),
         "cache_state": "cached" if getattr(dns, "cached", False) else "fresh",
         "lookup_status": dns_lookup_status,
         "lookup_error": dns.lookup_error,
@@ -5161,7 +5159,33 @@ async def get_domains_summary(
             "dmarc_suggestions": dns.dmarc_suggestions,
             "remediation": {},
         }
-        domain_row["health"] = score_domain_health(domain_row)
+        # The dashboard, domain list, and domain detail page must all present
+        # the same assessment. Normal reads therefore use the latest score
+        # materialized during ingest/refresh, never a new request-time score.
+        # A user-requested refresh is the one explicit exception: it captures
+        # fresh cached DNS evidence and persists the resulting assessment
+        # before returning it. Demo data remains self-contained.
+        if refresh or demo_mode:
+            current_health = score_domain_health(domain_row)
+            if not demo_mode:
+                upsert_health_score_snapshot(
+                    db,
+                    workspace_id=workspace.id,
+                    domain_name=domain_name,
+                    health=current_health,
+                    policy=dmarc_policy,
+                    compliance_rate=summary.get("compliance_rate", 0),
+                    total_emails=summary.get("total_count", 0),
+                    failed_emails=summary.get("failed_count", 0),
+                    report_count=summary.get("reports_processed", 0),
+                )
+            domain_row["health"] = current_health
+        else:
+            domain_row["health"] = _persisted_domain_health(
+                db,
+                workspace_id=workspace.id,
+                domain_name=domain_name,
+            )
         domain_row["remediation_workload"] = _domain_remediation_workload(domain_row)
         domains_list.append(domain_row)
 
@@ -6805,9 +6829,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
             dnsProvider=asdict(dns_result.dns_provider) if dns_result.dns_provider else None,
             providerContext=_dns_provider_repair_context(
                 db,
-                dns_provider=(
-                    asdict(dns_result.dns_provider) if dns_result.dns_provider else None
-                ),
+                dns_provider=(asdict(dns_result.dns_provider) if dns_result.dns_provider else None),
                 nameservers=dns_result.nameservers,
             ),
             lookupStatus=dns_result.lookup_status,
@@ -8784,7 +8806,9 @@ async def get_domain_sources(
     missing_ptr_ips = [str(ip) for ip in ips if str(ip) not in ptr_by_ip]
     missing_network_ips = [str(ip) for ip in ips if str(ip) not in networks_by_ip]
     if refresh:
-        ptr_task = asyncio.create_task(_source_ptr_results_by_ip(provider, missing_ptr_ips, settings))
+        ptr_task = asyncio.create_task(
+            _source_ptr_results_by_ip(provider, missing_ptr_ips, settings)
+        )
         network_task = asyncio.create_task(
             _source_networks_by_ip(db, provider, missing_network_ips, settings)
         )

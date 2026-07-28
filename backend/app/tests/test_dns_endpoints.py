@@ -36,7 +36,6 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion, check_dane_cached
-from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.dns_cache import (
     _selectors_key,
     get_latest_cached_domain_dns_evidence,
@@ -51,6 +50,7 @@ from app.services.dns_resolver import (
     PublicRecursiveDNSProvider,
     SystemDNSProvider,
 )
+from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
@@ -2762,6 +2762,44 @@ def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     assert domain["dkim_status"] is True
     assert domain["dmarc_policy"] == "none"
     assert domain["dmarc_report_mailbox"] == "dmarc-example@tenant.example"
+
+
+def test_summary_reads_the_persisted_domain_health_assessment(
+    authed_client: TestClient, db_session, monkeypatch
+):
+    """Portfolio grades must match detail/history rather than recalculate on read."""
+    _persist_minimal_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 96,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {"dmarc_compliance": 100, "dns_posture": 90},
+            "actions": [],
+            "path_to_100": {"remaining_points": 4, "items": []},
+        },
+        policy="reject",
+        compliance_rate=100,
+        total_emails=5,
+        failed_emails=0,
+        report_count=1,
+    )
+
+    def forbidden_recompute(*_args, **_kwargs):
+        raise AssertionError("summary reads must not calculate a new health score")
+
+    monkeypatch.setattr(domains_endpoint, "score_domain_health", forbidden_recompute)
+
+    with _mock_dns():
+        response = authed_client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    assert response.json()["domains"][0]["health"]["score"] == 96
+    assert response.json()["health_summary"]["score"] == 96
 
 
 def test_summary_includes_remediation_activity(authed_client: TestClient, db_session):
