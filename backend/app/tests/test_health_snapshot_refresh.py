@@ -248,6 +248,74 @@ async def test_refresh_domain_snapshot_retains_existing_evidence_on_failure(monk
 
 
 @pytest.mark.asyncio
+async def test_refresh_domain_snapshot_skips_when_another_replica_holds_lock(monkeypatch):
+    class Database(_LockDatabase):
+        def __init__(self):
+            super().__init__("postgresql", lock_value=False)
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    db = Database()
+    monkeypatch.setattr(health_snapshot_refresh, "SessionLocal", lambda: db)
+    monkeypatch.setattr(
+        health_snapshot_refresh,
+        "ReportStore",
+        lambda: pytest.fail("lock contention must not build an assessment"),
+    )
+
+    assert await health_snapshot_refresh._refresh_domain_snapshot("example.test", 7) is False
+    assert db.closed is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_domain_snapshot_skips_missing_workspace(monkeypatch):
+    class Database(_LockDatabase):
+        def __init__(self):
+            super().__init__("sqlite")
+            self.closed = False
+
+        def query(self, *_args):
+            return _Query(None)
+
+        def close(self):
+            self.closed = True
+
+    db = Database()
+    monkeypatch.setattr(health_snapshot_refresh, "SessionLocal", lambda: db)
+
+    assert await health_snapshot_refresh._refresh_domain_snapshot("example.test", 7) is False
+    assert db.closed is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_domain_snapshot_propagates_cancellation(monkeypatch):
+    class Database(_LockDatabase):
+        def __init__(self):
+            super().__init__("sqlite")
+            self.closed = False
+
+        def query(self, *_args):
+            return _Query(type("Workspace", (), {"id": 7})())
+
+        def close(self):
+            self.closed = True
+
+    db = Database()
+    monkeypatch.setattr(health_snapshot_refresh, "SessionLocal", lambda: db)
+    monkeypatch.setattr(
+        health_snapshot_refresh,
+        "ReportStore",
+        lambda: (_ for _ in ()).throw(asyncio.CancelledError()),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await health_snapshot_refresh._refresh_domain_snapshot("example.test", 7)
+    assert db.closed is True
+
+
+@pytest.mark.asyncio
 async def test_scheduled_refresh_honors_startup_and_cancellation(monkeypatch):
     class Settings:
         HEALTH_SNAPSHOT_REFRESH_STARTUP_DELAY_SECONDS = 1
@@ -263,6 +331,31 @@ async def test_scheduled_refresh_honors_startup_and_cancellation(monkeypatch):
     monkeypatch.setattr(health_snapshot_refresh, "get_settings", lambda: Settings())
     monkeypatch.setattr(health_snapshot_refresh.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(health_snapshot_refresh, "refresh_health_score_snapshots", lambda: _async_value(1))
+
+    with pytest.raises(asyncio.CancelledError):
+        await health_snapshot_refresh.scheduled_health_snapshot_refresh()
+    assert sleeps == [5, 60]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_refresh_continues_after_one_failed_cycle(monkeypatch):
+    class Settings:
+        HEALTH_SNAPSHOT_REFRESH_STARTUP_DELAY_SECONDS = 5
+        HEALTH_SNAPSHOT_REFRESH_INTERVAL_SECONDS = 60
+
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) > 1:
+            raise asyncio.CancelledError()
+
+    async def failed_refresh():
+        raise RuntimeError("temporary failure")
+
+    monkeypatch.setattr(health_snapshot_refresh, "get_settings", lambda: Settings())
+    monkeypatch.setattr(health_snapshot_refresh.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(health_snapshot_refresh, "refresh_health_score_snapshots", failed_refresh)
 
     with pytest.raises(asyncio.CancelledError):
         await health_snapshot_refresh.scheduled_health_snapshot_refresh()
