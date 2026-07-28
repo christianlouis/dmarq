@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Authenticated domain DNS guidance now carries the same provider-preview
+  readiness as the dedicated change-plan API, so concrete TXT/CNAME repairs
+  can be previewed and explicitly approved from the domain page instead of
+  being incorrectly labelled manual-only.
 - A configured per-domain DMARC report mailbox now produces the primary safe
   DNS change when an existing direct DMARC TXT record does not contain it. The
   proposal adds one `rua` destination while preserving policy, alignment,

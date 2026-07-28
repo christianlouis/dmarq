@@ -1054,6 +1054,24 @@ def _dns_plan_safety_notes(plan: Dict[str, Any], *, provider_write_available: bo
     return notes or ["Manual review is required before this DNS change can be automated."]
 
 
+def _with_dns_plan_write_state(plans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add the authenticated provider-preview state consumed by the domain UI."""
+    annotated_plans = []
+    for plan in plans:
+        provider_write_available = _dns_plan_provider_write_available(plan)
+        annotated_plans.append(
+            {
+                **plan,
+                "provider_write_available": provider_write_available,
+                "safety_notes": _dns_plan_safety_notes(
+                    plan,
+                    provider_write_available=provider_write_available,
+                ),
+            }
+        )
+    return annotated_plans
+
+
 def _dns_change_plan_safety_notes(
     *, recommended_provider: Optional[str], available_providers: List[str]
 ) -> List[str]:
@@ -6373,7 +6391,9 @@ async def get_domain_dns_lint(
     guidance_kwargs: Dict[str, Any] = {"refresh": refresh, "locale": locale}
     if cached_only:
         guidance_kwargs["cached_only"] = True
-    return await _build_domain_dns_guidance(db, store, domain_id, **guidance_kwargs)
+    guidance = await _build_domain_dns_guidance(db, store, domain_id, **guidance_kwargs)
+    guidance["change_plans"] = _with_dns_plan_write_state(guidance["change_plans"])
+    return guidance
 
 
 @router.get("/{domain_id}/dns/change-plan", response_model=DNSChangePlanResponse)
@@ -6400,19 +6420,7 @@ async def get_domain_dns_change_plan(
         guidance.get("dns_provider"),
         available_providers,
     )
-    plans = []
-    for plan in guidance["change_plans"]:
-        provider_write_available = _dns_plan_provider_write_available(plan)
-        plans.append(
-            {
-                **plan,
-                "provider_write_available": provider_write_available,
-                "safety_notes": _dns_plan_safety_notes(
-                    plan,
-                    provider_write_available=provider_write_available,
-                ),
-            }
-        )
+    plans = _with_dns_plan_write_state(guidance["change_plans"])
     return DNSChangePlanResponse(
         domain=guidance["domain"],
         status=guidance["status"],
@@ -6772,6 +6780,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
         cached_only=True,
         dns_result=dns_result,
     )
+    guidance["change_plans"] = _with_dns_plan_write_state(guidance["change_plans"])
     domain_health = _persisted_domain_health(
         db,
         workspace_id=workspace.id,

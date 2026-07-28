@@ -987,7 +987,20 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
     async def fake_guidance(*_args, **kwargs):
         calls["guidance"] += 1
         assert kwargs["cached_only"] is True
-        return {"domain": DOMAIN, "status": "healthy", "findings": [], "change_plans": []}
+        return {
+            "domain": DOMAIN,
+            "status": "attention",
+            "findings": [],
+            "change_plans": [
+                {
+                    "operation": "update",
+                    "record_type": "TXT",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "provider_value_required": False,
+                    "current_values": ["v=DMARC1; p=none"],
+                }
+            ],
+        }
 
     async def fake_posture(*_args, **kwargs):
         calls["posture"] += 1
@@ -1026,6 +1039,12 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
 
     assert response.status_code == 200
     assert response.json()["posture"]["health"]["score"] == 96
+    cached_plan = response.json()["dns_guidance"]["change_plans"][0]
+    assert cached_plan["provider_write_available"] is True
+    assert cached_plan["safety_notes"] == [
+        "Preview the provider mutation before applying this DNS change.",
+        "Existing provider values will be shown in the preview before approval.",
+    ]
     assert response.json()["freshness"]["mode"] == "cached"
     assert calls == {"dns": 1, "health": 1, "guidance": 1, "grade": 0, "posture": 1}
 
