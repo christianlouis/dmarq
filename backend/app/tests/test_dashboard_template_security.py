@@ -2431,7 +2431,16 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "providerContextSummary" in script
     assert "providerContextSteps" in script
     assert "providerContextCtaHref" in script
-    assert "/settings#provider-integrations" not in template
+    assert "Apply one DNS change safely" in template
+    assert "Configure provider access" in template
+    assert "1. Preview change" in template
+    assert "2. Review before applying" in template
+    assert "3. Apply to" in template
+    assert "dnsWriteCanApply(plan)" in template
+    assert "dnsWriteProviderConfigured" in template
+    assert "dnsWritePreviewMatches(plan)" in script
+    assert "dnsWriteErrorMessage(detail, apply)" in script
+    assert "Zone:Read, DNS:Read, and DNS:Edit" in script
     assert "x-html" not in template
 
 

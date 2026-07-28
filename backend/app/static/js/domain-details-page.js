@@ -46,6 +46,7 @@ function domainDetailsApp(domainId = '') {
         dnsProviders: [
             { id: 'cloudflare', name: 'Cloudflare' }
         ],
+        dnsProviderDetails: [],
         dnsWrite: {
             provider: 'cloudflare',
             allowProviderMismatch: false,
@@ -1165,6 +1166,54 @@ function domainDetailsApp(domainId = '') {
         providerName(providerId) {
             const provider = this.dnsProviders.find(item => item.id === providerId);
             return provider ? provider.name : providerId;
+        },
+
+        get selectedDnsProviderDetail() {
+            const providerId = this.canonicalProviderId(this.dnsWrite.provider);
+            return this.dnsProviderDetails.find(
+                provider => this.canonicalProviderId(provider.id) === providerId
+            ) || null;
+        },
+
+        get dnsWriteProviderConfigured() {
+            return Boolean(this.selectedDnsProviderDetail?.credentials_configured);
+        },
+
+        get dnsWriteProviderSetupHref() {
+            return this.canonicalProviderId(this.dnsWrite.provider) === 'cloudflare'
+                ? '/settings#provider-integrations'
+                : '/settings#provider-integrations';
+        },
+
+        dnsWritePreviewMatches(plan) {
+            const previewProvider = this.canonicalProviderId(this.dnsWrite.preview?.provider);
+            return Boolean(
+                this.dnsWrite.preview &&
+                this.dnsWrite.preview.plan_id === plan.plan_id &&
+                previewProvider === this.canonicalProviderId(this.dnsWrite.provider) &&
+                this.dnsWrite.preview.mutation?.applicable
+            );
+        },
+
+        dnsWriteCanPreview(plan) {
+            return Boolean(plan.provider_write_available && this.dnsWriteProviderConfigured);
+        },
+
+        dnsWriteCanApply(plan) {
+            return this.dnsWriteCanPreview(plan) && this.dnsWritePreviewMatches(plan);
+        },
+
+        dnsWritePreviewHint(plan) {
+            if (!plan.provider_write_available) {
+                return 'This recommendation needs a provider-specific value or a manual change.';
+            }
+            if (!this.dnsWriteProviderConfigured) {
+                return 'Connect the selected provider before creating an exact change preview.';
+            }
+            if (!this.dnsWritePreviewMatches(plan)) {
+                return 'Preview the exact provider mutation before applying it.';
+            }
+            return 'Preview is ready. Review the diff, then apply this one change.';
         },
 
         canonicalProviderId(providerId) {
@@ -2540,6 +2589,7 @@ function domainDetailsApp(domainId = '') {
                 const response = await fetch('/api/v1/domains/dns/providers');
                 if (response.ok) {
                     const data = await response.json();
+                    this.dnsProviderDetails = data.providers || [];
                     const ready = (data.providers || []).filter(provider => provider.status === 'ready');
                     this.dnsProviders = ready.length ? ready : this.dnsProviders;
                     if (!this.dnsProviders.some(provider => provider.id === this.dnsWrite.provider)) {
@@ -2580,6 +2630,17 @@ function domainDetailsApp(domainId = '') {
             ].join('\n');
         },
 
+        dnsWriteErrorMessage(detail, apply) {
+            const message = String(detail || '').trim();
+            const providerId = this.canonicalProviderId(this.dnsWrite.provider);
+            if (providerId === 'cloudflare' && /token is not configured|unauthori[sz]ed|forbidden|permission|authentication|HTTP 40[13]/i.test(message)) {
+                return apply
+                    ? 'Cloudflare could not apply this change. Keep the preview, then update the Cloudflare token or OAuth profile with Zone:Read, DNS:Read, and DNS:Edit for this zone before trying again.'
+                    : 'Cloudflare could not read this zone. Connect Cloudflare or update its token with Zone:Read and DNS:Read for this zone, then preview again.';
+            }
+            return message || 'DNS change could not be prepared';
+        },
+
         async submitDNSChange(plan, apply) {
             this.dnsWrite.loading = true;
             this.dnsWrite.error = '';
@@ -2598,7 +2659,7 @@ function domainDetailsApp(domainId = '') {
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    this.dnsWrite.error = data.detail || 'DNS change could not be prepared';
+                    this.dnsWrite.error = this.dnsWriteErrorMessage(data.detail, apply);
                     return;
                 }
                 data.plan_id = plan.plan_id;
@@ -2634,7 +2695,8 @@ function domainDetailsApp(domainId = '') {
                 ? this.dnsWrite.preview
                 : null;
             if (!preview) {
-                preview = await this.submitDNSChange(plan, false);
+                this.dnsWrite.message = 'Start with “1. Preview change” so you can review the exact provider mutation before applying it.';
+                return null;
             }
             if (!preview?.mutation) {
                 return null;
