@@ -368,9 +368,9 @@
             {% call card_header() %}
                 <div class="flex items-center justify-between">
                     <div>
-                        {% call card_title() %}Posture Dashboard{% endcall %}
+                        {% call card_title() %}Mail health and security{% endcall %}
                         {% call card_description() %}
-                            Evidence-linked coverage, drift, and operator playbooks
+                            Core mail health, DMARC protection, and optional capabilities
                         {% endcall %}
                     </div>
                     <div class="text-right">
@@ -386,7 +386,7 @@
             {% call card_content() %}
                 <div class="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
                     <div class="rounded-lg bg-[#f4f3f2] p-4">
-                        <div class="text-sm text-[#5f5c78]">Domain health grade</div>
+                        <div class="text-sm text-[#5f5c78]">Core mail health</div>
                         <div class="mt-2 flex items-end gap-3">
                             <div class="text-5xl font-bold text-[#120d36]" x-text="posture.health.grade || '-'"></div>
                             <div class="pb-1 text-sm text-[#5f5c78]">
@@ -395,12 +395,22 @@
                         </div>
                         <div class="mt-3 flex flex-wrap gap-2 text-xs">
                             <span class="rounded bg-white px-2 py-1 font-semibold text-[#272a5f]">
-                                <span x-text="posture.score"></span><span>/100 posture</span>
+                                <span x-text="posture.capability_coverage_score ?? posture.score"></span><span>/100 capability coverage</span>
                             </span>
                             <span class="rounded bg-white px-2 py-1 font-semibold capitalize text-[#272a5f]"
                                   x-text="posture.health.status || 'checking'"></span>
                         </div>
                         <p class="mt-3 text-sm text-[#5f5c78]" x-text="posture.summary"></p>
+                        <div class="mt-3 space-y-1 text-xs text-[#5f5c78]">
+                            <p>
+                                <span class="font-semibold text-[#272a5f]">DMARC protection:</span>
+                                <span class="capitalize" x-text="posture.health.domain_protection?.status || 'checking'"></span>
+                            </p>
+                            <p>
+                                <span class="font-semibold text-[#272a5f]">Monitoring confidence:</span>
+                                <span class="capitalize" x-text="posture.health.monitoring_confidence?.band || 'checking'"></span>
+                            </p>
+                        </div>
                     </div>
                     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         <template x-for="item in posture.coverage" :key="item.key">

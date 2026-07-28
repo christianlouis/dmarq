@@ -142,6 +142,10 @@ def test_latest_snapshot_restores_the_complete_persisted_health_assessment(db_se
             "score": 90,
             "grade": "A-",
             "status": "healthy",
+            "assessment_version": "2",
+            "core_mail_health": {"score": 90, "grade": "A-", "status": "healthy"},
+            "domain_protection": {"status": "enforced", "policy": "reject"},
+            "monitoring_confidence": {"score": 100, "band": "high", "reasons": ["Fresh"]},
             "factors": {
                 "dmarc_compliance": 100,
                 "dns_posture": 59,
@@ -179,6 +183,9 @@ def test_latest_snapshot_restores_the_complete_persisted_health_assessment(db_se
     assert assessment["factors"]["source_reputation"] == 81
     assert assessment["actions"][0]["next_step"] == "Refresh DNS evidence."
     assert assessment["evidence_captured_at"]
+    assert assessment["assessment_version"] == "2"
+    assert assessment["domain_protection"]["status"] == "enforced"
+    assert assessment["monitoring_confidence"]["band"] == "high"
 
 
 def test_health_score_snapshot_filters_by_date_range(db_session):

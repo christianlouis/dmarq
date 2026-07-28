@@ -11,7 +11,7 @@ def test_health_grade_reserves_a_plus_for_reject_without_critical_actions():
     assert health_grade(99, policy="reject", critical_actions=1) == "A"
 
 
-def test_policy_none_caps_domain_score_and_creates_action():
+def test_policy_none_is_protection_context_not_a_core_mail_health_penalty():
     health = score_domain_health(
         {
             "domain_name": "example.com",
@@ -27,9 +27,43 @@ def test_policy_none_caps_domain_score_and_creates_action():
         }
     )
 
-    assert health["score"] == 74
-    assert health["grade"] == "C"
+    assert health["score"] == 97
+    assert health["grade"] == "A"
+    assert health["assessment_version"] == "2"
+    assert health["core_mail_health"]["score"] == 97
+    assert health["domain_protection"] == {
+        "status": "monitoring",
+        "policy": "none",
+        "summary": "DMARC is monitoring only; receivers are not asked to enforce failures.",
+    }
+    assert health["monitoring_confidence"]["band"] == "high"
     assert any(action["type"] == "policy_none" for action in health["actions"])
+
+
+def test_optional_transport_and_branding_states_do_not_change_core_health():
+    """Optional capabilities are rendered elsewhere and never enter the core score."""
+    baseline = {
+        "domain_name": "homelab.example",
+        "total_emails": 2_000,
+        "failed_count": 0,
+        "pass_rate": 100,
+        "report_count": 20,
+        "dmarc_status": True,
+        "spf_status": True,
+        "dkim_status": True,
+        "dmarc_policy": "reject",
+        "dmarc_warnings": [],
+    }
+
+    no_optional_capabilities = score_domain_health(
+        {**baseline, "mta_sts_status": "not_configured", "bimi_status": "not_configured"}
+    )
+    configured_optional_capabilities = score_domain_health(
+        {**baseline, "mta_sts_status": "pass", "bimi_status": "pass"}
+    )
+
+    assert no_optional_capabilities["score"] == configured_optional_capabilities["score"]
+    assert no_optional_capabilities["grade"] == configured_optional_capabilities["grade"]
 
 
 def test_low_compliance_and_missing_dns_create_prioritized_actions():
