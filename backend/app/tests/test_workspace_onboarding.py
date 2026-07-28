@@ -112,6 +112,46 @@ def test_onboarding_rejects_invalid_domain(authed_client: TestClient):
     assert "invalid domain" in str(response.json()["detail"])
 
 
+def test_onboarding_preview_rejects_domain_owned_by_another_workspace(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Preview reports the same predictable domain conflict as apply."""
+    organization = Organization(slug="other", name="Other", active=True)
+    workspace = Workspace(slug="other", name="Other", organization=organization, active=True)
+    db_session.add_all([organization, workspace])
+    db_session.flush()
+    db_session.add(Domain(workspace_id=workspace.id, name="example.com", active=True))
+    db_session.commit()
+
+    response = authed_client.post("/api/v1/onboarding/preview", json=_standard_payload())
+
+    assert response.status_code == 409
+    detail = " ".join(response.json()["detail"])
+    assert "Domain example.com is already owned by another workspace" in detail
+    assert "/domains/example.com" in detail
+    assert db_session.query(Organization).filter(Organization.slug == "client-one").count() == 0
+
+
+def test_onboarding_preview_allows_domain_already_in_target_workspace(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Re-running setup for the same workspace remains idempotent."""
+    organization = Organization(slug="client-one", name="Client One", active=True)
+    workspace = Workspace(
+        slug="client-one", name="Client One", organization=organization, active=True
+    )
+    db_session.add_all([organization, workspace])
+    db_session.flush()
+    db_session.add(Domain(workspace_id=workspace.id, name="example.com", active=True))
+    db_session.commit()
+
+    response = authed_client.post("/api/v1/onboarding/preview", json=_standard_payload())
+
+    assert response.status_code == 200
+
+
 def test_dns_only_onboarding_tasks_document_future_report_inbox(authed_client: TestClient):
     """DNS-only onboarding still returns actionable setup tasks."""
     response = authed_client.post(

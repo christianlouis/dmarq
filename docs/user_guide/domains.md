@@ -325,6 +325,17 @@ can copy/paste the records manually, preview a provider mutation, or apply safe
 TXT/CNAME changes through a configured DNS provider after explicit browser
 confirmation.
 
+Set a **DMARC report mailbox override** on the domain when DMARQ should receive
+that domain's aggregate reports. If a direct DMARC TXT record already exists,
+DMARQ proposes adding only that mailbox to `rua`; the current policy, alignment
+settings, `ruf`, and existing `rua` destinations remain unchanged. This report
+enrollment plan is shown before optional MTA-STS, BIMI, or DANE hardening.
+
+When `_dmarc.<domain>` is a CNAME, DMARQ does not replace it automatically with
+a TXT record. The shared policy target may serve several domains, so the UI
+identifies the target and keeps the change manual until the operator decides
+whether to update the shared policy or migrate the alias separately.
+
 When DMARQ can detect the authoritative DNS provider from nameservers and a
 matching connector is available, the change-plan section highlights the
 recommended provider. Each plan also includes safety notes that explain why the

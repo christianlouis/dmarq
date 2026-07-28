@@ -134,8 +134,101 @@ async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
 
 
 @pytest.mark.asyncio
+async def test_existing_dmarc_record_gets_additive_report_destination_plan_first():
+    provider = FakeDNSProvider({})
+    current = (
+        "v=DMARC1; p=reject; rua=mailto:existing@example.net; "
+        "ruf=mailto:forensic@example.net; aspf=s"
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+    )
+
+    plan = guidance.change_plans[0]
+    assert plan.finding_code == "dmarc_report_destination_missing"
+    assert plan.operation == "update"
+    assert plan.current_values == [current]
+    assert plan.proposed_value == (
+        "v=DMARC1; p=reject; "
+        "rua=mailto:existing@example.net,mailto:reports@example.com; "
+        "ruf=mailto:forensic@example.net; aspf=s"
+    )
+    assert plan.changes == [
+        "Change rua from mailto:existing@example.net to "
+        "mailto:existing@example.net,mailto:reports@example.com."
+    ]
+    assert "p=reject" in plan.proposed_value
+    assert "ruf=mailto:forensic@example.net" in plan.proposed_value
+
+
+@pytest.mark.asyncio
+async def test_existing_dmarc_report_destination_is_not_duplicated():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=none; rua=mailto:reports@example.com!10m"
+    dns = DomainDNSResult(dmarc=True, dmarc_record=current, spf=True)
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="REPORTS@example.com"),
+    )
+
+    assert "dmarc_report_destination_missing" not in {finding.code for finding in guidance.findings}
+    assert "dmarc_report_destination_missing" not in {
+        plan.finding_code for plan in guidance.change_plans
+    }
+
+
+@pytest.mark.asyncio
+async def test_cname_dmarc_policy_does_not_offer_destructive_txt_replacement():
+    provider = FakeDNSProvider({})
+    provider._cnames["_dmarc.example.com"] = "_dmarc.shared.example.net"
+    current = "v=DMARC1; p=reject; rua=mailto:shared@example.net"
+    dns = DomainDNSResult(dmarc=True, dmarc_record=current, spf=True)
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+    )
+
+    finding = next(
+        item for item in guidance.findings if item.code == "dmarc_report_destination_inherited"
+    )
+    assert finding.primary_eligible is False
+    assert "_dmarc.shared.example.net" in finding.detail
+    assert not [
+        plan
+        for plan in guidance.change_plans
+        if plan.name == "_dmarc.example.com" and plan.proposed_value != current
+    ]
+
+
+@pytest.mark.asyncio
 async def test_mta_sts_target_includes_policy_file_with_observed_mx_hosts():
-    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    provider = FakeDNSProvider(
+        {"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]}
+    )
     dns = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
@@ -162,7 +255,9 @@ async def test_mta_sts_target_includes_policy_file_with_observed_mx_hosts():
 
 @pytest.mark.asyncio
 async def test_change_plan_shows_dmarc_tag_diff_and_suppresses_noop():
-    provider = FakeDNSProvider({"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]})
+    provider = FakeDNSProvider(
+        {"_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"]}
+    )
     target = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100"
     dns = DomainDNSResult(
         dmarc=True,
@@ -177,12 +272,18 @@ async def test_change_plan_shows_dmarc_tag_diff_and_suppresses_noop():
         "example.com", provider, dns, MTAStsResult(status="pass"), BIMIResult(status="pass")
     )
 
-    assert not [plan for plan in guidance.change_plans if plan.finding_code == "dmarc_alignment_value_invalid"]
+    assert not [
+        plan
+        for plan in guidance.change_plans
+        if plan.finding_code == "dmarc_alignment_value_invalid"
+    ]
 
     finding = next(
         finding for finding in guidance.findings if finding.code == "dmarc_alignment_value_invalid"
     )
-    finding.target_record.value = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100; adkim=r"
+    finding.target_record.value = (
+        "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; pct=100; adkim=r"
+    )
     plans = build_dns_change_plans([finding])
     assert plans[0].current_values == [target]
     assert "Add adkim=r." in plans[0].changes

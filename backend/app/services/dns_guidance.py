@@ -132,14 +132,70 @@ def _dmarc_record_value(domain: str, defaults: MailAuthSetupDefaults) -> str:
     )
 
 
+def _normalize_report_mailbox(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith("mailto:"):
+        normalized = normalized[7:]
+    return normalized.split("!", 1)[0].strip()
+
+
+def _dmarc_has_report_mailbox(record: Optional[str], mailbox: Optional[str]) -> bool:
+    expected = _normalize_report_mailbox(mailbox or "")
+    if not record or not expected:
+        return False
+    parts = _dns_record_parts(record) or {}
+    return any(
+        _normalize_report_mailbox(destination) == expected
+        for destination in (parts.get("rua") or "").split(",")
+        if destination.strip()
+    )
+
+
+def _append_dmarc_report_mailbox(record: str, mailbox: str) -> str:
+    """Add one aggregate-report destination without rewriting unrelated DMARC tags."""
+    normalized_mailbox = _normalize_report_mailbox(mailbox)
+    if not normalized_mailbox or _dmarc_has_report_mailbox(record, normalized_mailbox):
+        return record
+    destination = f"mailto:{normalized_mailbox}"
+    segments = record.split(";")
+    for index, segment in enumerate(segments):
+        if "=" not in segment:
+            continue
+        key, value = segment.split("=", 1)
+        if key.strip().lower() != "rua":
+            continue
+        leading = segment[: len(segment) - len(segment.lstrip())]
+        destinations = value.strip()
+        segments[index] = f"{leading}{key.strip()}={destinations},{destination}"
+        return ";".join(segments)
+    stripped = record.rstrip()
+    separator = " " if stripped.endswith(";") else "; "
+    return f"{stripped}{separator}rua={destination}"
+
+
+def _record_with_value(record: DNSGuidanceRecord, value: str) -> DNSGuidanceRecord:
+    return DNSGuidanceRecord(
+        code=record.code,
+        record_type=record.record_type,
+        name=record.name,
+        value=value,
+        purpose=record.purpose,
+        priority=record.priority,
+        what_it_does=record.what_it_does,
+        learn_more_url=record.learn_more_url,
+        learn_more_label=record.learn_more_label,
+        supporting_content=record.supporting_content,
+        supporting_content_label=record.supporting_content_label,
+        supporting_content_url=record.supporting_content_url,
+    )
+
+
 def _mta_sts_policy_example(mx_hosts: List[str]) -> str:
     """Build a safe first MTA-STS policy from observed MX hosts."""
     mx_lines = [f"mx: {host}" for host in mx_hosts if host]
     if not mx_lines:
         mx_lines = ["mx: <replace-with-your-mx-host>"]
-    return "\n".join(
-        ["version: STSv1", "mode: testing", *mx_lines, "max_age: 86400"]
-    )
+    return "\n".join(["version: STSv1", "mode: testing", *mx_lines, "max_age: 86400"])
 
 
 def _target_records(
@@ -320,6 +376,16 @@ _REMEDIATION_STEPS_EN: Dict[str, List[str]] = {
         "Document or fix any active failures before tightening the DMARC policy.",
         "Only then plan the move from p=none to quarantine or reject.",
     ],
+    "dmarc_report_destination_missing": [
+        "Review the current and proposed DMARC values; policy and existing destinations stay unchanged.",
+        "Preview the provider mutation, then confirm the single TXT update.",
+        "Refresh DNS lint and verify that the DMARQ report mailbox appears in rua.",
+    ],
+    "dmarc_report_destination_inherited": [
+        "Open the authoritative DMARC target referenced by the CNAME.",
+        "Decide whether all domains using that shared policy should send reports to DMARQ.",
+        "Update the shared target manually or replace the CNAME in a separately reviewed migration.",
+    ],
     "spf_missing": [
         "List every platform currently allowed to send mail for this domain.",
         "Publish exactly one root TXT record beginning with v=spf1.",
@@ -434,6 +500,16 @@ _REMEDIATION_STEPS_DE: Dict[str, List[str]] = {
         "Dokumentiere oder behebe alle aktiven Fehlschlaege, bevor du die Policy verschaerfst.",
         "Plane erst danach den Wechsel von p=none zu quarantine oder reject.",
     ],
+    "dmarc_report_destination_missing": [
+        "Pruefe den aktuellen und vorgeschlagenen DMARC-Wert; Policy und bestehende Ziele bleiben unveraendert.",
+        "Pruefe die Provider-Aenderung und bestaetige dann genau dieses TXT-Update.",
+        "Aktualisiere den DNS-Check und bestaetige, dass das DMARQ-Postfach in rua enthalten ist.",
+    ],
+    "dmarc_report_destination_inherited": [
+        "Oeffne das autoritative DMARC-Ziel, auf das der CNAME verweist.",
+        "Entscheide, ob alle Domains mit dieser gemeinsamen Policy Reports an DMARQ senden sollen.",
+        "Aendere das gemeinsame Ziel manuell oder ersetze den CNAME in einer separat geprueften Migration.",
+    ],
     "spf_missing": [
         "Liste alle Plattformen auf, die aktuell fuer diese Domain E-Mail senden duerfen.",
         "Veroeffentliche genau einen TXT-Record an der Domain-Wurzel, der mit v=spf1 beginnt.",
@@ -542,7 +618,12 @@ def _classify_dmarc_warning(message: str) -> str:
 
 
 def _dmarc_findings(
-    domain: str, result: DomainDNSResult, targets: List[DNSGuidanceRecord]
+    domain: str,
+    result: DomainDNSResult,
+    targets: List[DNSGuidanceRecord],
+    *,
+    setup_defaults: Optional[MailAuthSetupDefaults] = None,
+    cname_target: Optional[str] = None,
 ) -> List[DNSLintFinding]:
     findings: List[DNSLintFinding] = []
     target = _target_by_code(targets, "target_dmarc")
@@ -559,6 +640,47 @@ def _dmarc_findings(
                 target_record=target,
             )
         )
+    report_mailbox = (setup_defaults or MailAuthSetupDefaults()).report_mailbox
+    if (
+        result.dmarc_record
+        and report_mailbox
+        and not _dmarc_has_report_mailbox(result.dmarc_record, report_mailbox)
+    ):
+        if cname_target:
+            findings.append(
+                _finding(
+                    "dmarc_report_destination_inherited",
+                    "info",
+                    "DMARC reporting is inherited through a CNAME",
+                    (
+                        f"{target.name} points to {cname_target}. DMARQ will not replace that "
+                        "alias with a TXT record automatically."
+                    ),
+                    "Review the shared DMARC policy target before adding the DMARQ mailbox.",
+                    "CNAME",
+                    target.name,
+                    evidence=[f"{target.name} -> {cname_target}", result.dmarc_record],
+                    primary_eligible=False,
+                )
+            )
+        else:
+            proposed = _append_dmarc_report_mailbox(result.dmarc_record, report_mailbox)
+            findings.append(
+                _finding(
+                    "dmarc_report_destination_missing",
+                    "warning",
+                    "DMARQ is not receiving this domain's aggregate reports",
+                    (
+                        f"The current DMARC rua does not include {report_mailbox}. Existing "
+                        "policy and report destinations can remain unchanged."
+                    ),
+                    "Add only the DMARQ report mailbox to rua, then verify report intake.",
+                    "TXT",
+                    target.name,
+                    target_record=_record_with_value(target, proposed),
+                    evidence=[result.dmarc_record],
+                )
+            )
     for warning in result.dmarc_warnings:
         findings.append(
             _finding(
@@ -1465,7 +1587,13 @@ def _plan_id(finding: DNSLintFinding) -> str:
 
 def _operation_for_finding(finding: DNSLintFinding) -> str:
     code = finding.code
-    if code.endswith("_missing") or code.startswith("dane_missing") or code in {"dmarc_missing", "spf_missing"}:
+    if code == "dmarc_report_destination_missing":
+        return "update"
+    if (
+        code.endswith("_missing")
+        or code.startswith("dane_missing")
+        or code in {"dmarc_missing", "spf_missing"}
+    ):
         return "create"
     if code in {"dkim_selector_stale"}:
         return "review-remove"
@@ -1509,6 +1637,10 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
         ),
         "dmarc_monitoring_policy": (
             "Enforcement changes can reject legitimate mail if sender alignment is not ready."
+        ),
+        "dmarc_report_destination_missing": (
+            "Low mail-flow risk: this adds one aggregate-report destination without changing "
+            "policy, alignment, or existing destinations. A typo can prevent DMARQ intake."
         ),
         "spf_missing": "Medium risk if legitimate senders are omitted from the SPF record.",
         "spf_multiple_records": (
@@ -1654,9 +1786,13 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
         # Consolidation findings (for example, multiple SPF or TLS-RPT TXT
         # values) still need an update plan even if one member is already the
         # intended final value.
-        if proposed_value and len(current_values) == 1 and any(
-            _normalize_dns_value(value) == _normalize_dns_value(proposed_value)
-            for value in current_values
+        if (
+            proposed_value
+            and len(current_values) == 1
+            and any(
+                _normalize_dns_value(value) == _normalize_dns_value(proposed_value)
+                for value in current_values
+            )
         ):
             continue
         plans.append(
@@ -1676,9 +1812,15 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
                 manual_steps=_manual_steps_for_plan(finding, operation),
                 provider_value_required=_provider_value_required(finding),
                 changes=_plan_changes(current_values, proposed_value),
-                what_it_does=(finding.target_record.what_it_does if finding.target_record else None),
-                learn_more_url=(finding.target_record.learn_more_url if finding.target_record else None),
-                learn_more_label=(finding.target_record.learn_more_label if finding.target_record else None),
+                what_it_does=(
+                    finding.target_record.what_it_does if finding.target_record else None
+                ),
+                learn_more_url=(
+                    finding.target_record.learn_more_url if finding.target_record else None
+                ),
+                learn_more_label=(
+                    finding.target_record.learn_more_label if finding.target_record else None
+                ),
             )
         )
     return plans
@@ -1723,7 +1865,28 @@ async def build_dns_guidance(
     targets.extend(_dane_target_records(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     normalized_selector_evidence = [dict(item) for item in selector_evidence or []]
-    findings.extend(_dmarc_findings(normalized_domain, result, targets))
+    dmarc_cname_target: Optional[str] = None
+    if (
+        allow_live
+        and result.dmarc_record
+        and (setup_defaults or MailAuthSetupDefaults()).report_mailbox
+    ):
+        cname_lookup = getattr(provider, "lookup_cname", None)
+        if callable(cname_lookup):
+            try:
+                value = await cname_lookup(f"_dmarc.{normalized_domain}")
+            except LookupError:
+                value = None
+            dmarc_cname_target = value if isinstance(value, str) and value else None
+    findings.extend(
+        _dmarc_findings(
+            normalized_domain,
+            result,
+            targets,
+            setup_defaults=setup_defaults,
+            cname_target=dmarc_cname_target,
+        )
+    )
     findings.extend(
         await _spf_findings(
             normalized_domain,
