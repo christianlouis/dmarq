@@ -166,7 +166,8 @@ def _append_dmarc_report_mailbox(record: str, mailbox: str) -> str:
             continue
         leading = segment[: len(segment) - len(segment.lstrip())]
         destinations = value.strip()
-        segments[index] = f"{leading}{key.strip()}={destinations},{destination}"
+        updated_destinations = f"{destinations},{destination}" if destinations else destination
+        segments[index] = f"{leading}{key.strip()}={updated_destinations}"
         return ";".join(segments)
     stripped = record.rstrip()
     separator = " " if stripped.endswith(";") else "; "
@@ -386,6 +387,16 @@ _REMEDIATION_STEPS_EN: Dict[str, List[str]] = {
         "Decide whether all domains using that shared policy should send reports to DMARQ.",
         "Update the shared target manually or replace the CNAME in a separately reviewed migration.",
     ],
+    "dmarc_report_destination_provenance_unknown": [
+        "Refresh DNS evidence so DMARQ can distinguish a direct TXT record from an alias.",
+        "Review the authoritative record type before preparing any provider write.",
+        "Continue only after the direct TXT record or inherited policy is confirmed.",
+    ],
+    "dmarc_report_destination_authorization_missing": [
+        "Open the DNS zone that owns the external report mailbox domain.",
+        "Publish the exact external-report authorization TXT record shown in this finding.",
+        "Refresh DNS guidance, then preview the additive rua update on the monitored domain.",
+    ],
     "spf_missing": [
         "List every platform currently allowed to send mail for this domain.",
         "Publish exactly one root TXT record beginning with v=spf1.",
@@ -510,6 +521,16 @@ _REMEDIATION_STEPS_DE: Dict[str, List[str]] = {
         "Entscheide, ob alle Domains mit dieser gemeinsamen Policy Reports an DMARQ senden sollen.",
         "Aendere das gemeinsame Ziel manuell oder ersetze den CNAME in einer separat geprueften Migration.",
     ],
+    "dmarc_report_destination_provenance_unknown": [
+        "Aktualisiere die DNS-Evidenz, damit DMARQ direkten TXT-Record und Alias unterscheiden kann.",
+        "Pruefe den autoritativen Record-Typ, bevor eine Provider-Aenderung vorbereitet wird.",
+        "Fahre erst fort, wenn direkter TXT-Record oder geerbte Policy bestaetigt ist.",
+    ],
+    "dmarc_report_destination_authorization_missing": [
+        "Oeffne die DNS-Zone der Domain des externen Report-Postfachs.",
+        "Veroeffentliche den in diesem Finding gezeigten Autorisierungs-TXT-Record.",
+        "Aktualisiere die DNS-Evidenz und pruefe dann das additive rua-Update.",
+    ],
     "spf_missing": [
         "Liste alle Plattformen auf, die aktuell fuer diese Domain E-Mail senden duerfen.",
         "Veroeffentliche genau einen TXT-Record an der Domain-Wurzel, der mit v=spf1 beginnt.",
@@ -623,7 +644,10 @@ def _dmarc_findings(
     targets: List[DNSGuidanceRecord],
     *,
     setup_defaults: Optional[MailAuthSetupDefaults] = None,
+    record_kind: Optional[str] = None,
     cname_target: Optional[str] = None,
+    report_authorization: Optional[bool] = None,
+    report_authorization_name: Optional[str] = None,
 ) -> List[DNSLintFinding]:
     findings: List[DNSLintFinding] = []
     target = _target_by_code(targets, "target_dmarc")
@@ -646,20 +670,67 @@ def _dmarc_findings(
         and report_mailbox
         and not _dmarc_has_report_mailbox(result.dmarc_record, report_mailbox)
     ):
-        if cname_target:
+        if record_kind in {"cname", "treewalk"}:
+            inherited_target = cname_target or result.dmarc_policy_domain or "the parent policy"
             findings.append(
                 _finding(
                     "dmarc_report_destination_inherited",
                     "info",
-                    "DMARC reporting is inherited through a CNAME",
+                    "DMARC reporting is inherited",
                     (
-                        f"{target.name} points to {cname_target}. DMARQ will not replace that "
-                        "alias with a TXT record automatically."
+                        f"The effective policy comes from {inherited_target}. DMARQ will not "
+                        "replace an alias or inherited policy automatically."
                     ),
                     "Review the shared DMARC policy target before adding the DMARQ mailbox.",
-                    "CNAME",
+                    "CNAME" if record_kind == "cname" else "TXT",
                     target.name,
-                    evidence=[f"{target.name} -> {cname_target}", result.dmarc_record],
+                    evidence=[
+                        f"{target.name} -> {inherited_target}",
+                        result.dmarc_record,
+                    ],
+                    primary_eligible=False,
+                )
+            )
+        elif record_kind != "txt":
+            findings.append(
+                _finding(
+                    "dmarc_report_destination_provenance_unknown",
+                    "info",
+                    "Refresh DNS before preparing this report enrollment",
+                    (
+                        "Cached evidence does not yet prove whether the effective DMARC record "
+                        "is a direct TXT record or an inherited alias."
+                    ),
+                    "Refresh DNS evidence before offering any automatic TXT update.",
+                    "TXT",
+                    target.name,
+                    evidence=[result.dmarc_record],
+                    primary_eligible=False,
+                )
+            )
+        elif report_authorization is not True:
+            authorization_name = report_authorization_name or "the external destination zone"
+            authorization_target = DNSGuidanceRecord(
+                code="target_dmarc_external_report_authorization",
+                record_type="TXT",
+                name=authorization_name,
+                value="v=DMARC1",
+                purpose="Authorize aggregate DMARC reports to the external mailbox domain.",
+            )
+            findings.append(
+                _finding(
+                    "dmarc_report_destination_authorization_missing",
+                    "warning",
+                    "The external report mailbox is not authorized yet",
+                    (
+                        f"Receivers require a DMARC authorization TXT record at "
+                        f"{authorization_name} before they can send reports to {report_mailbox}."
+                    ),
+                    "Authorize the destination domain first, then add it to rua.",
+                    "TXT",
+                    authorization_name,
+                    target_record=authorization_target,
+                    evidence=[],
                     primary_eligible=False,
                 )
             )
@@ -1642,6 +1713,10 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
             "Low mail-flow risk: this adds one aggregate-report destination without changing "
             "policy, alignment, or existing destinations. A typo can prevent DMARQ intake."
         ),
+        "dmarc_report_destination_authorization_missing": (
+            "Low mail-flow risk, but the external destination will not receive reports until "
+            "its authorization TXT record is published."
+        ),
         "spf_missing": "Medium risk if legitimate senders are omitted from the SPF record.",
         "spf_multiple_records": (
             "Medium risk: merging records incorrectly can remove an active sender."
@@ -1826,6 +1901,62 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
     return plans
 
 
+async def _dmarc_record_provenance(
+    domain: str,
+    provider: BaseDNSProvider,
+    result: DomainDNSResult,
+    *,
+    allow_live: bool,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return persisted record-kind evidence, refreshing it only when requested."""
+    record_kind = result.dmarc_record_kind
+    cname_target = result.dmarc_cname_target
+    if not allow_live or not result.dmarc_record:
+        return record_kind, cname_target
+    cname_lookup = getattr(provider, "lookup_cname", None)
+    if not callable(cname_lookup):
+        return record_kind, cname_target
+    try:
+        value = await cname_lookup(f"_dmarc.{domain}")
+    except LookupError:
+        value = None
+    cname_target = value if isinstance(value, str) and value else None
+    return ("cname" if cname_target else "txt"), cname_target
+
+
+async def _dmarc_report_authorization(
+    domain: str,
+    provider: BaseDNSProvider,
+    result: DomainDNSResult,
+    report_mailbox: Optional[str],
+    *,
+    allow_live: bool,
+) -> tuple[Optional[bool], Optional[str]]:
+    """Return whether an external aggregate-report destination is authorized."""
+    if not result.dmarc_record or not report_mailbox:
+        return None, None
+
+    mailbox_domain = _normalize_report_mailbox(report_mailbox).rsplit("@", 1)[-1]
+    mailbox_domain = mailbox_domain.strip().strip(".")
+    policy_domain = (result.dmarc_policy_domain or domain).strip().strip(".")
+    if mailbox_domain == policy_domain:
+        return True, None
+    if not mailbox_domain:
+        return None, None
+
+    authorization_name = f"{policy_domain}._report._dmarc.{mailbox_domain}"
+    if not allow_live:
+        return None, authorization_name
+    try:
+        authorization_records = await provider.lookup_txt(authorization_name)
+    except LookupError:
+        authorization_records = []
+    authorized = any(
+        record.strip().lower().startswith("v=dmarc1") for record in authorization_records
+    )
+    return authorized, authorization_name
+
+
 async def build_dns_guidance(
     domain: str,
     provider: BaseDNSProvider,
@@ -1865,26 +1996,30 @@ async def build_dns_guidance(
     targets.extend(_dane_target_records(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     normalized_selector_evidence = [dict(item) for item in selector_evidence or []]
-    dmarc_cname_target: Optional[str] = None
-    if (
-        allow_live
-        and result.dmarc_record
-        and (setup_defaults or MailAuthSetupDefaults()).report_mailbox
-    ):
-        cname_lookup = getattr(provider, "lookup_cname", None)
-        if callable(cname_lookup):
-            try:
-                value = await cname_lookup(f"_dmarc.{normalized_domain}")
-            except LookupError:
-                value = None
-            dmarc_cname_target = value if isinstance(value, str) and value else None
+    dmarc_record_kind, dmarc_cname_target = await _dmarc_record_provenance(
+        normalized_domain,
+        provider,
+        result,
+        allow_live=allow_live,
+    )
+    report_mailbox = (setup_defaults or MailAuthSetupDefaults()).report_mailbox
+    report_authorization, report_authorization_name = await _dmarc_report_authorization(
+        normalized_domain,
+        provider,
+        result,
+        report_mailbox,
+        allow_live=allow_live,
+    )
     findings.extend(
         _dmarc_findings(
             normalized_domain,
             result,
             targets,
             setup_defaults=setup_defaults,
+            record_kind=dmarc_record_kind,
             cname_target=dmarc_cname_target,
+            report_authorization=report_authorization,
+            report_authorization_name=report_authorization_name,
         )
     )
     findings.extend(

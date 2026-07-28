@@ -687,7 +687,7 @@ def test_dns_lint_endpoint_plans_additive_rua_for_existing_dmarc_record(
         Domain(
             name=DOMAIN,
             active=True,
-            dmarc_report_mailbox="dmarc-example@tenant.example",
+            dmarc_report_mailbox="dmarc-example@example.com",
         )
     )
     db_session.commit()
@@ -720,7 +720,7 @@ def test_dns_lint_endpoint_plans_additive_rua_for_existing_dmarc_record(
     assert plan["current_values"] == [current]
     assert plan["proposed_value"] == (
         "v=DMARC1; p=reject; "
-        "rua=mailto:existing@example.net,mailto:dmarc-example@tenant.example; aspf=s"
+        "rua=mailto:existing@example.net,mailto:dmarc-example@example.com; aspf=s"
     )
     assert plan["provider_value_required"] is False
 

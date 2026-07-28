@@ -104,7 +104,7 @@ async def get_onboarding_templates(
 
 
 @router.post("/preview", response_model=OnboardingPlanResponse)
-async def preview_onboarding_plan(
+def preview_onboarding_plan(
     payload: OnboardingPlanRequest,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),

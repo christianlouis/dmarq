@@ -64,7 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proposal adds one `rua` destination while preserving policy, alignment,
   forensic reporting, and all existing aggregate destinations. DMARC policies
   inherited through CNAME remain explicitly manual to avoid destructive record
-  replacement.
+  replacement. Record-kind provenance is persisted for cached reads, and
+  external report destinations must publish their DMARC authorization TXT
+  record before the monitored-domain update becomes apply-ready.
 - The setup assistant now detects domains owned by another workspace during
   preview and points operators to the existing domain instead of allowing a
   predictable apply-time rollback.

@@ -331,6 +331,11 @@ DMARQ proposes adding only that mailbox to `rua`; the current policy, alignment
 settings, `ruf`, and existing `rua` destinations remain unchanged. This report
 enrollment plan is shown before optional MTA-STS, BIMI, or DANE hardening.
 
+If the report mailbox uses a different domain, receivers require that
+destination domain to authorize reports first. DMARQ checks the required
+`<policy-domain>._report._dmarc.<destination-domain>` TXT record and keeps the
+`rua` update manual until a `v=DMARC1` authorization value is visible.
+
 When `_dmarc.<domain>` is a CNAME, DMARQ does not replace it automatically with
 a TXT record. The shared policy target may serve several domains, so the UI
 identifies the target and keeps the change manual until the operator decides

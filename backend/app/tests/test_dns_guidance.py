@@ -197,6 +197,140 @@ async def test_existing_dmarc_report_destination_is_not_duplicated():
 
 
 @pytest.mark.asyncio
+async def test_empty_rua_tag_gets_one_valid_report_destination():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=none; rua=   ; aspf=r"
+    dns = DomainDNSResult(dmarc=True, dmarc_record=current, spf=True)
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+    )
+
+    plan = next(
+        item
+        for item in guidance.change_plans
+        if item.finding_code == "dmarc_report_destination_missing"
+    )
+    assert "rua=mailto:reports@example.com" in plan.proposed_value
+    assert "rua=," not in plan.proposed_value
+
+
+@pytest.mark.asyncio
+async def test_cached_unknown_dmarc_record_kind_stays_manual_only():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=none; rua=mailto:existing@example.com"
+    dns = DomainDNSResult(dmarc=True, dmarc_record=current, spf=True)
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+        allow_live=False,
+    )
+
+    finding = next(
+        item
+        for item in guidance.findings
+        if item.code == "dmarc_report_destination_provenance_unknown"
+    )
+    assert finding.primary_eligible is False
+    assert "dmarc_report_destination_missing" not in {
+        plan.finding_code for plan in guidance.change_plans
+    }
+
+
+@pytest.mark.asyncio
+async def test_cached_confirmed_direct_dmarc_record_keeps_additive_plan():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=none; rua=mailto:existing@example.com"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_record_kind="txt",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+        allow_live=False,
+    )
+
+    assert guidance.change_plans[0].finding_code == "dmarc_report_destination_missing"
+
+
+@pytest.mark.asyncio
+async def test_external_report_destination_requires_authorization_first():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=reject; rua=mailto:existing@example.com"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_policy_domain="example.com",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@tenant.example"),
+    )
+
+    finding = next(
+        item
+        for item in guidance.findings
+        if item.code == "dmarc_report_destination_authorization_missing"
+    )
+    assert finding.record_name == "example.com._report._dmarc.tenant.example"
+    assert finding.target_record.value == "v=DMARC1"
+    assert finding.primary_eligible is False
+    assert "dmarc_report_destination_missing" not in {
+        plan.finding_code for plan in guidance.change_plans
+    }
+
+
+@pytest.mark.asyncio
+async def test_authorized_external_report_destination_gets_additive_plan():
+    authorization_name = "example.com._report._dmarc.tenant.example"
+    provider = FakeDNSProvider({authorization_name: ["v=DMARC1"]})
+    current = "v=DMARC1; p=reject; rua=mailto:existing@example.com"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_policy_domain="example.com",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@tenant.example"),
+    )
+
+    plan = guidance.change_plans[0]
+    assert plan.finding_code == "dmarc_report_destination_missing"
+    assert "mailto:reports@tenant.example" in plan.proposed_value
+
+
+@pytest.mark.asyncio
 async def test_cname_dmarc_policy_does_not_offer_destructive_txt_replacement():
     provider = FakeDNSProvider({})
     provider._cnames["_dmarc.example.com"] = "_dmarc.shared.example.net"
@@ -222,6 +356,35 @@ async def test_cname_dmarc_policy_does_not_offer_destructive_txt_replacement():
         for plan in guidance.change_plans
         if plan.name == "_dmarc.example.com" and plan.proposed_value != current
     ]
+
+
+@pytest.mark.asyncio
+async def test_cached_cname_dmarc_policy_keeps_inherited_finding():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=reject; rua=mailto:shared@example.net"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_record_kind="cname",
+        dmarc_cname_target="_dmarc.shared.example.net",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+        allow_live=False,
+    )
+
+    finding = next(
+        item for item in guidance.findings if item.code == "dmarc_report_destination_inherited"
+    )
+    assert finding.primary_eligible is False
+    assert "_dmarc.shared.example.net" in finding.detail
 
 
 @pytest.mark.asyncio
