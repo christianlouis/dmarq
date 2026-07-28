@@ -322,6 +322,10 @@ answer "is this IP listed or risky according to a configured provider?"
 | `HEALTH_SNAPSHOT_REFRESH_ENABLED` | Materialize one shared domain health assessment from cached DNS, report, and sender evidence. Browser reads never recalculate this score. | `true` | `false` |
 | `HEALTH_SNAPSHOT_REFRESH_LIMIT` | Maximum active domains assessed in one background refresh cycle. | `100` | `250` |
 | `HEALTH_SNAPSHOT_REFRESH_INTERVAL_SECONDS` | Delay between health-assessment refresh cycles. Values below 60 seconds are clamped. | `300` | `600` |
+| `DNS_POSTURE_REFRESH_ENABLED` | Materialize immutable DNS posture observations outside browser requests. Report ingestion requests a coalesced refresh; normal reads use the last accepted snapshot. | `true` | `false` |
+| `DNS_POSTURE_REFRESH_LIMIT` | Maximum active domains considered in one DNS posture refresh cycle. | `50` | `100` |
+| `DNS_POSTURE_REFRESH_INTERVAL_SECONDS` | Delay between coalesced DNS posture refresh cycles. Values below 60 seconds are clamped. | `300` | `600` |
+| `DNS_POSTURE_ABSENCE_CONFIRMATIONS` | Consecutive successful no-record observations required before replacing an accepted DNS baseline with absence. The value is clamped to at least `2`. | `2` | `2` |
 | `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `https://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `https://geoip.internal/v1/lookup?ip={ip}` |
 | `GEOIP_CUSTOM_AUTH_HEADER` | Optional single request header for the custom provider, written as `Header-Name: value`. | - | `Authorization: Bearer op://...` |
 | `GEOIP_CUSTOM_TIMEOUT_SECONDS` | Custom GeoIP provider timeout. | `2` | `2` |

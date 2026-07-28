@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 import app.models.alert  # noqa: F401  # pylint: disable=unused-import
 import app.models.api_token  # noqa: F401  # pylint: disable=unused-import
 import app.models.dns_cache  # noqa: F401  # pylint: disable=unused-import
+import app.models.dns_posture_snapshot  # noqa: F401  # pylint: disable=unused-import
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source as _mail_source_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source_backfill as _mail_source_backfill_model  # noqa: F401  # pylint: disable=unused-import

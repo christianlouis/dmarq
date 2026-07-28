@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
 import app.models.api_token  # noqa: F401 – ensure APIToken table is registered
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
+import app.models.dns_posture_snapshot  # noqa: F401 – ensure DNS posture tables are registered
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered
 import app.models.organization  # noqa: F401 – ensure commercial account tables are registered
@@ -46,6 +47,7 @@ from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
 from app.services.demo_data import build_demo_mail_sources
 from app.services.dns_prewarm import prewarm_dns_cache
+from app.services.dns_posture_refresh import scheduled_dns_posture_refresh
 from app.services.health_snapshot_refresh import scheduled_health_snapshot_refresh
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
@@ -87,6 +89,7 @@ dns_prewarm_task = None
 source_evidence_prewarm_task = None
 source_projection_backfill_task = None
 health_snapshot_refresh_task = None
+dns_posture_refresh_task = None
 last_check_time = None
 
 
@@ -567,7 +570,7 @@ def _initialize_synthetic_load_data() -> None:
 def _start_background_tasks() -> None:
     """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
     global background_task, dns_prewarm_task, source_evidence_prewarm_task
-    global source_projection_backfill_task, health_snapshot_refresh_task  # pylint: disable=global-statement
+    global source_projection_backfill_task, health_snapshot_refresh_task, dns_posture_refresh_task  # pylint: disable=global-statement
 
     if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
         logger.info("Skipping external mailbox polling for the relational provider demo")
@@ -576,6 +579,7 @@ def _start_background_tasks() -> None:
         mark_scheduler_started()
         background_task = asyncio.create_task(_scheduled_imap_polling_after_startup())
     dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
+    dns_posture_refresh_task = asyncio.create_task(scheduled_dns_posture_refresh())
     source_evidence_prewarm_task = asyncio.create_task(scheduled_source_evidence_prewarm())
     source_projection_backfill_task = asyncio.create_task(scheduled_source_projection_backfill())
     health_snapshot_refresh_task = asyncio.create_task(scheduled_health_snapshot_refresh())
@@ -700,7 +704,7 @@ def create_app() -> FastAPI:
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
         global dns_prewarm_task, source_evidence_prewarm_task
-        global source_projection_backfill_task, health_snapshot_refresh_task  # pylint: disable=global-statement
+        global source_projection_backfill_task, health_snapshot_refresh_task, dns_posture_refresh_task  # pylint: disable=global-statement
 
         await _cancel_background_task(dns_prewarm_task, "DNS prewarm")
         dns_prewarm_task = None
@@ -713,6 +717,8 @@ def create_app() -> FastAPI:
         source_projection_backfill_task = None
         await _cancel_background_task(health_snapshot_refresh_task, "health snapshot refresh")
         health_snapshot_refresh_task = None
+        await _cancel_background_task(dns_posture_refresh_task, "DNS posture refresh")
+        dns_posture_refresh_task = None
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

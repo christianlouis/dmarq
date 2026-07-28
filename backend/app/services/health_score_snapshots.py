@@ -165,6 +165,7 @@ def upsert_health_score_snapshot(
             "core_mail_health": health.get("core_mail_health") or {},
             "domain_protection": health.get("domain_protection") or {},
             "monitoring_confidence": health.get("monitoring_confidence") or {},
+            "path_to_100": health.get("path_to_100") or {},
             "dns_evidence": health.get("dns_evidence") or {},
             "change": change,
             "factors": {
@@ -235,6 +236,7 @@ def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
             "band": "unknown",
             "reasons": [],
         },
+        "path_to_100": evidence.get("path_to_100") or {},
         "dns_evidence": evidence.get("dns_evidence") or {},
         "change": evidence.get("change") or {},
     }
@@ -315,6 +317,7 @@ def snapshot_to_history_point(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "source_reputation_score": snapshot.source_reputation_score,
         "evidence_captured_at": snapshot.updated_at.isoformat(),
         "top_actions": _snapshot_actions(snapshot),
+        "path_to_100": _snapshot_evidence(snapshot).get("path_to_100") or {},
     }
 
 

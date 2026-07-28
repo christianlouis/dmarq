@@ -11,6 +11,7 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
 from app.services.source_read_projection import materialize_source_projection
 from app.models.workspace import Workspace
+from app.services.dns_posture_snapshots import request_dns_posture_refresh
 from app.services.demo_data import seed_demo_report_store
 from app.services.organizations import require_organization_plan_limit
 from app.services.report_store import ReportStore
@@ -239,6 +240,19 @@ def save_parsed_report(
         report,
         domain_id=domain.id,
         db_report=db_report,
+    )
+    # Do not resolve DNS while importing a report. Ingest only records the
+    # selector inventory and lets the coalesced posture worker collect it.
+    observed_selectors = [item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()]
+    for record in report.get("records") or []:
+        for dkim in record.get("dkim") or []:
+            if isinstance(dkim, dict) and str(dkim.get("selector") or "").strip():
+                observed_selectors.append(str(dkim["selector"]).strip())
+    request_dns_posture_refresh(
+        db,
+        domain=domain,
+        selectors=observed_selectors,
+        trigger="report_ingest",
     )
 
     return db_report, True
