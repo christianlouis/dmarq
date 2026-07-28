@@ -395,7 +395,7 @@
                         </div>
                         <div class="mt-3 flex flex-wrap gap-2 text-xs">
                             <span class="rounded bg-white px-2 py-1 font-semibold text-[#272a5f]">
-                                <span x-text="posture.capability_coverage_score ?? posture.score"></span><span>/100 capability coverage</span>
+                                <span x-text="pathValue(posture, 'capability_coverage_score', posture.score)"></span><span>/100 capability coverage</span>
                             </span>
                             <span class="rounded bg-white px-2 py-1 font-semibold capitalize text-[#272a5f]"
                                   x-text="posture.health.status || 'checking'"></span>
@@ -404,25 +404,25 @@
                         <div class="mt-3 space-y-1 text-xs text-[#5f5c78]">
                             <p>
                                 <span class="font-semibold text-[#272a5f]">DMARC protection:</span>
-                                <span class="capitalize" x-text="posture.health.domain_protection?.status || 'checking'"></span>
+                                <span class="capitalize" x-text="pathValue(posture, 'health.domain_protection.status', 'checking')"></span>
                             </p>
                             <p>
                                 <span class="font-semibold text-[#272a5f]">Monitoring confidence:</span>
-                                <span class="capitalize" x-text="posture.health.monitoring_confidence?.band || 'checking'"></span>
+                                <span class="capitalize" x-text="pathValue(posture, 'health.monitoring_confidence.band', 'checking')"></span>
                             </p>
                         </div>
                         <div class="mt-3 border-t border-[#e6e3e1] pt-3 text-xs text-[#5f5c78]"
-                             x-show="posture.health.change?.reason || posture.health.dns_evidence?.checked_at">
+                             x-show="pathValue(posture, 'health.change.reason') || pathValue(posture, 'health.dns_evidence.checked_at')">
                             <p class="font-semibold text-[#272a5f]">Why this assessment</p>
-                            <p class="mt-1" x-text="posture.health.change?.reason || 'Current persisted DNS and report evidence.'"></p>
-                            <p class="mt-1" x-show="posture.health.change?.score_delta !== undefined && posture.health.change?.score_delta !== null">
-                                Score change: <span x-text="posture.health.change?.score_delta > 0 ? '+' + posture.health.change.score_delta : posture.health.change.score_delta"></span>
+                            <p class="mt-1" x-text="pathValue(posture, 'health.change.reason', 'Current persisted DNS and report evidence.')"></p>
+                            <p class="mt-1" x-show="pathValue(posture, 'health.change.score_delta') !== undefined && pathValue(posture, 'health.change.score_delta') !== null">
+                                Score change: <span x-text="pathValue(posture, 'health.change.score_delta') > 0 ? '+' + pathValue(posture, 'health.change.score_delta') : pathValue(posture, 'health.change.score_delta')"></span>
                             </p>
-                            <p class="mt-1" x-show="posture.health.dns_evidence?.checked_at">
-                                DNS checked: <span x-text="formatIsoDate(posture.health.dns_evidence?.checked_at)"></span>
+                            <p class="mt-1" x-show="pathValue(posture, 'health.dns_evidence.checked_at')">
+                                DNS checked: <span x-text="formatIsoDate(pathValue(posture, 'health.dns_evidence.checked_at'))"></span>
                             </p>
-                            <p class="mt-1" x-show="posture.health.dns_evidence?.resolver_route">
-                                Resolution path: <span x-text="humanizeToken(posture.health.dns_evidence?.resolver_route)"></span>
+                            <p class="mt-1" x-show="pathValue(posture, 'health.dns_evidence.resolver_route')">
+                                Resolution path: <span x-text="humanizeToken(pathValue(posture, 'health.dns_evidence.resolver_route'))"></span>
                             </p>
                         </div>
                     </div>
