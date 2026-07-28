@@ -29,7 +29,7 @@ def test_policy_none_is_protection_context_not_a_core_mail_health_penalty():
 
     assert health["score"] == 97
     assert health["grade"] == "A"
-    assert health["assessment_version"] == "2"
+    assert health["assessment_version"] == "3"
     assert health["core_mail_health"]["score"] == 97
     assert health["domain_protection"] == {
         "status": "monitoring",
@@ -95,6 +95,28 @@ def test_low_compliance_and_missing_dns_create_prioritized_actions():
         "failed",
     ]
     assert "missing_spf" in action_types
+
+
+def test_path_to_100_excludes_policy_and_optional_hardening():
+    health = score_domain_health(
+        {
+            "domain_name": "example.com",
+            "total_emails": 2_000,
+            "failed_count": 0,
+            "pass_rate": 100,
+            "report_count": 20,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "dmarc_policy": "none",
+            "dmarc_warnings": [],
+            "source_reputation": {"summary": {"total_sources": 1, "highest_risk_score": 0}},
+        }
+    )
+
+    assert health["path_to_100"]["remaining_points"] == 0
+    assert health["path_to_100"]["items"] == []
+    assert health["domain_protection"]["status"] == "monitoring"
 
 
 def test_missing_dmarc_scores_worse_than_policy_none():

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 ACTIVE_POLICIES = {"quarantine", "reject"}
-HEALTH_ASSESSMENT_VERSION = "2"
+HEALTH_ASSESSMENT_VERSION = "3"
 
 
 def health_grade(score: int, *, policy: Optional[str] = None, critical_actions: int = 0) -> str:
@@ -455,6 +455,106 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sorted(actions, key=lambda item: item["score_impact"], reverse=True)
 
 
+def _path_to_100(
+    *,
+    score: int,
+    factors: Dict[str, float],
+    actions: List[Dict[str, Any]],
+    confidence: float,
+) -> Dict[str, Any]:
+    """Explain remaining core-score points from persisted assessment inputs.
+
+    This is an estimate, not a promise: one remediation can improve more than
+    one factor and fresh reports may change the observed compliance rate. The
+    result deliberately excludes DMARC policy and optional hardening because
+    neither is part of the core mail-health score.
+    """
+    weights = {
+        "dmarc_compliance": 0.50,
+        "dns_posture": 0.30,
+        "report_confidence": 0.10,
+        "source_reputation": 0.10,
+    }
+    action_factor = {
+        "missing_dmarc": "dns_posture",
+        "missing_spf": "dns_posture",
+        "missing_dkim": "dns_posture",
+        "dmarc_lint": "dns_posture",
+        "low_compliance": "dmarc_compliance",
+        "source_reputation_listed": "source_reputation",
+        "source_reputation_review": "source_reputation",
+    }
+    by_factor: Dict[str, List[Dict[str, Any]]] = {}
+    for action in actions:
+        factor = action_factor.get(str(action.get("type") or ""))
+        if factor:
+            by_factor.setdefault(factor, []).append(action)
+
+    items: List[Dict[str, Any]] = []
+    for factor, weight in weights.items():
+        value = _bounded(factors.get(factor))
+        remaining = round(((100.0 - value) * weight), 1)
+        if remaining <= 0:
+            continue
+        related = by_factor.get(factor) or []
+        if factor == "report_confidence" and confidence < 100:
+            items.append(
+                {
+                    "id": "wait_for_more_reports",
+                    "factor": factor,
+                    "title": "Build a more representative report window",
+                    "kind": "waiting_for_evidence",
+                    "expected_score_delta": remaining,
+                    "detail": "This is not a DNS failure. The score will become more certain as DMARQ receives more aggregate reports.",
+                    "next_step": "Keep report intake enabled and review again after additional normal mail activity.",
+                    "verification": "At least 7 reports and 250 observed messages are available.",
+                    "evidence": [],
+                }
+            )
+            continue
+        if related:
+            for index, action in enumerate(related):
+                items.append(
+                    {
+                        "id": str(action.get("type") or factor),
+                        "factor": factor,
+                        "title": str(action.get("title") or "Improve mail health"),
+                        "kind": "action_required",
+                        "expected_score_delta": round(remaining / len(related), 1),
+                        "detail": str(action.get("detail") or ""),
+                        "next_step": str(action.get("next_step") or ""),
+                        "verification": "Refresh the stored DNS and report evidence after the change.",
+                        "evidence": list(action.get("evidence") or []),
+                        "primary": index == 0,
+                    }
+                )
+        else:
+            items.append(
+                {
+                    "id": f"review_{factor}",
+                    "factor": factor,
+                    "title": "Review the persisted assessment evidence",
+                    "kind": "investigation_required",
+                    "expected_score_delta": remaining,
+                    "detail": "The score has a measurable gap, but DMARQ does not yet have a safe, specific remediation.",
+                    "next_step": "Open the linked evidence before making a change.",
+                    "verification": "A new persisted assessment identifies a specific change or confirms healthy evidence.",
+                    "evidence": [],
+                }
+            )
+    items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
+    return {
+        "score": int(score),
+        "remaining_points": max(0, 100 - int(score)),
+        "items": items,
+        "summary": (
+            "Core mail health is at 100/100. Optional hardening and DMARC protection are shown separately."
+            if not items
+            else "These are the verified core mail-health gaps; optional hardening is shown separately."
+        ),
+    }
+
+
 def _system_policy(domains: List[Dict[str, Any]]) -> Optional[str]:
     """Return reject when every domain enforces p=reject so A+ is reachable system-wide."""
     if not domains:
@@ -486,6 +586,13 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
     protection = _domain_protection(policy_name)
     monitoring_confidence = _monitoring_confidence(domain, confidence)
+    factors = {
+        "dmarc_compliance": round(pass_rate, 1),
+        "dns_posture": round(dns, 1),
+        "policy_strength": round(policy, 1),
+        "report_confidence": round(confidence, 1),
+        "source_reputation": round(reputation, 1),
+    }
     core_health = {
         "score": int(score),
         "grade": health_grade(int(score), policy=policy_name, critical_actions=critical_actions),
@@ -502,14 +609,11 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
         "domain_protection": protection,
         "monitoring_confidence": monitoring_confidence,
         "dns_evidence": dict(domain.get("dns_evidence") or {}),
-        "factors": {
-            "dmarc_compliance": round(pass_rate, 1),
-            "dns_posture": round(dns, 1),
-            "policy_strength": round(policy, 1),
-            "report_confidence": round(confidence, 1),
-            "source_reputation": round(reputation, 1),
-        },
+        "factors": factors,
         "actions": actions[:5],
+        "path_to_100": _path_to_100(
+            score=int(score), factors=factors, actions=actions, confidence=confidence
+        ),
     }
 
 

@@ -58,6 +58,7 @@ from app.services.dns_cache import (
     get_latest_cached_domain_dns_evidence,
     resolve_domain_dns_cached,
 )
+from app.services.dns_posture_snapshots import accepted_dns_posture_result
 from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
@@ -145,7 +146,6 @@ from app.services.source_evidence_prewarm import (
 )
 from app.services.source_read_projection import (
     load_domain_source_read_projection,
-    source_projection_is_complete,
 )
 from app.services.source_network import (
     SourceNetworkIntelligence,
@@ -1289,6 +1289,7 @@ class DomainHealthGrade(BaseModel):
     monitoring_confidence: Dict[str, Any] = Field(default_factory=dict)
     dns_evidence: Dict[str, Any] = Field(default_factory=dict)
     change: Dict[str, Any] = Field(default_factory=dict)
+    path_to_100: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PostureDashboardResponse(BaseModel):
@@ -3442,15 +3443,16 @@ def _domain_source_read_model_for_read(
     *,
     days: Optional[int],
 ) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Read projected sender facts when ingestion/backfill has completed."""
+    """Read sender facts only from the ingestion-time projection.
+
+    Historic imports are backfilled asynchronously. Falling back to ReportStore
+    here used to turn a normal page visit into a historical aggregation job,
+    which is exactly the latency cliff this projection exists to remove.
+    """
     domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
     if domain is None and domain_id.isdigit():
         domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
-    if domain is not None and not get_settings().DEMO_MODE and source_projection_is_complete(
-        db,
-        domain_id=domain.id,
-        days=days,
-    ):
+    if domain is not None and not get_settings().DEMO_MODE:
         sources, reports = load_domain_source_read_projection(
             db,
             domain_id=domain.id,
@@ -4797,6 +4799,22 @@ async def _resolve_summary_dns_result(
     timeout_seconds: float = 10.0,
 ) -> DomainDNSResult:
     if not refresh:
+        snapshot_result, snapshot_checked_at, snapshot_provenance = accepted_dns_posture_result(
+            db,
+            domain_name=domain_name,
+        )
+        if snapshot_result is not None:
+            # The normal domain UI reads the accepted immutable posture, not a
+            # resolver cache row. Cache rows remain an implementation detail
+            # for background materialization workers.
+            snapshot_result.lookup_status = str(snapshot_result.lookup_status or "ok")
+            setattr(snapshot_result, "posture_snapshot", snapshot_provenance or {})
+            return _with_dns_summary_metadata(
+                snapshot_result,
+                cached=True,
+                checked_at=snapshot_checked_at,
+                pending=False,
+            )
         cached_result, cached, checked_at = get_cached_domain_dns_result(
             db,
             provider,

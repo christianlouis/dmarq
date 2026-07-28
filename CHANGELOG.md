@@ -59,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- DNS posture is now an immutable, versioned projection. Report ingestion only
+  requests a coalesced background refresh; normal domain reads use the last
+  accepted snapshot and retain it when a resolver fails or a single empty
+  lookup is inconclusive.
+- Sending-source and daily report reads now use ingestion-time projections even
+  while historic backfill is running. A browser visit no longer rebuilds old
+  report records for a selected time window.
+- Each persisted core mail-health assessment includes a "Path to 100%" plan.
+  It distinguishes actionable, score-relevant gaps from waiting for evidence,
+  and keeps DMARC protection plus optional hardening out of the core score.
 - Persisted health evidence now records DNS cache/fallback provenance, resolver
   route, selector inventory, and factor deltas. The domain detail view explains
   whether a score movement reflects refreshed evidence rather than an unseen

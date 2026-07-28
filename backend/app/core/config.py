@@ -162,6 +162,13 @@ class Settings(BaseSettings):
     DNS_STARTUP_PREWARM_ENABLED: bool = True
     DNS_STARTUP_PREWARM_LIMIT: int = 50
     DNS_STARTUP_PREWARM_CONCURRENCY: int = 4
+    # Immutable DNS posture evidence is refreshed outside request paths. A
+    # report ingest only requests work; this worker coalesces it safely.
+    DNS_POSTURE_REFRESH_ENABLED: bool = True
+    DNS_POSTURE_REFRESH_LIMIT: int = 50
+    DNS_POSTURE_REFRESH_INTERVAL_SECONDS: int = 300
+    DNS_POSTURE_REFRESH_STARTUP_DELAY_SECONDS: int = 10
+    DNS_POSTURE_ABSENCE_CONFIRMATIONS: int = 2
     DNS_SUMMARY_REFRESH_CONCURRENCY: int = 6
     DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS: float = 10.0
     # Health scores are materialized from cached DNS and sender evidence. UI

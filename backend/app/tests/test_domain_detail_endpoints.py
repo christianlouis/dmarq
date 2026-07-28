@@ -3960,19 +3960,15 @@ def test_default_source_reads_do_not_trigger_live_enrichment(
     assert intelligence.status_code == 200
 
 
-def test_source_reads_hydrate_only_the_selected_window(
+def test_source_reads_use_materialized_facts_without_hydrating_reports(
     seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Sources and source intelligence do not hydrate unrelated history."""
-    hydrated_windows = []
-    original_hydrate = domains_endpoint.hydrate_domain_report_store_from_db
+    """A normal sender read never rebuilds historical records in the request."""
 
-    def track_hydrate(*args, **kwargs):
-        hydrated_windows.append(kwargs.get("days"))
-        return original_hydrate(*args, **kwargs)
+    def fail_hydrate(*_args, **_kwargs):
+        raise AssertionError("sender reads must use the materialized projection")
 
-    monkeypatch.setattr(domains_endpoint, "hydrate_domain_report_store_from_db", track_hydrate)
-    monkeypatch.setattr(domains_endpoint, "source_projection_is_complete", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(domains_endpoint, "hydrate_domain_report_store_from_db", fail_hydrate)
 
     sources_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=90")
     intelligence_response = seeded_client.get(
@@ -3981,7 +3977,6 @@ def test_source_reads_hydrate_only_the_selected_window(
 
     assert sources_response.status_code == 200
     assert intelligence_response.status_code == 200
-    assert hydrated_windows == [90, 7]
 
 
 def test_hydrate_domain_report_store_filters_unix_timestamp_windows(db_session):
