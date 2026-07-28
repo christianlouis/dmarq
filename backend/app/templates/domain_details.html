@@ -2309,7 +2309,7 @@
                                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
                                             <p class="font-semibold" x-text="providerName(dnsWrite.provider) + ' connection'"></p>
-                                            <p class="mt-1" x-show="selectedDnsProviderDetail" x-text="selectedDnsProviderDetail?.connection_hint"></p>
+                                            <p class="mt-1" x-show="selectedDnsProviderDetail" x-text="pathValue(selectedDnsProviderDetail, 'connection_hint', '')"></p>
                                         </div>
                                         <a x-show="!dnsWriteProviderConfigured"
                                            class="btn btn-xs btn-outline"
