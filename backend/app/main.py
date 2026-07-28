@@ -46,6 +46,7 @@ from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
 from app.services.demo_data import build_demo_mail_sources
 from app.services.dns_prewarm import prewarm_dns_cache
+from app.services.health_snapshot_refresh import scheduled_health_snapshot_refresh
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
@@ -85,6 +86,7 @@ background_task = None
 dns_prewarm_task = None
 source_evidence_prewarm_task = None
 source_projection_backfill_task = None
+health_snapshot_refresh_task = None
 last_check_time = None
 
 
@@ -565,7 +567,7 @@ def _initialize_synthetic_load_data() -> None:
 def _start_background_tasks() -> None:
     """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
     global background_task, dns_prewarm_task, source_evidence_prewarm_task
-    global source_projection_backfill_task  # pylint: disable=global-statement
+    global source_projection_backfill_task, health_snapshot_refresh_task  # pylint: disable=global-statement
 
     if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
         logger.info("Skipping external mailbox polling for the relational provider demo")
@@ -576,6 +578,7 @@ def _start_background_tasks() -> None:
     dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
     source_evidence_prewarm_task = asyncio.create_task(scheduled_source_evidence_prewarm())
     source_projection_backfill_task = asyncio.create_task(scheduled_source_projection_backfill())
+    health_snapshot_refresh_task = asyncio.create_task(scheduled_health_snapshot_refresh())
 
 
 def create_app() -> FastAPI:
@@ -697,7 +700,7 @@ def create_app() -> FastAPI:
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
         global dns_prewarm_task, source_evidence_prewarm_task
-        global source_projection_backfill_task  # pylint: disable=global-statement
+        global source_projection_backfill_task, health_snapshot_refresh_task  # pylint: disable=global-statement
 
         await _cancel_background_task(dns_prewarm_task, "DNS prewarm")
         dns_prewarm_task = None
@@ -708,6 +711,8 @@ def create_app() -> FastAPI:
             "sender projection backfill",
         )
         source_projection_backfill_task = None
+        await _cancel_background_task(health_snapshot_refresh_task, "health snapshot refresh")
+        health_snapshot_refresh_task = None
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

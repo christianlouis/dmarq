@@ -28,7 +28,10 @@ def _top_action_rows(actions: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "type": str(action.get("type") or ""),
                 "severity": str(action.get("severity") or ""),
                 "title": str(action.get("title") or ""),
+                "detail": str(action.get("detail") or ""),
+                "next_step": str(action.get("next_step") or ""),
                 "score_impact": _as_int(action.get("score_impact")),
+                "evidence": list(action.get("evidence") or [])[:5],
             }
         )
     return rows
@@ -88,13 +91,67 @@ def upsert_health_score_snapshot(
     snapshot.dns_posture_score = _as_int(factors.get("dns_posture"))
     snapshot.policy_strength_score = _as_int(factors.get("policy_strength"))
     snapshot.report_confidence_score = _as_int(factors.get("report_confidence"))
+    snapshot.source_reputation_score = _as_int(factors.get("source_reputation"))
     snapshot.top_actions = json.dumps(actions, sort_keys=True)
+    snapshot.evidence_summary = json.dumps(
+        {
+            "calculation_version": 1,
+            "report_count": snapshot.report_count,
+            "total_emails": snapshot.total_emails,
+            "failed_emails": snapshot.failed_emails,
+            "factors": {
+                "dmarc_compliance": _as_int(factors.get("dmarc_compliance")),
+                "dns_posture": snapshot.dns_posture_score,
+                "policy_strength": snapshot.policy_strength_score,
+                "report_confidence": snapshot.report_confidence_score,
+                "source_reputation": snapshot.source_reputation_score,
+            },
+        },
+        sort_keys=True,
+    )
     snapshot.updated_at = datetime.utcnow()
     if existing is None:
         db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
     return snapshot
+
+
+def latest_health_score_snapshot(
+    db: Session,
+    *,
+    workspace_id: int,
+    domain_name: str,
+) -> Optional[HealthScoreSnapshot]:
+    """Return the one authoritative score currently shown for a domain."""
+    return (
+        db.query(HealthScoreSnapshot)
+        .filter(
+            HealthScoreSnapshot.workspace_id == workspace_id,
+            HealthScoreSnapshot.domain_name == domain_name,
+        )
+        .order_by(HealthScoreSnapshot.snapshot_date.desc(), HealthScoreSnapshot.updated_at.desc())
+        .first()
+    )
+
+
+def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
+    """Restore the API health object without recalculating its evidence."""
+    return {
+        "domain": snapshot.domain_name,
+        "score": snapshot.score,
+        "grade": snapshot.grade,
+        "status": snapshot.status,
+        "factors": {
+            "dmarc_compliance": float(snapshot.compliance_rate),
+            "dns_posture": float(snapshot.dns_posture_score),
+            "policy_strength": float(snapshot.policy_strength_score),
+            "report_confidence": float(snapshot.report_confidence_score),
+            "source_reputation": float(snapshot.source_reputation_score),
+        },
+        "actions": _snapshot_actions(snapshot),
+        "evidence_captured_at": snapshot.updated_at.isoformat(),
+    }
 
 
 def list_health_score_snapshots(
@@ -169,6 +226,8 @@ def snapshot_to_history_point(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "dns_posture_score": snapshot.dns_posture_score,
         "policy_strength_score": snapshot.policy_strength_score,
         "report_confidence_score": snapshot.report_confidence_score,
+        "source_reputation_score": snapshot.source_reputation_score,
+        "evidence_captured_at": snapshot.updated_at.isoformat(),
         "top_actions": _snapshot_actions(snapshot),
     }
 

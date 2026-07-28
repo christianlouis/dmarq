@@ -36,6 +36,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion, check_dane_cached
+from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.dns_cache import (
     _selectors_key,
     get_latest_cached_domain_dns_evidence,
@@ -2408,6 +2409,13 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
         )
     )
     db_session.commit()
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={"score": 75, "grade": "C", "status": "attention", "factors": {}, "actions": []},
+    )
 
     missing_spf = DomainDNSResult(
         dmarc=True,

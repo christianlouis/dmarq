@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Made the domain health score a single persisted projection. Posture, history,
+  cached detail, and remediation now read the same score, grade, factors,
+  actions, and evidence timestamp; background refreshes and explicit operator
+  refreshes perform the calculation outside normal browser reads.
 - Made normal domain-detail and remediation reads use persisted DNS, MTA-STS,
   BIMI, DANE, and reputation evidence instead of triggering live enrichment
   after a cache TTL expires. The UI now reports missing evidence honestly and

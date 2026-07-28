@@ -114,9 +114,9 @@ REPORT_STR_POLICY = {
 def _stub_approval_ready_remediation(monkeypatch):
     """Stub a deterministic approval-ready remediation queue for example.com."""
 
-    async def fake_domain_grade(db, domain_id, store, refresh=False):
+    def fake_persisted_health(_db, *, workspace_id, domain_name):
         return {
-            "domain": domain_id,
+            "domain": domain_name,
             "score": 72,
             "grade": "C",
             "status": "attention",
@@ -147,7 +147,7 @@ def _stub_approval_ready_remediation(monkeypatch):
             ],
         }
 
-    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_persisted_domain_health", fake_persisted_health)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
     monkeypatch.setattr(
         domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
@@ -898,8 +898,62 @@ def test_domain_posture_dashboard_is_read_only_without_explicit_refresh(
     assert snapshots == []
 
 
+def test_domain_posture_dashboard_reads_the_same_persisted_score_as_history(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A normal posture read cannot produce a second score for the same domain."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 90,
+            "grade": "A-",
+            "status": "healthy",
+            "factors": {"dns_posture": 59, "source_reputation": 81},
+            "actions": [],
+        },
+        policy="reject",
+        compliance_rate=100,
+        total_emails=40470,
+        failed_emails=20,
+        report_count=348,
+    )
+
+    async def fake_dns_health(*_args, **_kwargs):
+        return domains_endpoint.DNSHealthResponse(
+            status="healthy",
+            policy="reject",
+            compliance_rate=100,
+            total_emails=40470,
+            failed_emails=20,
+            checks=[],
+            recommendations=[],
+        )
+
+    async def forbidden_recompute(*_args, **_kwargs):
+        raise AssertionError("normal posture reads must use the persisted assessment")
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", forbidden_recompute)
+
+    posture = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+    history = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+
+    assert posture.status_code == 200
+    assert history.status_code == 200
+    assert posture.json()["health"]["score"] == 90
+    assert posture.json()["health"]["grade"] == "A-"
+    assert posture.json()["health"]["evidence_captured_at"]
+    assert history.json()["current_score"] == 90
+
+
 def test_cached_domain_detail_combines_dns_and_posture_reads(
     seeded_client: TestClient,
+    db_session,
     monkeypatch,
 ):
     """The deferred detail UI receives one cached payload, not an endpoint fan-out."""
@@ -935,11 +989,6 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
         assert kwargs["cached_only"] is True
         return {"domain": DOMAIN, "status": "healthy", "findings": [], "change_plans": []}
 
-    async def fake_grade(*_args, **kwargs):
-        calls["grade"] += 1
-        assert kwargs["cached_only"] is True
-        return {"domain": DOMAIN, "score": 96, "grade": "A", "status": "healthy"}
-
     async def fake_posture(*_args, **kwargs):
         calls["posture"] += 1
         assert kwargs["store"] is not None
@@ -950,7 +999,6 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
     monkeypatch.setattr(domains_endpoint, "_resolve_summary_dns_result", fake_dns_result)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_health)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_guidance)
-    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_grade)
     monkeypatch.setattr(
         domains_endpoint,
         "_build_domain_posture_dashboard_for_workspace",
@@ -966,17 +1014,25 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
         "check_bimi_cached",
         AsyncMock(return_value=(BIMIResult(status="pass"), True, None)),
     )
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={"score": 96, "grade": "A", "status": "healthy", "factors": {}, "actions": []},
+    )
 
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/detail/cached")
 
     assert response.status_code == 200
     assert response.json()["posture"]["health"]["score"] == 96
     assert response.json()["freshness"]["mode"] == "cached"
-    assert calls == {"dns": 1, "health": 1, "guidance": 1, "grade": 1, "posture": 1}
+    assert calls == {"dns": 1, "health": 1, "guidance": 1, "grade": 0, "posture": 1}
 
 
 def test_domain_remediation_queue_groups_dns_and_health_actions(
     seeded_client: TestClient,
+    db_session,
     monkeypatch,
 ):
     """Domain remediation returns a prioritized, human-reviewed action queue."""
@@ -1045,6 +1101,28 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 68,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"report_confidence": 70},
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "high",
+                    "title": "Review failing senders",
+                    "detail": "Recent reports include an unknown failing sender.",
+                    "next_step": "Classify the sender before changing DNS.",
+                    "score_impact": 18,
+                }
+            ],
+        },
+    )
     monkeypatch.setattr(
         domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
     )
@@ -1052,6 +1130,36 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
         domains_endpoint,
         "_recommended_dns_write_provider",
         lambda dns_provider, available_providers: "cloudflare",
+    )
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 60, "policy_strength": 40, "report_confidence": 90},
+            "actions": [
+                {
+                    "type": "missing_dmarc",
+                    "severity": "high",
+                    "title": "Publish DMARC",
+                    "detail": "No DMARC policy was found.",
+                    "next_step": "Publish a DMARC TXT record.",
+                    "score_impact": 30,
+                },
+                {
+                    "type": "low_compliance",
+                    "severity": "medium",
+                    "title": "Review failing senders",
+                    "detail": "Some senders fail DMARC.",
+                    "next_step": "Investigate the top failing source.",
+                    "score_impact": 12,
+                },
+            ],
+        },
     )
 
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
@@ -1718,6 +1826,13 @@ def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marke
         "_recommended_dns_write_provider",
         lambda dns_provider, available_providers: "cloudflare",
     )
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={"score": 72, "grade": "C", "status": "attention", "factors": {}, "actions": []},
+    )
 
     response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
@@ -1790,6 +1905,28 @@ def test_domain_remediation_notification_lifecycle_audit_records_sender_decision
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 68,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"report_confidence": 70},
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "high",
+                    "title": "Review failing senders",
+                    "detail": "Recent reports include an unknown failing sender.",
+                    "next_step": "Classify the sender before changing DNS.",
+                    "score_impact": 18,
+                }
+            ],
+        },
+    )
 
     response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
@@ -2156,11 +2293,11 @@ def test_domain_remediation_queue_never_starts_live_dns_enrichment(
     live_dns.assert_not_awaited()
 
 
-def test_domain_remediation_queue_keeps_completed_evidence_when_one_task_times_out(
+def test_domain_remediation_queue_uses_persisted_health_when_guidance_completes(
     seeded_client: TestClient,
     monkeypatch,
 ):
-    """A slow health calculation must not discard already-complete DNS guidance."""
+    """A queue read does not wait for health calculation when guidance is ready."""
 
     async def slow_grade(*_args, **_kwargs):
         await asyncio.sleep(2.0)
@@ -2203,7 +2340,7 @@ def test_domain_remediation_queue_keeps_completed_evidence_when_one_task_times_o
 
     assert response.status_code == 200
     body = response.json()
-    assert body["enrichment_pending"] is True
+    assert body["enrichment_pending"] is False
     assert any(item["id"] == "dns:dmarc-missing" for item in body["items"])
 
 
@@ -2304,7 +2441,7 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     assert hydrate_calls[0][0] == DOMAIN
     assert hydrate_calls[0][1] is not None
     assert hydrate_calls[0][2] == 30
-    assert seen_domains == [DOMAIN, DOMAIN]
+    assert seen_domains == [DOMAIN]
     assert response.json()["domain"] == DOMAIN
 
 
