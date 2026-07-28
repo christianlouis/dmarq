@@ -3003,6 +3003,27 @@ def test_dns_change_plan_marks_apply_ready_records(authed_client: TestClient, db
     ]
 
 
+def test_dns_lint_marks_apply_ready_records_for_domain_ui(authed_client: TestClient, db_session):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+    plan["current_values"] = ["v=DMARC1; p=none"]
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    change_plan = response.json()["change_plans"][0]
+    assert change_plan["provider_write_available"] is True
+    assert change_plan["safety_notes"] == [
+        "Preview the provider mutation before applying this DNS change.",
+        "Existing provider values will be shown in the preview before approval.",
+    ]
+
+
 def test_dns_change_plan_recommends_detected_provider(authed_client: TestClient, db_session):
     db_session.add(Domain(name=DOMAIN))
     db_session.commit()
