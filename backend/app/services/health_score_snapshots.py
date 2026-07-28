@@ -59,9 +59,102 @@ def _snapshot_evidence(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _factor_deltas(
-    previous: Dict[str, Any], current: Dict[str, Any]
-) -> Dict[str, int]:
+def _legacy_path_to_100(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
+    """Explain a non-perfect snapshot created before path-to-100 existed.
+
+    Older persisted assessments contain the factor scores but not the
+    presentation explanation. Never let that produce the contradictory "96"
+    plus "nothing remains" result in the UI.
+    """
+    remaining_points = max(0, 100 - _as_int(snapshot.score))
+    if not remaining_points:
+        return {
+            "score": _as_int(snapshot.score),
+            "remaining_points": 0,
+            "items": [],
+            "summary": (
+                "Core mail health is at 100/100. Optional hardening and DMARC "
+                "protection are shown separately."
+            ),
+        }
+
+    factors = {
+        "dmarc_compliance": _as_int(snapshot.compliance_rate),
+        "dns_posture": _as_int(snapshot.dns_posture_score),
+        "report_confidence": _as_int(snapshot.report_confidence_score),
+        "source_reputation": _as_int(snapshot.source_reputation_score),
+    }
+    weights = {
+        "dmarc_compliance": 0.50,
+        "dns_posture": 0.30,
+        "report_confidence": 0.10,
+        "source_reputation": 0.10,
+    }
+    labels = {
+        "dmarc_compliance": "Improve observed DMARC compliance",
+        "dns_posture": "Review saved DNS authentication evidence",
+        "report_confidence": "Collect a more representative report window",
+        "source_reputation": "Review saved sender-reputation evidence",
+    }
+    details = {
+        "dmarc_compliance": "Recent aggregate reports still contain DMARC failures.",
+        "dns_posture": "The saved DMARC, SPF, or DKIM evidence is not fully healthy.",
+        "report_confidence": "The current score is bounded by the amount of available report evidence.",
+        "source_reputation": "The saved sender evidence includes unresolved reputation uncertainty.",
+    }
+    items = []
+    for factor, weight in weights.items():
+        deduction = round(max(0, 100 - factors[factor]) * weight, 1)
+        if deduction <= 0:
+            continue
+        items.append(
+            {
+                "id": f"legacy_{factor}",
+                "factor": factor,
+                "title": labels[factor],
+                "kind": "investigation_required",
+                "expected_score_delta": deduction,
+                "detail": details[factor],
+                "next_step": "Open the saved evidence before making a DNS or sender change.",
+                "verification": "A refreshed persisted assessment confirms the updated evidence.",
+                "evidence": [],
+            }
+        )
+    if not items:
+        items.append(
+            {
+                "id": "legacy_assessment_gap",
+                "factor": "assessment",
+                "title": "Review the saved assessment evidence",
+                "kind": "investigation_required",
+                "expected_score_delta": remaining_points,
+                "detail": "This older assessment predates the detailed score explanation.",
+                "next_step": "Refresh the stored DNS and report evidence to capture a full explanation.",
+                "verification": "A new persisted assessment includes its verified path to 100.",
+                "evidence": [],
+            }
+        )
+    items.sort(key=lambda item: float(item["expected_score_delta"]), reverse=True)
+    return {
+        "score": _as_int(snapshot.score),
+        "remaining_points": remaining_points,
+        "items": items,
+        "summary": "These remaining points come from saved assessment evidence. Review the listed evidence before making a change.",
+    }
+
+
+def _snapshot_path_to_100(
+    snapshot: HealthScoreSnapshot, evidence: Dict[str, Any]
+) -> Dict[str, Any]:
+    path = evidence.get("path_to_100")
+    if isinstance(path, dict) and path.get("items"):
+        return path
+    if _as_int(snapshot.score) >= 100:
+        return _legacy_path_to_100(snapshot)
+    return _legacy_path_to_100(snapshot)
+
+
+def _factor_deltas(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, int]:
     return {
         key: _as_int(current.get(key)) - _as_int(previous.get(key))
         for key in sorted(set(previous) | set(current))
@@ -130,7 +223,9 @@ def upsert_health_score_snapshot(
                 HealthScoreSnapshot.domain_name == domain_name,
                 HealthScoreSnapshot.snapshot_date < captured_date,
             )
-            .order_by(HealthScoreSnapshot.snapshot_date.desc(), HealthScoreSnapshot.updated_at.desc())
+            .order_by(
+                HealthScoreSnapshot.snapshot_date.desc(), HealthScoreSnapshot.updated_at.desc()
+            )
             .first()
         )
     change = _snapshot_change(
@@ -222,21 +317,24 @@ def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "actions": _snapshot_actions(snapshot),
         "evidence_captured_at": snapshot.updated_at.isoformat(),
         "assessment_version": str(evidence.get("calculation_version") or "1"),
-        "core_mail_health": evidence.get("core_mail_health") or {
+        "core_mail_health": evidence.get("core_mail_health")
+        or {
             "score": snapshot.score,
             "grade": snapshot.grade,
             "status": snapshot.status,
         },
-        "domain_protection": evidence.get("domain_protection") or {
+        "domain_protection": evidence.get("domain_protection")
+        or {
             "policy": snapshot.policy or "unknown",
             "status": "unknown",
         },
-        "monitoring_confidence": evidence.get("monitoring_confidence") or {
+        "monitoring_confidence": evidence.get("monitoring_confidence")
+        or {
             "score": float(snapshot.report_confidence_score),
             "band": "unknown",
             "reasons": [],
         },
-        "path_to_100": evidence.get("path_to_100") or {},
+        "path_to_100": _snapshot_path_to_100(snapshot, evidence),
         "dns_evidence": evidence.get("dns_evidence") or {},
         "change": evidence.get("change") or {},
     }
@@ -317,7 +415,7 @@ def snapshot_to_history_point(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "source_reputation_score": snapshot.source_reputation_score,
         "evidence_captured_at": snapshot.updated_at.isoformat(),
         "top_actions": _snapshot_actions(snapshot),
-        "path_to_100": _snapshot_evidence(snapshot).get("path_to_100") or {},
+        "path_to_100": _snapshot_path_to_100(snapshot, _snapshot_evidence(snapshot)),
     }
 
 

@@ -487,7 +487,11 @@ function domainDetailsApp(domainId = '') {
             await Promise.allSettled([
                 this.fetchDomainStats(),
                 this.fetchReports(),
-                this.fetchRemediationQueue()
+                this.fetchRemediationQueue(),
+                // This is a persisted snapshot query. Loading it here makes
+                // the current score and its remaining points visible in the
+                // overview without triggering DNS or reputation work.
+                this.fetchHealthHistory()
             ]);
         },
 
