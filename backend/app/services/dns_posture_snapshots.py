@@ -156,13 +156,6 @@ def capture_dns_posture_snapshot(
     previous = None
     if current.accepted_snapshot_id:
         previous = db.get(DomainDNSPostureSnapshot, current.accepted_snapshot_id)
-    previous_payload: Dict[str, Any] = {}
-    if previous:
-        try:
-            previous_payload = json.loads(previous.result_json)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            previous_payload = {}
-
     lookup_ok = _acceptable_result(result)
     has_evidence = _has_dns_evidence(result)
     if lookup_ok and has_evidence:

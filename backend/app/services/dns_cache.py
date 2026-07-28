@@ -492,7 +492,7 @@ async def _resolve_configured_with_fallback(  # noqa: C901
     )
 
 
-async def resolve_domain_dns_cached(
+async def resolve_domain_dns_cached(  # noqa: C901 - cache/fallback state is intentionally co-located
     db: Session,
     provider: BaseDNSProvider,
     domain: str,
