@@ -27,17 +27,17 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.bimi import BIMIResult
-from app.services.mta_sts import MTAStsResult
 from app.services.health_score_snapshots import upsert_health_score_snapshot
+from app.services.mta_sts import MTAStsResult
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_store import ReportStore
 from app.services.source_network import SourceNetworkIntelligence
+from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.source_reputation import (
     DomainReputation,
     ReputationEvidence,
     SourceReputation,
 )
-from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -987,7 +987,20 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
     async def fake_guidance(*_args, **kwargs):
         calls["guidance"] += 1
         assert kwargs["cached_only"] is True
-        return {"domain": DOMAIN, "status": "healthy", "findings": [], "change_plans": []}
+        return {
+            "domain": DOMAIN,
+            "status": "attention",
+            "findings": [],
+            "change_plans": [
+                {
+                    "operation": "update",
+                    "record_type": "TXT",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "provider_value_required": False,
+                    "current_values": ["v=DMARC1; p=none"],
+                }
+            ],
+        }
 
     async def fake_posture(*_args, **kwargs):
         calls["posture"] += 1
@@ -1026,6 +1039,12 @@ def test_cached_domain_detail_combines_dns_and_posture_reads(
 
     assert response.status_code == 200
     assert response.json()["posture"]["health"]["score"] == 96
+    cached_plan = response.json()["dns_guidance"]["change_plans"][0]
+    assert cached_plan["provider_write_available"] is True
+    assert cached_plan["safety_notes"] == [
+        "Preview the provider mutation before applying this DNS change.",
+        "Existing provider values will be shown in the preview before approval.",
+    ]
     assert response.json()["freshness"]["mode"] == "cached"
     assert calls == {"dns": 1, "health": 1, "guidance": 1, "grade": 0, "posture": 1}
 
@@ -3147,9 +3166,7 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     ],
 )
 def test_source_delivery_status_distinguishes_policy_outcomes(source, status):
-    delivery = domains_endpoint._source_delivery_status(  # pylint: disable=protected-access
-        source
-    )
+    delivery = domains_endpoint._source_delivery_status(source)  # pylint: disable=protected-access
 
     assert delivery["status"] == status
 
@@ -3618,7 +3635,9 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     intelligence = authed_client.get(
         "/api/v1/domains/fast-sources.example/source-intelligence?days=3650"
     )
-    reputation = authed_client.get("/api/v1/domains/fast-sources.example/source-reputation?days=3650")
+    reputation = authed_client.get(
+        "/api/v1/domains/fast-sources.example/source-reputation?days=3650"
+    )
 
     assert sources.status_code == 200
     assert sources.json()["sources"][0]["ip"] == "203.0.113.42"
@@ -3952,9 +3971,7 @@ def test_default_source_reads_do_not_trigger_live_enrichment(
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fail_live_lookup)
 
     sources = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
-    intelligence = seeded_client.get(
-        f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650"
-    )
+    intelligence = seeded_client.get(f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650")
 
     assert sources.status_code == 200
     assert intelligence.status_code == 200

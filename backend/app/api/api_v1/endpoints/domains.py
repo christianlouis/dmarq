@@ -6780,6 +6780,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
         cached_only=True,
         dns_result=dns_result,
     )
+    guidance["change_plans"] = _with_dns_plan_write_state(guidance["change_plans"])
     domain_health = _persisted_domain_health(
         db,
         workspace_id=workspace.id,
