@@ -49,6 +49,16 @@ def _snapshot_actions(snapshot: HealthScoreSnapshot) -> List[Dict[str, Any]]:
     return [item for item in parsed if isinstance(item, dict)]
 
 
+def _snapshot_evidence(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
+    if not snapshot.evidence_summary:
+        return {}
+    try:
+        parsed = json.loads(snapshot.evidence_summary)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def upsert_health_score_snapshot(
     db: Session,
     *,
@@ -95,10 +105,13 @@ def upsert_health_score_snapshot(
     snapshot.top_actions = json.dumps(actions, sort_keys=True)
     snapshot.evidence_summary = json.dumps(
         {
-            "calculation_version": 1,
+            "calculation_version": health.get("assessment_version") or "1",
             "report_count": snapshot.report_count,
             "total_emails": snapshot.total_emails,
             "failed_emails": snapshot.failed_emails,
+            "core_mail_health": health.get("core_mail_health") or {},
+            "domain_protection": health.get("domain_protection") or {},
+            "monitoring_confidence": health.get("monitoring_confidence") or {},
             "factors": {
                 "dmarc_compliance": _as_int(factors.get("dmarc_compliance")),
                 "dns_posture": snapshot.dns_posture_score,
@@ -137,6 +150,7 @@ def latest_health_score_snapshot(
 
 def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
     """Restore the API health object without recalculating its evidence."""
+    evidence = _snapshot_evidence(snapshot)
     return {
         "domain": snapshot.domain_name,
         "score": snapshot.score,
@@ -151,6 +165,21 @@ def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         },
         "actions": _snapshot_actions(snapshot),
         "evidence_captured_at": snapshot.updated_at.isoformat(),
+        "assessment_version": str(evidence.get("calculation_version") or "1"),
+        "core_mail_health": evidence.get("core_mail_health") or {
+            "score": snapshot.score,
+            "grade": snapshot.grade,
+            "status": snapshot.status,
+        },
+        "domain_protection": evidence.get("domain_protection") or {
+            "policy": snapshot.policy or "unknown",
+            "status": "unknown",
+        },
+        "monitoring_confidence": evidence.get("monitoring_confidence") or {
+            "score": float(snapshot.report_confidence_score),
+            "band": "unknown",
+            "reasons": [],
+        },
     }
 
 

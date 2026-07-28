@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 ACTIVE_POLICIES = {"quarantine", "reject"}
+HEALTH_ASSESSMENT_VERSION = "2"
 
 
 def health_grade(score: int, *, policy: Optional[str] = None, critical_actions: int = 0) -> str:
@@ -98,17 +99,66 @@ def _reputation_factor(domain: Dict[str, Any]) -> float:
 
 
 def _score_cap(domain: Dict[str, Any], confidence: float, *, policy: Optional[str] = None) -> int:
-    policy = policy or _effective_dmarc_policy(domain)
+    """Cap only when evidence is insufficient, not for optional hardening choices.
+
+    DMARC enforcement is important protection context, but it is not a measure
+    of whether intended mail is currently authenticated and delivering.  It is
+    therefore exposed separately instead of suppressing a healthy core result.
+    """
+    del policy
     cap = 100
-    if policy == "quarantine":
-        cap = min(cap, 92)
-    elif policy == "none":
-        cap = min(cap, 74)
-    elif policy not in ACTIVE_POLICIES:
-        cap = min(cap, 59)
     if confidence < 70:
         cap = min(cap, 79)
     return cap
+
+
+def _confidence_band(score: float) -> str:
+    if score >= 90:
+        return "high"
+    if score >= 70:
+        return "medium"
+    return "low"
+
+
+def _domain_protection(policy: str) -> Dict[str, str]:
+    if policy == "reject":
+        return {
+            "status": "enforced",
+            "policy": "reject",
+            "summary": "DMARC enforcement is active for unauthorized use.",
+        }
+    if policy == "quarantine":
+        return {
+            "status": "enforced",
+            "policy": "quarantine",
+            "summary": "DMARC quarantine protection is active while enforcement is staged.",
+        }
+    if policy == "none":
+        return {
+            "status": "monitoring",
+            "policy": "none",
+            "summary": "DMARC is monitoring only; receivers are not asked to enforce failures.",
+        }
+    return {
+        "status": "unprotected",
+        "policy": policy or "missing",
+        "summary": "No usable DMARC protection policy was verified.",
+    }
+
+
+def _monitoring_confidence(domain: Dict[str, Any], score: float) -> Dict[str, Any]:
+    reasons: List[str] = []
+    if domain.get("dns_pending"):
+        reasons.append("DNS evidence refresh is pending.")
+    elif domain.get("dns_lookup_failed"):
+        reasons.append("DNS evidence could not be refreshed; last known report context is retained.")
+    reports = int(domain.get("report_count") or domain.get("reports_processed") or 0)
+    emails = int(domain.get("total_emails") or 0)
+    if reports < 7 or emails < 250:
+        reasons.append("Recent report volume is limited.")
+    if not reasons:
+        reasons.append("Recent report and DNS evidence are sufficient for this assessment.")
+    return {"score": round(score, 1), "band": _confidence_band(score), "reasons": reasons}
 
 
 def _action(
@@ -410,25 +460,38 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     pass_rate = _bounded(domain.get("pass_rate"))
     dns = _dns_factor(domain)
     policy_name = _effective_dmarc_policy(domain)
+    # Retained as an explicitly exported protection dimension for API and
+    # historic evidence compatibility; it is intentionally not weighted into
+    # the core mail-health score.
     policy = _policy_factor(policy_name)
     confidence = _confidence_factor(domain)
     reputation = _reputation_factor(domain)
     raw_score = round(
-        (pass_rate * 0.40)
-        + (dns * 0.20)
-        + (policy * 0.25)
+        (pass_rate * 0.50)
+        + (dns * 0.30)
         + (confidence * 0.10)
-        + (reputation * 0.05)
+        + (reputation * 0.10)
     )
     score = min(raw_score, _score_cap(domain, confidence, policy=policy_name))
     actions = _domain_actions(domain)
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
-
-    return {
-        "domain": domain.get("domain_name") or domain.get("id"),
+    protection = _domain_protection(policy_name)
+    monitoring_confidence = _monitoring_confidence(domain, confidence)
+    core_health = {
         "score": int(score),
         "grade": health_grade(int(score), policy=policy_name, critical_actions=critical_actions),
         "status": "healthy" if score >= 90 else "attention" if score >= 70 else "critical",
+    }
+
+    return {
+        "domain": domain.get("domain_name") or domain.get("id"),
+        "assessment_version": HEALTH_ASSESSMENT_VERSION,
+        "score": core_health["score"],
+        "grade": core_health["grade"],
+        "status": core_health["status"],
+        "core_mail_health": core_health,
+        "domain_protection": protection,
+        "monitoring_confidence": monitoring_confidence,
         "factors": {
             "dmarc_compliance": round(pass_rate, 1),
             "dns_posture": round(dns, 1),

@@ -1283,6 +1283,10 @@ class DomainHealthGrade(BaseModel):
     factors: Dict[str, float] = Field(default_factory=dict)
     actions: List[Dict[str, Any]] = Field(default_factory=list)
     evidence_captured_at: Optional[str] = None
+    assessment_version: str = "1"
+    core_mail_health: Dict[str, Any] = Field(default_factory=dict)
+    domain_protection: Dict[str, Any] = Field(default_factory=dict)
+    monitoring_confidence: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PostureDashboardResponse(BaseModel):
@@ -1290,7 +1294,11 @@ class PostureDashboardResponse(BaseModel):
 
     domain: str
     status: str
+    # Retained as a compatibility alias for existing API consumers. It is
+    # capability coverage, not the primary mail-health assessment.
     score: int
+    capability_coverage_score: int
+    capability_coverage_label: str = "Capability coverage"
     health: DomainHealthGrade
     summary: str
     coverage: List[PostureCoverageItem]
@@ -3895,7 +3903,7 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     failed_checks = [check for check in checks if check.status == "fail"]
     failed_core_checks = [check for check in failed_checks if check.key in {"dmarc", "spf", "dkim"}]
     health_status = "healthy"
-    if failed_checks:
+    if failed_core_checks:
         health_status = "critical" if len(failed_core_checks) >= 2 else "degraded"
     return DNSHealthResponse(
         status=health_status,
@@ -4330,7 +4338,7 @@ def _build_posture_dashboard(
     domain_health: Dict[str, Any],
     changes: List[Dict[str, Any]],
 ) -> PostureDashboardResponse:
-    score = _posture_score(health.checks)
+    capability_coverage_score = _posture_score(health.checks)
     coverage = [
         PostureCoverageItem(
             key=check.key,
@@ -4345,7 +4353,8 @@ def _build_posture_dashboard(
     return PostureDashboardResponse(
         domain=domain_id,
         status=health.status,
-        score=score,
+        score=capability_coverage_score,
+        capability_coverage_score=capability_coverage_score,
         health=domain_health,
         summary=_posture_summary(health),
         coverage=coverage,
