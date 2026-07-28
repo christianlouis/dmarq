@@ -89,8 +89,10 @@ from app.services.health_score_snapshots import (
     build_health_evidence_export_rows,
     build_health_score_history,
     build_workspace_health_score_history,
+    latest_health_score_snapshot,
     list_health_score_snapshots,
     list_workspace_health_score_snapshots,
+    snapshot_to_domain_health,
     upsert_health_score_snapshot,
 )
 from app.services.hetzner_dns import get_hetzner_dns_credentials
@@ -1280,6 +1282,7 @@ class DomainHealthGrade(BaseModel):
     status: str
     factors: Dict[str, float] = Field(default_factory=dict)
     actions: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence_captured_at: Optional[str] = None
 
 
 class PostureDashboardResponse(BaseModel):
@@ -4288,6 +4291,39 @@ async def _build_domain_health_grade(
     return score_domain_health(domain_row)
 
 
+def _pending_domain_health(domain_name: str) -> Dict[str, Any]:
+    """Represent a domain whose first background health assessment is pending."""
+    return {
+        "domain": domain_name,
+        "score": 0,
+        "grade": "-",
+        "status": "pending",
+        "factors": {},
+        # A missing first snapshot is a presentation state, not a remediation
+        # item. The background worker will materialize it without creating a
+        # misleading operator task.
+        "actions": [],
+        "evidence_captured_at": None,
+    }
+
+
+def _persisted_domain_health(
+    db: Session,
+    *,
+    workspace_id: int,
+    domain_name: str,
+) -> Dict[str, Any]:
+    """Read the single health assessment shared by all normal UI views."""
+    snapshot = latest_health_score_snapshot(
+        db,
+        workspace_id=workspace_id,
+        domain_name=domain_name,
+    )
+    if snapshot is None:
+        return _pending_domain_health(domain_name)
+    return snapshot_to_domain_health(snapshot)
+
+
 def _build_posture_dashboard(
     domain_id: str,
     health: DNSHealthResponse,
@@ -6601,12 +6637,21 @@ async def _build_domain_posture_dashboard_for_workspace(
     if health is None:
         health = await _build_domain_dns_health(db, store, domain_name, **health_kwargs)
     if domain_health is None:
-        domain_health = await _build_domain_health_grade(
-            db,
-            domain_name,
-            store,
-            **grade_kwargs,
-        )
+        if refresh:
+            # An explicit operator refresh is allowed to compute and replace
+            # the persisted assessment. Normal reads always use the snapshot.
+            domain_health = await _build_domain_health_grade(
+                db,
+                domain_name,
+                store,
+                **grade_kwargs,
+            )
+        else:
+            domain_health = _persisted_domain_health(
+                db,
+                workspace_id=workspace.id,
+                domain_name=domain_name,
+            )
     if capture_snapshot:
         summary = store.get_domain_summary(domain_name)
         _record_health_snapshot_from_posture(
@@ -6661,11 +6706,10 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
         cached_only=True,
         dns_result=dns_result,
     )
-    domain_health = await _build_domain_health_grade(
+    domain_health = _persisted_domain_health(
         db,
-        domain_name,
-        store,
-        cached_only=True,
+        workspace_id=workspace.id,
+        domain_name=domain_name,
     )
     posture = await _build_domain_posture_dashboard_for_workspace(
         db,
@@ -6786,12 +6830,12 @@ async def _build_domain_remediation_queue_for_workspace(  # noqa: C901
 
     summary = store.get_domain_summary(domain_name) or {}
     domain_health: Dict[str, Any] = {
-        "domain": domain_name,
-        "grade": "unknown",
-        "score": 0,
-        "actions": [],
+        **_persisted_domain_health(
+            db,
+            workspace_id=workspace.id,
+            domain_name=domain_name,
+        ),
         "summary": summary,
-        "enrichment_pending": True,
     }
     guidance: Dict[str, Any] = {
         "findings": [],
@@ -6803,14 +6847,6 @@ async def _build_domain_remediation_queue_for_workspace(  # noqa: C901
     cached_read_token = _CACHED_DNS_READ.set(True)
     try:
         enrichment_tasks = {
-            "health": asyncio.create_task(
-                _build_domain_health_grade(
-                    db,
-                    domain_name,
-                    store,
-                    refresh=refresh,
-                )
-            ),
             "guidance": asyncio.create_task(
                 _build_domain_dns_guidance(
                     db,
@@ -6847,10 +6883,7 @@ async def _build_domain_remediation_queue_for_workspace(  # noqa: C901
             )
             enrichment_failures.append(f"{name} failed")
             continue
-        if name == "health":
-            domain_health = result
-        else:
-            guidance = result
+        guidance = result
 
     if enrichment_failures:
         logger.info(

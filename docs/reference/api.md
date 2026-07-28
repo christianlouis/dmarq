@@ -1054,10 +1054,11 @@ GET /domains/{domain_id}/posture/history
 
 Returns persisted daily health score snapshots for one domain, including score,
 grade, policy, aggregate report counts, factor scores, top action drivers,
-previous score, and score delta. Use `start_date`, `end_date`, and `limit` to
-shape audit or dashboard windows. By default the endpoint captures the current
-posture as today's snapshot before reading history; pass `capture_current=false`
-when reading already persisted evidence only.
+previous score, score delta, and the timestamp of the evidence that produced
+each value. Use `start_date`, `end_date`, and `limit` to shape audit or
+dashboard windows. The endpoint is read-only by default; only an explicit
+`capture_current=true` maintenance request can calculate and persist a new
+snapshot.
 
 #### Get Workspace Health Score History
 

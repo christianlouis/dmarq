@@ -164,6 +164,12 @@ class Settings(BaseSettings):
     DNS_STARTUP_PREWARM_CONCURRENCY: int = 4
     DNS_SUMMARY_REFRESH_CONCURRENCY: int = 6
     DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS: float = 10.0
+    # Health scores are materialized from cached DNS and sender evidence. UI
+    # requests read this projection and never recompute an authoritative score.
+    HEALTH_SNAPSHOT_REFRESH_ENABLED: bool = True
+    HEALTH_SNAPSHOT_REFRESH_LIMIT: int = 100
+    HEALTH_SNAPSHOT_REFRESH_INTERVAL_SECONDS: int = 300
+    HEALTH_SNAPSHOT_REFRESH_STARTUP_DELAY_SECONDS: int = 20
     REMEDIATION_QUEUE_TIMEOUT_SECONDS: float = 8.0
 
     # Optional Stripe Billing integration. Self-hosted and provider-billed

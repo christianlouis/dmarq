@@ -35,7 +35,11 @@ class HealthScoreSnapshot(Base):
     dns_posture_score = Column(Integer, nullable=False, default=0)
     policy_strength_score = Column(Integer, nullable=False, default=0)
     report_confidence_score = Column(Integer, nullable=False, default=0)
+    source_reputation_score = Column(Integer, nullable=False, default=0)
     top_actions = Column(Text, nullable=True)
+    # A compact, point-in-time explanation of the inputs used for this score.
+    # This lets the UI explain a movement without re-running DNS or reputation.
+    evidence_summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

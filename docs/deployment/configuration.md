@@ -319,6 +319,9 @@ answer "is this IP listed or risky according to a configured provider?"
 | `SOURCE_READ_PROJECTION_BACKFILL_ENABLED` | Build indexed sender read facts for historic reports outside operator requests. New imports are projected synchronously. | `true` | `false` |
 | `SOURCE_READ_PROJECTION_BACKFILL_LIMIT` | Maximum historic reports projected in one background cycle. | `100` | `500` |
 | `SOURCE_READ_PROJECTION_BACKFILL_INTERVAL_SECONDS` | Delay between sender-projection batches. Values below 30 seconds are clamped. | `30` | `300` |
+| `HEALTH_SNAPSHOT_REFRESH_ENABLED` | Materialize one shared domain health assessment from cached DNS, report, and sender evidence. Browser reads never recalculate this score. | `true` | `false` |
+| `HEALTH_SNAPSHOT_REFRESH_LIMIT` | Maximum active domains assessed in one background refresh cycle. | `100` | `250` |
+| `HEALTH_SNAPSHOT_REFRESH_INTERVAL_SECONDS` | Delay between health-assessment refresh cycles. Values below 60 seconds are clamped. | `300` | `600` |
 | `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `https://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `https://geoip.internal/v1/lookup?ip={ip}` |
 | `GEOIP_CUSTOM_AUTH_HEADER` | Optional single request header for the custom provider, written as `Header-Name: value`. | - | `Authorization: Bearer op://...` |
 | `GEOIP_CUSTOM_TIMEOUT_SECONDS` | Custom GeoIP provider timeout. | `2` | `2` |

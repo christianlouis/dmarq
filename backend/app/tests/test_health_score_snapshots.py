@@ -5,8 +5,10 @@ from app.services.health_score_snapshots import (
     build_health_evidence_export_rows,
     build_health_score_history,
     build_workspace_health_score_history,
+    latest_health_score_snapshot,
     list_health_score_snapshots,
     list_workspace_health_score_snapshots,
+    snapshot_to_domain_health,
     snapshot_to_history_point,
     upsert_health_score_snapshot,
 )
@@ -127,6 +129,56 @@ def test_health_score_snapshot_defensive_serialization(db_session):
     assert snapshot_to_history_point(snapshot)["top_actions"] == []
     snapshot.top_actions = '["not-a-dict", {"title": "kept"}]'
     assert snapshot_to_history_point(snapshot)["top_actions"] == [{"title": "kept"}]
+
+
+def test_latest_snapshot_restores_the_complete_persisted_health_assessment(db_session):
+    """UI callers can render a score without re-running DNS or reputation work."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="stable.example",
+        health={
+            "score": 90,
+            "grade": "A-",
+            "status": "healthy",
+            "factors": {
+                "dmarc_compliance": 100,
+                "dns_posture": 59,
+                "policy_strength": 100,
+                "report_confidence": 100,
+                "source_reputation": 81,
+            },
+            "actions": [
+                {
+                    "type": "missing_dkim",
+                    "severity": "high",
+                    "title": "Fix DKIM selector coverage",
+                    "detail": "A selector lookup needs review.",
+                    "next_step": "Refresh DNS evidence.",
+                    "score_impact": 12,
+                }
+            ],
+        },
+        policy="reject",
+        compliance_rate=100,
+        total_emails=40470,
+        failed_emails=20,
+        report_count=348,
+    )
+
+    snapshot = latest_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="stable.example",
+    )
+    assert snapshot is not None
+    assessment = snapshot_to_domain_health(snapshot)
+    assert assessment["score"] == 90
+    assert assessment["factors"]["dns_posture"] == 59
+    assert assessment["factors"]["source_reputation"] == 81
+    assert assessment["actions"][0]["next_step"] == "Refresh DNS evidence."
+    assert assessment["evidence_captured_at"]
 
 
 def test_health_score_snapshot_filters_by_date_range(db_session):
