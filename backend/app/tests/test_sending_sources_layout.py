@@ -81,13 +81,15 @@ def test_sending_source_summary_chips_are_interactive_filters() -> None:
         "auth_review",
         "recent",
         "unchecked",
-        "delivery:aligned",
-        "delivery:policy_blocked",
-        "delivery:unauthenticated_delivered",
+        "delivery:authenticated",
+        "delivery:receiver_protective_action",
+        "delivery:receiver_no_dmarc_action",
     ):
         assert f'data-domain-detail-source-filter="{value}"' in section
     assert "setSourceSummaryFilter" in script
     assert "sourceSummaryFilterActive" in script
+    assert "aligned delivery" not in section.lower()
+    assert "unauthenticated delivery" not in section.lower()
 
 
 def test_auth_status_cells_include_labels_beside_badges() -> None:

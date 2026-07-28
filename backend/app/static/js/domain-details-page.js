@@ -668,9 +668,9 @@ function domainDetailsApp(domainId = '') {
                     if (!source?.reputation) counts.unchecked += 1;
                     if (source?.dmarc === 'fail' || source?.dmarc === 'mixed') counts.authReview += 1;
                     if (this.sourceActivityBucket(source) === 'recent') counts.recent += 1;
-                    if (source?.delivery_status === 'aligned') counts.aligned += 1;
-                    if (source?.delivery_status === 'policy_blocked') counts.blocked += 1;
-                    if (source?.delivery_status === 'unauthenticated_delivered') counts.unauthenticated += 1;
+                    if (source?.authentication_status === 'authenticated') counts.authenticated += 1;
+                    if (source?.authentication_status === 'receiver_protective_action') counts.protectiveAction += 1;
+                    if (source?.authentication_status === 'receiver_no_dmarc_action') counts.noDmarcAction += 1;
                     return counts;
                 },
                 {
@@ -680,9 +680,9 @@ function domainDetailsApp(domainId = '') {
                     unchecked: 0,
                     authReview: 0,
                     recent: 0,
-                    aligned: 0,
-                    blocked: 0,
-                    unauthenticated: 0
+                    authenticated: 0,
+                    protectiveAction: 0,
+                    noDmarcAction: 0
                 }
             );
         },
@@ -715,8 +715,9 @@ function domainDetailsApp(domainId = '') {
                     source.last_seen ? this.sourceSeenLabel(source.last_seen) : '',
                     source.reputation?.status,
                     source.reputation?.summary,
-                    source.delivery_label,
-                    source.delivery_detail,
+                    source.authentication_label,
+                    source.authentication_detail,
+                    source.receiver_disposition_label,
                     ...(source.reputation?.listings || []),
                 ].some(value => String(value || '').toLowerCase().includes(needle));
             });
@@ -763,14 +764,14 @@ function domainDetailsApp(domainId = '') {
         },
 
         sourceDeliveryMatches(source, filter) {
-            return filter === 'all' || source?.delivery_status === filter;
+            return filter === 'all' || source?.authentication_status === filter;
         },
 
         sourceDeliveryClass(source) {
-            if (source?.delivery_status === 'aligned') return 'bg-green-100 text-green-800';
-            if (source?.delivery_status === 'policy_blocked') return 'bg-blue-100 text-blue-800';
-            if (source?.delivery_status === 'unauthenticated_delivered') return 'bg-red-100 text-red-800';
-            if (source?.delivery_status === 'mixed') return 'bg-amber-100 text-amber-800';
+            if (source?.authentication_status === 'authenticated') return 'bg-green-100 text-green-800';
+            if (source?.authentication_status === 'receiver_protective_action') return 'bg-blue-100 text-blue-800';
+            if (source?.authentication_status === 'receiver_no_dmarc_action') return 'bg-red-100 text-red-800';
+            if (source?.authentication_status === 'mixed_authentication') return 'bg-amber-100 text-amber-800';
             return 'bg-base-200 text-base-content/70';
         },
 

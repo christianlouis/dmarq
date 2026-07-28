@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The setup assistant now detects domains owned by another workspace during
   preview and points operators to the existing domain instead of allowing a
   predictable apply-time rollback.
+- Sending-source views now distinguish receiver-observed DMARC authentication
+  from actual delivery. The UI no longer calls a DMARC pass "delivery" or a
+  receiver-reported `disposition=none` a delivered message; additive API fields
+  expose evidence kind, claim level, receiver disposition, and unknown delivery
+  certainty for integrations.
 - DNS posture is now an immutable, versioned projection. Report ingestion only
   requests a coalesced background refresh; normal domain reads use the last
   accepted snapshot and retain it when a resolver fails or a single empty
