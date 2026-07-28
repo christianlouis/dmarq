@@ -65,6 +65,9 @@ def _result_from_json(value: str) -> DomainDNSResult:
         dns_provider=detection_from_json(data.get("dns_provider")),
         lookup_status=str(data.get("lookup_status") or "ok"),
         lookup_error=data.get("lookup_error"),
+        resolver_route=data.get("resolver_route"),
+        resolver_identity=data.get("resolver_identity"),
+        fallback_attempts=list(data.get("fallback_attempts") or []),
     )
 
 
@@ -335,7 +338,22 @@ def _fallback_result(
     if task_name != primary_name:
         result.lookup_status = "fallback"
         result.lookup_error = f"No DNS evidence from {primary_name}; using {task_name}."
+        result.resolver_route = "fallback"
+        result.resolver_identity = task_name
+        result.fallback_attempts = list(dict.fromkeys([primary_name, task_name]))
     return result
+
+
+def _resolver_route(provider: BaseDNSProvider) -> str:
+    if isinstance(provider, ConfiguredRecursiveDNSProvider):
+        return "configured_recursive_or_doh"
+    if isinstance(provider, PublicRecursiveDNSProvider):
+        return "public_recursive"
+    if isinstance(provider, SystemDNSProvider):
+        return "system_resolver"
+    if provider.__class__.__name__ in {"CloudflareDNSProvider", "GoogleDNSProvider"}:
+        return "dns_over_https"
+    return "provider_api_or_custom"
 
 
 def _empty_fallback_result(
@@ -529,6 +547,11 @@ async def resolve_domain_dns_cached(
             exc.__class__.__name__,
         )
         return _lookup_failure_result(exc.__class__.__name__, now)
+
+    if not result.resolver_route:
+        result.resolver_route = _resolver_route(provider)
+    if not result.resolver_identity:
+        result.resolver_identity = provider_name
 
     if not _has_dns_evidence(result):
         stale = _best_stale_cached_evidence(

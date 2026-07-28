@@ -158,6 +158,11 @@ class DomainDNSResult:
     dns_provider: Optional[DNSProviderDetection] = None
     lookup_status: str = "ok"
     lookup_error: Optional[str] = None
+    # Resolver provenance is evidence, not a runtime instruction. Persisting
+    # it makes a cached/fallback DNS observation explainable after the fact.
+    resolver_route: Optional[str] = None
+    resolver_identity: Optional[str] = None
+    fallback_attempts: List[str] = field(default_factory=list)
 
 
 def _normalize_dns_name(domain: str) -> str:

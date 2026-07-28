@@ -188,6 +188,44 @@ def test_latest_snapshot_restores_the_complete_persisted_health_assessment(db_se
     assert assessment["monitoring_confidence"]["band"] == "high"
 
 
+def test_health_snapshot_explains_dns_provenance_and_factor_delta(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    base_health = {
+        "assessment_version": "2",
+        "score": 92,
+        "grade": "A-",
+        "status": "healthy",
+        "factors": {"dns_posture": 80, "report_confidence": 100},
+        "dns_evidence": {
+            "checked_at": "2026-07-28T09:00:00",
+            "cache_state": "cached",
+            "lookup_status": "ok",
+            "resolver_route": "dns_over_https",
+            "resolver_identity": "CloudflareDNSProvider",
+            "selectors_checked": ["mail"],
+        },
+    }
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="auditable.example",
+        health=base_health,
+        snapshot_date=date(2026, 7, 27),
+    )
+    snapshot = upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="auditable.example",
+        health={**base_health, "score": 96, "factors": {"dns_posture": 100, "report_confidence": 100}},
+        snapshot_date=date(2026, 7, 28),
+    )
+
+    assessment = snapshot_to_domain_health(snapshot)
+    assert assessment["dns_evidence"]["resolver_route"] == "dns_over_https"
+    assert assessment["change"]["score_delta"] == 4
+    assert assessment["change"]["factor_deltas"] == {"dns_posture": 20}
+
+
 def test_health_score_snapshot_filters_by_date_range(db_session):
     workspace = get_or_create_default_workspace(db_session)
     for day in range(1, 4):

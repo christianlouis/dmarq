@@ -1287,6 +1287,8 @@ class DomainHealthGrade(BaseModel):
     core_mail_health: Dict[str, Any] = Field(default_factory=dict)
     domain_protection: Dict[str, Any] = Field(default_factory=dict)
     monitoring_confidence: Dict[str, Any] = Field(default_factory=dict)
+    dns_evidence: Dict[str, Any] = Field(default_factory=dict)
+    change: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PostureDashboardResponse(BaseModel):
@@ -4274,6 +4276,18 @@ async def _build_domain_health_grade(
     dns_evidence_source = _dns_evidence_source(dns)
     dns_pending = bool(getattr(dns, "pending", False))
     dns_lookup_status = _dns_lookup_status(dns)
+    dns_evidence = {
+        "checked_at": (
+            dns.checked_at.isoformat() if getattr(dns, "checked_at", None) else None
+        ),
+        "cache_state": "cached" if getattr(dns, "cached", False) else "fresh",
+        "lookup_status": dns_lookup_status,
+        "lookup_error": dns.lookup_error,
+        "resolver_route": getattr(dns, "resolver_route", None),
+        "resolver_identity": getattr(dns, "resolver_identity", None),
+        "fallback_attempts": list(getattr(dns, "fallback_attempts", []) or []),
+        "selectors_checked": list(getattr(dns, "selectors_checked", []) or []),
+    }
     domain_row = {
         "id": domain_id,
         "domain_name": domain_id,
@@ -4292,6 +4306,7 @@ async def _build_domain_health_grade(
         "dns_lookup_status": dns_lookup_status,
         "dns_lookup_failed": dns_lookup_status == "failed",
         "dns_lookup_error": dns.lookup_error,
+        "dns_evidence": dns_evidence,
         "dmarc_warnings": dns.dmarc_warnings,
         "dmarc_suggestions": dns.dmarc_suggestions,
         "source_reputation": asdict(reputation_result),
