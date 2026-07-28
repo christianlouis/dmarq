@@ -110,13 +110,40 @@ def test_path_to_100_excludes_policy_and_optional_hardening():
             "dkim_status": True,
             "dmarc_policy": "none",
             "dmarc_warnings": [],
-            "source_reputation": {"summary": {"total_sources": 1, "highest_risk_score": 0}},
+            "source_reputation": {
+                "summary": {"total_sources": 1, "highest_risk_score": 0}
+            },
         }
     )
 
     assert health["path_to_100"]["remaining_points"] == 0
     assert health["path_to_100"]["items"] == []
     assert health["domain_protection"]["status"] == "monitoring"
+
+
+def test_report_confidence_waiting_item_links_to_recent_reports():
+    health = score_domain_health(
+        {
+            "domain_name": "example.com",
+            "total_emails": 100,
+            "failed_count": 0,
+            "pass_rate": 100,
+            "report_count": 2,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "dmarc_policy": "reject",
+            "dmarc_warnings": [],
+            "source_reputation": {"summary": {"total_sources": 1, "highest_risk_score": 0}},
+        }
+    )
+
+    report_item = next(
+        item for item in health["path_to_100"]["items"] if item["factor"] == "report_confidence"
+    )
+
+    assert report_item["kind"] == "waiting_for_evidence"
+    assert report_item["href"] == "#recent-reports"
 
 
 def test_missing_dmarc_scores_worse_than_policy_none():

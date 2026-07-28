@@ -518,6 +518,7 @@ def _path_to_100(
                     "next_step": "Keep report intake enabled and review again after additional normal mail activity.",
                     "verification": "At least 7 reports and 250 observed messages are available.",
                     "evidence": [],
+                    "href": "#recent-reports",
                 }
             )
             continue
