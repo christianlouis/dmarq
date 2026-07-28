@@ -213,6 +213,15 @@ def _evidence_items(domain: Dict[str, Any]) -> List[Dict[str, str]]:
         items.append({"label": "policy", "value": f"p={domain.get('dmarc_policy')}"})
     if domain.get("dns_lookup_status"):
         items.append({"label": "dns_lookup", "value": str(domain.get("dns_lookup_status"))})
+    dns_evidence = domain.get("dns_evidence") or {}
+    if dns_evidence.get("checked_at"):
+        items.append({"label": "dns_checked_at", "value": str(dns_evidence["checked_at"])})
+    if dns_evidence.get("resolver_route"):
+        items.append({"label": "resolver_route", "value": str(dns_evidence["resolver_route"])})
+    if dns_evidence.get("resolver_identity"):
+        items.append(
+            {"label": "resolver_identity", "value": str(dns_evidence["resolver_identity"])}
+        )
     return items
 
 
@@ -492,6 +501,7 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
         "core_mail_health": core_health,
         "domain_protection": protection,
         "monitoring_confidence": monitoring_confidence,
+        "dns_evidence": dict(domain.get("dns_evidence") or {}),
         "factors": {
             "dmarc_compliance": round(pass_rate, 1),
             "dns_posture": round(dns, 1),

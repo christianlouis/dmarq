@@ -411,6 +411,20 @@
                                 <span class="capitalize" x-text="posture.health.monitoring_confidence?.band || 'checking'"></span>
                             </p>
                         </div>
+                        <div class="mt-3 border-t border-[#e6e3e1] pt-3 text-xs text-[#5f5c78]"
+                             x-show="posture.health.change?.reason || posture.health.dns_evidence?.checked_at">
+                            <p class="font-semibold text-[#272a5f]">Why this assessment</p>
+                            <p class="mt-1" x-text="posture.health.change?.reason || 'Current persisted DNS and report evidence.'"></p>
+                            <p class="mt-1" x-show="posture.health.change?.score_delta !== undefined && posture.health.change?.score_delta !== null">
+                                Score change: <span x-text="posture.health.change?.score_delta > 0 ? '+' + posture.health.change.score_delta : posture.health.change.score_delta"></span>
+                            </p>
+                            <p class="mt-1" x-show="posture.health.dns_evidence?.checked_at">
+                                DNS checked: <span x-text="formatIsoDate(posture.health.dns_evidence?.checked_at)"></span>
+                            </p>
+                            <p class="mt-1" x-show="posture.health.dns_evidence?.resolver_route">
+                                Resolution path: <span x-text="humanizeToken(posture.health.dns_evidence?.resolver_route)"></span>
+                            </p>
+                        </div>
                     </div>
                     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         <template x-for="item in posture.coverage" :key="item.key">
