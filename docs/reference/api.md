@@ -997,7 +997,11 @@ GET /domains/{domain_id}/posture
 ```
 
 Returns the evidence-first posture dashboard for one domain. The response
-contains the posture score, coverage for DMARC, SPF, DKIM, MTA-STS, and BIMI,
+contains the versioned core mail-health assessment, a separate DMARC protection
+state, monitoring-confidence evidence, and capability coverage for DMARC, SPF,
+DKIM, MTA-STS, and BIMI. `score` remains a compatibility alias for
+`capability_coverage_score`; it is not the primary mail-health grade. Missing
+optional MTA-STS or BIMI capability never lowers core mail health by itself.
 actionable recommendations, recent provider-backed DNS drift summaries, and
 short operator playbooks. Recommendation and playbook evidence links point back
 to the page section that triggered the finding.

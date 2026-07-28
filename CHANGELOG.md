@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Separated core mail health from DMARC protection and optional capability
+  coverage. A healthy domain no longer loses its primary grade merely because
+  BIMI, MTA-STS, or another optional hardening capability is not configured;
+  protection state and monitoring confidence are shown explicitly instead.
 - Made the domain health score a single persisted projection. Posture, history,
   cached detail, and remediation now read the same score, grade, factors,
   actions, and evidence timestamp; background refreshes and explicit operator
