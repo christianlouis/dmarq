@@ -19,9 +19,9 @@ from app.services.dns_resolver import (
     AkamaiETPDNSProvider,
     BaseDNSProvider,
     CloudflareDNSProvider,
-    DegradedResolverDNSProvider,
     ConfiguredRecursiveDNSProvider,
     CustomDNSProvider,
+    DegradedResolverDNSProvider,
     DemoDNSProvider,
     DNS4EUProtectiveDNSProvider,
     DNS4EUUnfilteredDNSProvider,
@@ -44,9 +44,15 @@ from app.services.dns_resolver import (
 class FakeDNSProvider(BaseDNSProvider):
     """Concrete provider backed by a simple dict for deterministic tests."""
 
-    def __init__(self, records: dict, nameservers: list[str] | None = None):
+    def __init__(
+        self,
+        records: dict,
+        nameservers: list[str] | None = None,
+        cnames: dict[str, str] | None = None,
+    ):
         self._records = records
         self._nameservers = nameservers or []
+        self._cnames = cnames or {}
 
     async def lookup_txt(self, name: str):
         if name in self._records:
@@ -55,6 +61,9 @@ class FakeDNSProvider(BaseDNSProvider):
 
     async def lookup_ns(self, domain: str):
         return list(self._nameservers)
+
+    async def lookup_cname(self, name: str):
+        return self._cnames.get(name)
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +528,24 @@ async def test_check_domain_all_present():
     assert result.spf is True
     assert result.dkim is True
     assert result.dkim_selectors == ["google"]
+    assert result.dmarc_record_kind == "txt"
+    assert result.dmarc_cname_target is None
+
+
+@pytest.mark.asyncio
+async def test_check_domain_persists_dmarc_cname_provenance():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.example.com": ["v=DMARC1; p=reject; rua=mailto:dmarc@example.com"],
+        },
+        cnames={"_dmarc.example.com": "_dmarc.shared.example.net"},
+    )
+
+    result = await provider.check_domain("example.com", selectors=[])
+
+    assert result.dmarc is True
+    assert result.dmarc_record_kind == "cname"
+    assert result.dmarc_cname_target == "_dmarc.shared.example.net"
 
 
 @pytest.mark.asyncio

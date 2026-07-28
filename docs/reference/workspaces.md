@@ -127,7 +127,9 @@ with `POST /api/v1/onboarding/apply`.
 The onboarding response and audit records redact secret-like fields, including
 passwords, OAuth secrets, tokens, and API keys. Existing domains and mail
 sources are treated idempotently; duplicate domains owned by another workspace
-are rejected to keep ownership unambiguous.
+are rejected to keep ownership unambiguous. The preview performs this ownership
+check before Apply is enabled and points the operator to the existing domain
+configuration rather than failing after a seemingly successful preview.
 
 Notification defaults currently seed the existing notification settings table.
 They intentionally avoid Apprise target URLs, so operators still add and test

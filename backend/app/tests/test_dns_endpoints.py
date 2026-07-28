@@ -679,6 +679,52 @@ def test_dns_lint_endpoint_prefers_domain_dmarc_mailbox_override(
     )
 
 
+def test_dns_lint_endpoint_plans_additive_rua_for_existing_dmarc_record(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(
+        Domain(
+            name=DOMAIN,
+            active=True,
+            dmarc_report_mailbox="dmarc-example@example.com",
+        )
+    )
+    db_session.commit()
+    current = "v=DMARC1; p=reject; rua=mailto:existing@example.net; aspf=s"
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    plan = response.json()["change_plans"][0]
+    assert plan["finding_code"] == "dmarc_report_destination_missing"
+    assert plan["current_values"] == [current]
+    assert plan["proposed_value"] == (
+        "v=DMARC1; p=reject; "
+        "rua=mailto:existing@example.net,mailto:dmarc-example@example.com; aspf=s"
+    )
+    assert plan["provider_value_required"] is False
+
+
 def test_update_domain_persists_dmarc_report_mailbox_override(authed_client: TestClient):
     create_response = authed_client.post("/api/v1/domains/domains", json={"name": DOMAIN})
     assert create_response.status_code == 201

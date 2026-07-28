@@ -151,6 +151,8 @@ class DomainDNSResult:
     selectors_checked: List[str] = field(default_factory=list)
     dmarc_policy_domain: Optional[str] = None
     dmarc_discovery_method: Optional[str] = None
+    dmarc_record_kind: Optional[str] = None
+    dmarc_cname_target: Optional[str] = None
     dmarc_tags: Dict[str, str] = field(default_factory=dict)
     dmarc_warnings: List[str] = field(default_factory=list)
     dmarc_suggestions: List[str] = field(default_factory=list)
@@ -541,6 +543,17 @@ class BaseDNSProvider(ABC):
         ) = await asyncio.gather(dmarc_coro, spf_coro, dkim_coro, ns_coro)
 
         dmarc_tags = dmarc_tags or {}
+        dmarc_record_kind: Optional[str] = None
+        dmarc_cname_target: Optional[str] = None
+        if dmarc_record and dmarc_policy_domain:
+            if dmarc_discovery_method == "treewalk":
+                dmarc_record_kind = "treewalk"
+            else:
+                try:
+                    dmarc_cname_target = await self.lookup_cname(f"_dmarc.{dmarc_policy_domain}")
+                except LookupError:
+                    dmarc_cname_target = None
+                dmarc_record_kind = "cname" if dmarc_cname_target else "txt"
         warnings, suggestions = _lint_dmarc_tags(
             dmarc_tags,
             checked_domain=_normalize_dns_name(domain),
@@ -569,6 +582,8 @@ class BaseDNSProvider(ABC):
             selectors_checked=all_selectors,
             dmarc_policy_domain=dmarc_policy_domain,
             dmarc_discovery_method=dmarc_discovery_method,
+            dmarc_record_kind=dmarc_record_kind,
+            dmarc_cname_target=dmarc_cname_target,
             dmarc_tags=dmarc_tags,
             dmarc_warnings=warnings,
             dmarc_suggestions=suggestions,

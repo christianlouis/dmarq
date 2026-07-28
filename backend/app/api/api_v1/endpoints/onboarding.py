@@ -18,6 +18,7 @@ from app.services.workspace_onboarding import (
     apply_onboarding_plan,
     build_onboarding_plan,
     list_onboarding_templates,
+    onboarding_plan_domain_conflicts,
     public_onboarding_plan,
 )
 
@@ -103,13 +104,18 @@ async def get_onboarding_templates(
 
 
 @router.post("/preview", response_model=OnboardingPlanResponse)
-async def preview_onboarding_plan(
+def preview_onboarding_plan(
     payload: OnboardingPlanRequest,
+    db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> OnboardingPlanResponse:
     """Render an onboarding template without changing the database."""
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN)
-    return {"plan": public_onboarding_plan(_build_plan_or_422(payload))}
+    plan = _build_plan_or_422(payload)
+    conflicts = onboarding_plan_domain_conflicts(db, plan)
+    if conflicts:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflicts)
+    return {"plan": public_onboarding_plan(plan)}
 
 
 @router.post("/apply", response_model=OnboardingApplyResponse)

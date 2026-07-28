@@ -10,8 +10,8 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
@@ -58,6 +58,8 @@ def _result_from_json(value: str) -> DomainDNSResult:
         selectors_checked=list(data.get("selectors_checked") or []),
         dmarc_policy_domain=data.get("dmarc_policy_domain"),
         dmarc_discovery_method=data.get("dmarc_discovery_method"),
+        dmarc_record_kind=data.get("dmarc_record_kind"),
+        dmarc_cname_target=data.get("dmarc_cname_target"),
         dmarc_tags=dict(data.get("dmarc_tags") or {}),
         dmarc_warnings=list(data.get("dmarc_warnings") or []),
         dmarc_suggestions=list(data.get("dmarc_suggestions") or []),
@@ -231,12 +233,7 @@ def store_dns_cache_result(
         )
         row_id = db.execute(statement).scalar_one()
         db.commit()
-        return (
-            db.query(DNSCache)
-            .populate_existing()
-            .filter(DNSCache.id == row_id)
-            .one()
-        )
+        return db.query(DNSCache).populate_existing().filter(DNSCache.id == row_id).one()
 
     if row is None:
         row = DNSCache(

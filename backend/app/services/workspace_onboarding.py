@@ -678,6 +678,24 @@ def _apply_domains(
     return results
 
 
+def onboarding_plan_domain_conflicts(db: Session, plan: Dict[str, Any]) -> List[str]:
+    """Return domain conflicts that would make an onboarding apply roll back."""
+    names = [item["name"] for item in plan.get("domains", []) if item.get("name")]
+    if not names:
+        return []
+    workspace = db.query(Workspace).filter(Workspace.slug == plan["workspace"]["slug"]).first()
+    workspace_id = workspace.id if workspace else None
+    domains = db.query(Domain).filter(Domain.name.in_(names)).all()
+    return [
+        (
+            f"Domain {domain.name} is already owned by another workspace. "
+            f"Open /domains/{domain.name} to configure the existing domain."
+        )
+        for domain in domains
+        if workspace_id is None or domain.workspace_id != workspace_id
+    ]
+
+
 def _apply_mail_sources(
     db: Session,
     *,

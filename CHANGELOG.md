@@ -59,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- A configured per-domain DMARC report mailbox now produces the primary safe
+  DNS change when an existing direct DMARC TXT record does not contain it. The
+  proposal adds one `rua` destination while preserving policy, alignment,
+  forensic reporting, and all existing aggregate destinations. DMARC policies
+  inherited through CNAME remain explicitly manual to avoid destructive record
+  replacement. Record-kind provenance is persisted for cached reads, and
+  external report destinations must publish their DMARC authorization TXT
+  record before the monitored-domain update becomes apply-ready.
+- The setup assistant now detects domains owned by another workspace during
+  preview and points operators to the existing domain instead of allowing a
+  predictable apply-time rollback.
 - DNS posture is now an immutable, versioned projection. Report ingestion only
   requests a coalesced background refresh; normal domain reads use the last
   accepted snapshot and retain it when a resolver fails or a single empty
