@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Persisted health evidence now records DNS cache/fallback provenance, resolver
+  route, selector inventory, and factor deltas. The domain detail view explains
+  whether a score movement reflects refreshed evidence rather than an unseen
+  DNS change; DNS-over-HTTPS is explicitly identified as bypassing port-53
+  interception logs.
 - Separated core mail health from DMARC protection and optional capability
   coverage. A healthy domain no longer loses its primary grade merely because
   BIMI, MTA-STS, or another optional hardening capability is not configured;

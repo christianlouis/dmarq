@@ -59,6 +59,42 @@ def _snapshot_evidence(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _factor_deltas(
+    previous: Dict[str, Any], current: Dict[str, Any]
+) -> Dict[str, int]:
+    return {
+        key: _as_int(current.get(key)) - _as_int(previous.get(key))
+        for key in sorted(set(previous) | set(current))
+        if _as_int(current.get(key)) != _as_int(previous.get(key))
+    }
+
+
+def _snapshot_change(
+    baseline: Optional[HealthScoreSnapshot],
+    *,
+    factors: Dict[str, Any],
+    score: Any,
+) -> Dict[str, Any]:
+    if baseline is None:
+        return {"kind": "initial_assessment", "score_delta": None, "factor_deltas": {}}
+    previous = _snapshot_evidence(baseline)
+    previous_factors = previous.get("factors") if isinstance(previous.get("factors"), dict) else {}
+    score_delta = _as_int(score) - _as_int(baseline.score)
+    factor_deltas = _factor_deltas(previous_factors, factors)
+    return {
+        "kind": "evidence_refresh",
+        "previous_snapshot_date": baseline.snapshot_date.isoformat(),
+        "previous_evidence_captured_at": baseline.updated_at.isoformat(),
+        "score_delta": score_delta,
+        "factor_deltas": factor_deltas,
+        "reason": (
+            "No scored factor changed; evidence was refreshed."
+            if score_delta == 0 and not factor_deltas
+            else "Score changed because the listed persisted factors changed."
+        ),
+    }
+
+
 def upsert_health_score_snapshot(
     db: Session,
     *,
@@ -84,6 +120,23 @@ def upsert_health_score_snapshot(
             HealthScoreSnapshot.snapshot_date == captured_date,
         )
         .one_or_none()
+    )
+    baseline = existing
+    if baseline is None:
+        baseline = (
+            db.query(HealthScoreSnapshot)
+            .filter(
+                HealthScoreSnapshot.workspace_id == workspace_id,
+                HealthScoreSnapshot.domain_name == domain_name,
+                HealthScoreSnapshot.snapshot_date < captured_date,
+            )
+            .order_by(HealthScoreSnapshot.snapshot_date.desc(), HealthScoreSnapshot.updated_at.desc())
+            .first()
+        )
+    change = _snapshot_change(
+        baseline,
+        factors=factors,
+        score=health.get("score"),
     )
     snapshot = existing or HealthScoreSnapshot(
         workspace_id=workspace_id,
@@ -112,6 +165,8 @@ def upsert_health_score_snapshot(
             "core_mail_health": health.get("core_mail_health") or {},
             "domain_protection": health.get("domain_protection") or {},
             "monitoring_confidence": health.get("monitoring_confidence") or {},
+            "dns_evidence": health.get("dns_evidence") or {},
+            "change": change,
             "factors": {
                 "dmarc_compliance": _as_int(factors.get("dmarc_compliance")),
                 "dns_posture": snapshot.dns_posture_score,
@@ -180,6 +235,8 @@ def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
             "band": "unknown",
             "reasons": [],
         },
+        "dns_evidence": evidence.get("dns_evidence") or {},
+        "change": evidence.get("change") or {},
     }
 
 

@@ -1002,7 +1002,11 @@ state, monitoring-confidence evidence, and capability coverage for DMARC, SPF,
 DKIM, MTA-STS, and BIMI. `score` remains a compatibility alias for
 `capability_coverage_score`; it is not the primary mail-health grade. Missing
 optional MTA-STS or BIMI capability never lowers core mail health by itself.
-actionable recommendations, recent provider-backed DNS drift summaries, and
+The persisted `health` object also includes `dns_evidence` (capture time,
+cache state, resolver route, fallback context, and selector inventory) and a
+`change` object with factor deltas. DNS-over-HTTPS routes do not appear in a
+local port-53 interception log. The response also includes actionable
+recommendations, recent provider-backed DNS drift summaries, and
 short operator playbooks. Recommendation and playbook evidence links point back
 to the page section that triggered the finding.
 
