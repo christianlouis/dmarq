@@ -70,6 +70,79 @@
         {% endcall %}
     {% endcall %}
 
+    {% if guided_mail_health_ui_enabled %}
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}How DMARQ explains findings{% endcall %}
+            {% call card_description() %}
+                Choose the amount of detail you want first. Evidence, warnings, and approval gates always remain available.
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <div x-show="!guidanceLoaded" class="flex items-center gap-2 text-sm text-base-content/60" role="status">
+                <span class="loading loading-spinner loading-xs"></span>
+                <span>Loading explanation preferences...</span>
+            </div>
+
+            <div x-show="guidanceLoaded" x-cloak class="space-y-5">
+                <div>
+                    <p class="text-sm font-semibold text-base-content/80">How much technical detail would be helpful?</p>
+                    <div class="mt-2 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Explanation detail">
+                        <template x-for="option in guidanceDepthOptions" :key="option.id">
+                            <button type="button"
+                                    class="min-h-24 rounded-md border p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                                    :class="guidanceChoiceClass(guidance.depth === option.id)"
+                                    :aria-checked="guidance.depth === option.id"
+                                    @click="guidance.depth = option.id"
+                                    role="radio">
+                                <span class="block text-sm font-semibold" x-text="option.label"></span>
+                                <span class="mt-1 block text-xs leading-5 text-base-content/60" x-text="option.example"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <div>
+                    <p class="text-sm font-semibold text-base-content/80">Open DMARQ in</p>
+                    <div class="mt-2 join" role="radiogroup" aria-label="Default work context">
+                        <template x-for="option in guidanceContextOptions" :key="option.id">
+                            <button type="button"
+                                    class="btn btn-sm join-item"
+                                    :class="guidance.context === option.id ? 'btn-primary' : 'btn-outline'"
+                                    :aria-checked="guidance.context === option.id"
+                                    @click="guidance.context = option.id"
+                                    role="radio"
+                                    x-text="option.label"></button>
+                        </template>
+                    </div>
+                    <p class="mt-2 text-xs leading-5 text-base-content/60" x-text="guidanceContextDescription"></p>
+                </div>
+
+                <label class="flex cursor-pointer items-start justify-between gap-4 rounded-md border border-base-300 p-3">
+                    <span>
+                        <span class="block text-sm font-semibold">Explain unfamiliar terms in context</span>
+                        <span class="mt-1 block text-xs leading-5 text-base-content/60">Short learning notes stay beside the finding that uses them.</span>
+                    </span>
+                    <input type="checkbox" class="toggle toggle-primary mt-1" x-model="guidance.teaching_hints_enabled">
+                </label>
+
+                <div x-show="guidanceError" role="alert" class="alert alert-error py-2 text-sm">
+                    <span x-text="guidanceError"></span>
+                </div>
+                <div x-show="guidanceSaved" role="status" class="alert alert-success py-2 text-sm">
+                    <span>Your explanation preferences are saved.</span>
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" class="btn btn-primary" :disabled="guidanceSaving" @click="saveGuidancePreference">
+                        <span x-show="guidanceSaving" class="loading loading-spinner loading-xs"></span>
+                        <span>Save explanation preferences</span>
+                    </button>
+                </div>
+            </div>
+        {% endcall %}
+    {% endcall %}
+    {% endif %}
+
     <!-- Account actions card -->
     {% if logto_configured and auth_provider == 'logto' and not auth_disabled %}
     {% call card() %}

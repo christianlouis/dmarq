@@ -347,6 +347,26 @@ the operator checklist, and writing a sanitized workspace audit event.
 Existing domains and mail sources are not duplicated. Existing notification
 settings are preserved unless `overwrite_existing` is set to `true`.
 
+### Guidance Profiles
+
+Guidance endpoints are scoped by `X-DMARQ-Workspace-ID`. They keep personal
+presentation separate from workspace-owned facts and never accept secrets.
+
+| Endpoint | Permission and purpose |
+| --- | --- |
+| `GET /workspaces/guidance/effective` | Read the resolved user preference, workspace fallback, and conservative defaults |
+| `GET /workspaces/guidance/preferences` | Read the caller's explanation depth, default context, and teaching-hint preference |
+| `PUT /workspaces/guidance/preferences` | Update the signed-in caller's presentation with read access; auth-disabled/API-key mode requires write access and stores the workspace fallback |
+| `GET /workspaces/guidance/workspace-profile` | Read shared goals, report-data preference, notification posture, non-secret mail context, and schema versions |
+| `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access and create a sanitized audit event |
+
+The workspace profile accepts ordered values from the documented goal and
+sovereignty enums. `mail_context` is restricted to known mail providers,
+`self_hosted_sender`, `dns_provider`, `report_intake_preference`, `controls_dns`,
+and `setup_effort`. Unknown keys and unsupported future interview versions
+return `422`. The effective response reports whether the preference came from
+the current user or the workspace fallback.
+
 ### Mail Source Backfills
 
 Mailbox backfills are admin endpoints for resumable historical imports. Creating

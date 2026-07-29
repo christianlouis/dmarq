@@ -20,17 +20,44 @@ Existing workspaces remain on the classic dashboard until the second step. An
 operator can return to it immediately with **Use classic dashboard**. A user
 may independently choose how much explanation they see and whether the guided
 card opens in **Watch**, **Diagnose**, or **Evidence** context; API-key and
-single-user deployments retain the workspace default.
+single-user deployments retain the workspace default. These choices live in
+**Profile > How DMARQ explains findings** and do not alter evidence, warning,
+permission, or DNS-approval behavior.
+
+## Profile boundaries
+
+DMARQ deliberately separates personal presentation from shared operational
+context:
+
+- Each signed-in user may select **Guide me**, **Balanced**, or **Full technical
+  detail**, a default Watch/Diagnose/Evidence context, and contextual teaching
+  hints. An analyst may change these personal values without workspace-write
+  permission.
+- The workspace stores ordered installation goals, report-data preference,
+  notification posture, and a small non-secret description of the mail setup.
+  Changing this shared profile requires workspace-write permission and creates
+  a sanitized audit event.
+- Auth-disabled and API-key single-user installations store presentation
+  choices on the workspace so a browser restart does not reset them.
+
+The profile schema is versioned. Mail context accepts only known providers,
+self-hosted-sender status, DNS provider, preferred report-intake route, DNS
+control, and setup-effort preference. Passwords, tokens, mailbox addresses,
+and arbitrary fields are rejected rather than persisted.
 
 ## Problem-first setup
 
 When `GUIDED_MAIL_HEALTH_UI_ENABLED=true`, a fresh self-hosted workspace can
 optionally state why it installed DMARQ: suspected delivery trouble, confusing
 reports, likely domain abuse, preventive monitoring, or simple curiosity. The
-answer is stored with the workspace; a signed-in person's chosen explanation
-depth is stored as their own presentation preference. It selects a clear first
-action, but does not enable the guided dashboard, alter DNS, or hide the
-established setup and evidence workflows.
+answer is stored as an ordered, versioned workspace goal; a signed-in person's
+chosen explanation depth is stored as their own presentation preference. The
+same interview can record whether the operator prefers a local data path,
+privacy, a balanced trade-off, convenience, or help deciding. These options
+rank future intake advice but never claim one hosting model is universally
+better. The profile selects a clear first action, but does not enable the
+guided dashboard, alter DNS, or hide the established setup and evidence
+workflows.
 
 Guidance intentionally describes aggregate DMARC reports as authentication and
 receiver-policy evidence. It does not present them as proof of an individual
