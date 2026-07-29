@@ -2717,6 +2717,99 @@
                 </div>
             {% endcall %}
             {% call card_content() %}
+                <section id="mailflow-diagnosis" class="mb-5 border-b border-base-300 pb-5" aria-labelledby="mailflow-diagnosis-heading">
+                    <template x-if="sourcesLoading">
+                        <div class="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                            <span class="loading loading-spinner loading-sm"></span>
+                            <span>Reading saved mailflow evidence...</span>
+                        </div>
+                    </template>
+                    <template x-if="!sourcesLoading && !sourcesError">
+                        <div>
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-xs font-semibold uppercase text-[#5f5c78]">Mailflow diagnosis</p>
+                                        <span class="rounded px-2 py-1 text-xs font-semibold"
+                                              :class="mailflowStatusClass(mailflowAssessment.status)"
+                                              x-text="mailflowStatusLabel(mailflowAssessment.status)"></span>
+                                        <span class="text-xs text-muted-foreground">
+                                            Confidence: <span x-text="mailflowAssessment.confidence"></span>
+                                        </span>
+                                    </div>
+                                    <h3 id="mailflow-diagnosis-heading" class="mt-2 text-base font-semibold text-[#07071f]" x-text="mailflowAssessment.title"></h3>
+                                    <p class="mt-1 max-w-4xl text-sm text-[#45505f]" x-text="mailflowAssessment.summary"></p>
+                                    <p class="mt-3 text-sm text-[#120d36]">
+                                        <span class="font-semibold">Next step: </span>
+                                        <span x-text="mailflowAssessment.next_step"></span>
+                                    </p>
+                                </div>
+                                <a x-show="mailflowAssessment.status === 'action_required'"
+                                   href="#mailflow-repair"
+                                   class="btn btn-sm shrink-0 border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">
+                                    Review DKIM repair
+                                </a>
+                            </div>
+
+                            <details id="mailflow-repair"
+                                     class="mt-4 rounded-md border border-base-300 bg-[var(--dmarq-surface-section)]"
+                                     :open="mailflowAssessment.status === 'action_required'"
+                                     x-show="mailflowAssessment.repair_steps && mailflowAssessment.repair_steps.length">
+                                <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">
+                                    Repair and verification steps
+                                </summary>
+                                <div class="border-t border-base-300 px-3 py-3">
+                                    <ol class="list-decimal space-y-2 pl-5 text-sm text-[#45505f]">
+                                        <template x-for="(step, index) in mailflowAssessment.repair_steps" :key="'mailflow-step-' + index">
+                                            <li x-text="step"></li>
+                                        </template>
+                                    </ol>
+                                    <p class="mt-3 text-xs font-medium text-[#176d74]">
+                                        <span>Verified when: </span><span x-text="mailflowAssessment.verification_condition"></span>
+                                    </p>
+                                    <p class="mt-2 text-xs text-muted-foreground" x-text="mailflowAssessment.evidence_scope"></p>
+                                </div>
+                            </details>
+
+                            <details class="mt-3" x-show="mailflowAssessment.flows && mailflowAssessment.flows.length">
+                                <summary class="cursor-pointer text-sm font-semibold text-[#272a5f]">
+                                    Mailflow identities
+                                    <span class="ml-1 font-normal text-muted-foreground" x-text="'(' + mailflowAssessment.flows.length + ')' "></span>
+                                </summary>
+                                <div class="mt-3 divide-y divide-base-300 border-y border-base-300">
+                                    <template x-for="flow in mailflowAssessment.flows" :key="flow.source_ip">
+                                        <div class="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="font-mono text-xs" x-text="flow.source_ip"></span>
+                                                    <span class="text-sm font-semibold" x-text="flow.sender_name"></span>
+                                                    <span class="rounded px-2 py-0.5 text-xs font-semibold"
+                                                          :class="mailflowStatusClass(flow.status === 'healthy' ? 'healthy' : (flow.status === 'likely_unauthorized' ? 'no_action_likely_unauthorized_use' : (['intermittent_dkim_alignment', 'investigate_alignment', 'investigate_source'].includes(flow.status) ? 'investigation_required' : (flow.status === 'insufficient_evidence' ? 'insufficient_evidence' : 'action_required'))))"
+                                                          x-text="flow.label"></span>
+                                                </div>
+                                                <p class="mt-1 text-xs text-muted-foreground" x-text="flow.detail"></p>
+                                                <div class="mt-2 flex flex-wrap gap-1.5">
+                                                    <template x-for="value in mailflowIdentityValues(flow)" :key="value">
+                                                        <span class="rounded bg-base-200 px-2 py-1 text-xs text-base-content/75" x-text="value"></span>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-wrap items-start gap-2 text-xs md:justify-end">
+                                                <span class="rounded px-2 py-1 font-semibold" :class="mailflowAlignmentClass(flow.spf_alignment)">
+                                                    SPF <span x-text="mailflowAlignmentLabel(flow.spf_alignment)"></span>
+                                                </span>
+                                                <span class="rounded px-2 py-1 font-semibold" :class="mailflowAlignmentClass(flow.dkim_alignment)">
+                                                    DKIM <span x-text="mailflowAlignmentLabel(flow.dkim_alignment)"></span>
+                                                </span>
+                                                <span class="rounded bg-base-200 px-2 py-1 font-semibold" x-text="formatLargeNumber(flow.message_count) + ' messages'"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </details>
+                        </div>
+                    </template>
+                </section>
                 <p x-show="sourceReputationRefreshError"
                    x-cloak
                    class="mb-4 rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"

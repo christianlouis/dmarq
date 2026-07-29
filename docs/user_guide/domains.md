@@ -257,6 +257,34 @@ directly to that part of the domain detail page.
 
 ### Source Intelligence
 
+The **Sending Sources** section begins with a focused mailflow diagnosis built
+from the same daily facts that DMARQ stores during report ingestion. It maps the
+observed Header From, Envelope From, aligned SPF domain, DKIM signing domain,
+and DKIM selector for each source path. This read does not contact DNS,
+reputation services, or the sending provider.
+
+When an active or SPF-authorized path has no aligned DKIM pass, DMARQ explains
+that the path may be relying on SPF alone and gives one repair sequence:
+
+1. Confirm that DKIM signing is enabled for the domain in the sending service.
+2. Generate or rotate a domain-specific key if no usable key exists.
+3. Publish the exact selector record supplied by that service.
+4. Send or forward a controlled message after public DNS resolves the record.
+5. Keep the repair open until a fresh aggregate report shows aligned DKIM.
+
+Aggregate reports cannot prove whether the provider has disabled signing, lost
+a private key, or signed with the wrong domain. DMARQ therefore labels that
+root cause as unknown unless optional provider evidence confirms it. Private
+DKIM keys are never requested or imported. Unknown sources that fail DMARC and
+are already quarantined or rejected are kept as evidence without receiving a
+misleading DKIM repair recommendation. A recognized provider name does not by
+itself prove that the observed tenant is authorized for the domain.
+
+Daily source projections group observations by source IP. If one IP has both
+passing and failing DKIM outcomes, DMARQ shows the observed identity values but
+does not claim that a particular selector caused the failure. It asks the
+operator to separate the failing identity before changing DKIM.
+
 The domain detail page groups sending sources into regions, reverse DNS
 hostnames, ASNs, BGP prefixes, registries, and likely network operators when
 that evidence is available from reports or cached sender-network enrichment.

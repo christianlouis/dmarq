@@ -106,6 +106,7 @@ from app.services.mail_service_imports import (
     preview_mail_service_import,
     supported_mail_service_import_providers,
 )
+from app.services.mailflow_assessment import build_domain_mailflow_assessment
 from app.services.migration_import import preview_migration_import
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.organizations import (
@@ -2041,6 +2042,54 @@ class SourceVolumeHistoryEntry(BaseModel):
     failed: int = 0
 
 
+class MailflowIdentity(BaseModel):
+    """Report-backed authentication identity for one sending path."""
+
+    source_ip: str
+    sender_name: str
+    sender_status: str
+    status: str
+    label: str
+    detail: str
+    message_count: int = 0
+    header_from_domains: List[str] = Field(default_factory=list)
+    envelope_from_domains: List[str] = Field(default_factory=list)
+    spf_domains: List[str] = Field(default_factory=list)
+    dkim_domains: List[str] = Field(default_factory=list)
+    dkim_selectors: List[str] = Field(default_factory=list)
+    spf_alignment: str = "unknown"
+    dkim_alignment: str = "unknown"
+    dmarc_status: str = "unknown"
+    receiver_disposition: str = "none"
+    intended_mail_impact: str = "unknown"
+    evidence_level: str = "observed"
+    provider_evidence_status: str = "not_connected"
+    next_step: str
+    verification_condition: str
+
+
+class DomainMailflowAssessment(BaseModel):
+    """Focused DKIM diagnosis derived from stored aggregate-report facts."""
+
+    domain: str
+    status: str
+    title: str
+    summary: str
+    next_step: str
+    cta_label: str
+    cta_href: str
+    confidence: str
+    evidence_scope: str
+    known_facts: List[str] = Field(default_factory=list)
+    inferences: List[str] = Field(default_factory=list)
+    unknowns: List[str] = Field(default_factory=list)
+    repair_steps: List[str] = Field(default_factory=list)
+    verification_condition: str
+    primary_source_ip: Optional[str] = None
+    counts: Dict[str, int] = Field(default_factory=dict)
+    flows: List[MailflowIdentity] = Field(default_factory=list)
+
+
 class SourceEntry(BaseModel):
     """Summary of a sending source"""
 
@@ -2069,7 +2118,9 @@ class SourceEntry(BaseModel):
     # individual delivery; use the explicit observation fields below instead.
     authentication_status: str = "unknown"
     authentication_label: str = "Authentication result unknown"
-    authentication_detail: str = "No receiver authentication observation is available for this source."
+    authentication_detail: str = (
+        "No receiver authentication observation is available for this source."
+    )
     receiver_disposition: str = "unknown"
     receiver_disposition_label: str = "Receiver-reported disposition unavailable"
     evidence_kind: str = "dmarc_aggregate_report"
@@ -2085,6 +2136,7 @@ class SourceEntry(BaseModel):
     reputation: Optional[SourceReputationResponse] = None
     spf_fix_hint: Optional[str] = None
     recommendations: List[SourceRecommendation] = Field(default_factory=list)
+    mailflow: Optional[MailflowIdentity] = None
 
 
 class DomainReportsResponse(BaseModel):
@@ -2098,6 +2150,7 @@ class DomainSourcesResponse(BaseModel):
     """Domain sending sources"""
 
     sources: List[SourceEntry]
+    mailflow_assessment: DomainMailflowAssessment
 
 
 class SourceIntelligenceResponse(BaseModel):
@@ -8964,6 +9017,16 @@ async def get_domain_sources(
         )
         source_context.append((source, hostname, sender_by_ip[ip]))
 
+    mailflow_assessment = build_domain_mailflow_assessment(
+        domain_name,
+        sources,
+        sender_by_ip,
+    )
+    mailflow_by_ip = {
+        str(flow.get("source_ip") or "unknown"): flow
+        for flow in mailflow_assessment.get("flows") or []
+    }
+
     reputations_by_ip = (
         await _source_reputations_by_ip(
             db,
@@ -9049,10 +9112,14 @@ async def get_domain_sources(
                 ),
                 spf_fix_hint=spf_fix_hint,
                 recommendations=recommendations,
+                mailflow=mailflow_by_ip.get(str(ip)),
             )
         )
 
-    return DomainSourcesResponse(sources=source_entries)
+    return DomainSourcesResponse(
+        sources=source_entries,
+        mailflow_assessment=DomainMailflowAssessment(**mailflow_assessment),
+    )
 
 
 @router.get("/{domain_id}/source-reputation", response_model=DomainSourceReputationResponse)

@@ -309,12 +309,12 @@ const domainSources = {
       hostname: sourceOwned.hostname,
       total_count: 137,
       count: 137,
-      dmarc: 'mixed',
-      dmarc_result: 'mixed',
+      dmarc: 'pass',
+      dmarc_result: 'pass',
       spf: 'pass',
       spf_result: 'pass',
-      dkim: 'mixed',
-      dkim_result: 'mixed',
+      dkim: 'fail',
+      dkim_result: 'fail',
       disposition: 'none',
       last_seen: 1782950399,
       first_seen: 1754352000,
@@ -330,9 +330,79 @@ const domainSources = {
           action: 'Publish or repair the mail selector for mx1.cklnet.com.',
         },
       ],
-      volume_history: [{ date: '2026-07-02', count: 137, passed: 130, failed: 7 }],
+      volume_history: [{ date: '2026-07-02', count: 137, passed: 137, failed: 0 }],
     },
   ],
+  mailflow_assessment: {
+    domain: 'cklnet.com',
+    status: 'action_required',
+    title: 'Repair DKIM signing for an active mailflow',
+    summary: 'DMARQ observed one active path for cklnet.com without reliable aligned DKIM.',
+    next_step: 'Confirm DKIM signing for this domain in the sending service',
+    cta_label: 'Review DKIM repair',
+    cta_href: '#mailflow-diagnosis',
+    confidence: 'High',
+    evidence_scope: 'Aggregate DMARC reports prove receiver authentication observations, not final delivery.',
+    known_facts: ['2 active source paths were observed in the selected window.'],
+    inferences: ['The owned path passes through SPF but has no aligned DKIM pass.'],
+    unknowns: ['The exact provider-side root cause remains unknown without provider evidence.'],
+    repair_steps: [
+      'Confirm DKIM signing is enabled for cklnet.com in the sending service.',
+      'Publish the exact selector record supplied by the sender.',
+      'Send or forward one controlled message.',
+    ],
+    verification_condition: 'A fresh aggregate report shows aligned DKIM passing on the affected path.',
+    primary_source_ip: '2a01:4f8:c17:311b::1',
+    counts: { healthy: 1, aligned_dkim_not_observed: 1 },
+    flows: [
+      {
+        source_ip: '50.31.205.203',
+        sender_name: 'Postmark',
+        sender_status: 'known',
+        status: 'healthy',
+        label: 'Aligned DKIM observed',
+        detail: 'Receivers reported aligned DKIM for 2736 messages.',
+        message_count: 2736,
+        header_from_domains: ['cklnet.com'],
+        envelope_from_domains: ['pm.mtasv.net'],
+        spf_domains: ['pm.mtasv.net'],
+        dkim_domains: ['cklnet.com'],
+        dkim_selectors: ['pm'],
+        spf_alignment: 'pass',
+        dkim_alignment: 'pass',
+        dmarc_status: 'pass',
+        receiver_disposition: 'none',
+        intended_mail_impact: 'likely_not_affected',
+        evidence_level: 'observed',
+        provider_evidence_status: 'not_connected',
+        next_step: 'Keep report intake running',
+        verification_condition: 'Keep receiving aligned DKIM passes.',
+      },
+      {
+        source_ip: '2a01:4f8:c17:311b::1',
+        sender_name: 'Owned infrastructure',
+        sender_status: 'known',
+        status: 'aligned_dkim_not_observed',
+        label: 'Aligned DKIM not observed',
+        detail: 'Receivers evaluated 137 messages without aligned DKIM.',
+        message_count: 137,
+        header_from_domains: ['cklnet.com'],
+        envelope_from_domains: ['cklnet.com'],
+        spf_domains: ['cklnet.com'],
+        dkim_domains: ['cklnet.com'],
+        dkim_selectors: ['mail'],
+        spf_alignment: 'pass',
+        dkim_alignment: 'not_observed',
+        dmarc_status: 'pass',
+        receiver_disposition: 'none',
+        intended_mail_impact: 'fragile',
+        evidence_level: 'observed',
+        provider_evidence_status: 'not_connected',
+        next_step: 'Confirm DKIM signing for this domain in the sending service',
+        verification_condition: 'A fresh aggregate report shows aligned DKIM passing.',
+      },
+    ],
+  },
 };
 
 const domainSourceIntelligence = {
@@ -1185,6 +1255,27 @@ test('onboarding page keeps setup controls wired without inline handlers', async
   await page.getByRole('button', { name: 'Preview tasks' }).click();
   await expect(page.getByText('Preview is ready. Review the task list before applying setup.')).toBeVisible();
   await expect(page.getByText('Review DNS posture')).toBeVisible();
+});
+
+test('domain sender view guides DKIM repair from saved mailflow evidence', async ({ page }) => {
+  await page.goto('/domains/cklnet.com#sending-sources');
+
+  const sendingSources = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Sending sources' }),
+  });
+  await expect(sendingSources).toHaveAttribute('open', '');
+  await expect(sendingSources.getByRole('heading', { name: 'Repair DKIM signing for an active mailflow' })).toBeVisible();
+  await expect(sendingSources.getByText('Next step: Confirm DKIM signing for this domain in the sending service')).toBeVisible();
+  await expect(sendingSources.getByText('Confirm DKIM signing is enabled for cklnet.com')).toBeVisible();
+  await sendingSources.getByText('Mailflow identities').click();
+  await expect(sendingSources.getByText('DKIM domain: cklnet.com').first()).toBeVisible();
+  await expect(sendingSources.getByText('Selector: mail')).toBeVisible();
+  await expect(sendingSources.getByText('Aligned DKIM observed')).toBeVisible();
+  await expect(sendingSources.getByText('Aligned DKIM not observed')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/domains/cklnet.com#sending-sources');
+  await expect(page.getByRole('heading', { name: 'Repair DKIM signing for an active mailflow' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 });
 
 test('domain detail shows cached DNS evidence and sender reputation context', async ({ page }) => {
