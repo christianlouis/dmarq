@@ -21,7 +21,8 @@ Routing.
 5. Add the collector to each domain's DMARC `rua` tag without removing existing
    destinations.
 6. For an external collector domain, publish the required authorization TXT
-   record at `<policy-domain>._report._dmarc.<collector-domain>`.
+   record at `<policy-domain>._report._dmarc.<collector-domain>` with the exact
+   TXT value `v=DMARC1;`.
 7. Trigger the connected DMARQ mailbox source and confirm the report is
    imported.
 
