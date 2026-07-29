@@ -2446,6 +2446,7 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "expected_record_type" in script
     assert "expected_current_values" in script
     assert "expected_record_id" in script
+    assert "expected_proposed_value" in script
     assert "x-html" not in template
 
 

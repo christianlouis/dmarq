@@ -2663,7 +2663,8 @@ function domainDetailsApp(domainId = '') {
                         confirm: apply,
                         expected_record_type: apply ? this.dnsWrite.preview?.mutation?.current_record_type : null,
                         expected_current_values: apply ? this.dnsWrite.preview?.mutation?.current_values : null,
-                        expected_record_id: apply ? this.dnsWrite.preview?.mutation?.record_id : null
+                        expected_record_id: apply ? this.dnsWrite.preview?.mutation?.record_id : null,
+                        expected_proposed_value: apply ? this.dnsWrite.preview?.mutation?.content : null
                     })
                 });
                 const data = await response.json();

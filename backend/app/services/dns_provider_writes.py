@@ -66,6 +66,14 @@ class DNSProviderWriteError(ValueError):
     """Raised when a provider write cannot be safely prepared or applied."""
 
 
+def _normalize_reviewed_values(values: List[str], record_type: str) -> List[str]:
+    """Normalize reviewed provider values for safe preview/apply baseline checks."""
+    normalized = [str(value) for value in values]
+    if record_type.upper() == "CNAME":
+        return [value.rstrip(".").lower() for value in normalized]
+    return normalized
+
+
 @dataclass
 class DNSWriteMutation:
     """Concrete provider mutation derived from a DMARQ DNS change plan."""
@@ -706,6 +714,23 @@ class LexiconDNSWriteProvider:
                     "Multiple provider records match this name/type; merge them manually first"
                 ),
             )
+        if _is_record_type_replacement(plan) and current:
+            return DNSWriteMutation(
+                operation=str(plan["operation"]).lower(),
+                record_type=record_type,
+                name=record_name,
+                content=value,
+                ttl=ttl,
+                provider=self.provider_id,
+                record_id=str(current[0].get("id") or ""),
+                current_values=current_values,
+                current_record_type=current_record_type,
+                effective_value=plan.get("effective_value"),
+                blocked_reason=(
+                    "Lexicon providers do not support reviewed record-type replacements; "
+                    "use Cloudflare or migrate this record manually"
+                ),
+            )
         operation = (
             "noop"
             if not _is_record_type_replacement(plan) and current_values == [value]
@@ -978,6 +1003,7 @@ async def apply_dns_write(
     expected_record_type: Optional[str] = None,
     expected_current_values: Optional[List[str]] = None,
     expected_record_id: Optional[str] = None,
+    expected_proposed_value: Optional[str] = None,
 ) -> DNSWriteResult:
     """Apply one provider-backed DNS mutation after validation."""
     if get_settings().DEMO_MODE:
@@ -998,9 +1024,17 @@ async def apply_dns_write(
             raise DNSProviderWriteError(
                 "Provider record type changed after preview; refresh and review the change again"
             )
-    if expected_current_values is not None and mutation.current_values != expected_current_values:
+    if expected_current_values is not None:
+        record_type = str(mutation.current_record_type or mutation.record_type).upper()
+        actual_values = _normalize_reviewed_values(mutation.current_values, record_type)
+        reviewed_values = _normalize_reviewed_values(expected_current_values, record_type)
+        if actual_values != reviewed_values:
+            raise DNSProviderWriteError(
+                "Provider values changed after preview; refresh and review the change again"
+            )
+    if expected_proposed_value is not None and mutation.content != expected_proposed_value:
         raise DNSProviderWriteError(
-            "Provider values changed after preview; refresh and review the change again"
+            "Proposed DNS value changed after preview; refresh and review the change again"
         )
     if expected_record_id is not None and mutation.record_id != expected_record_id:
         raise DNSProviderWriteError(

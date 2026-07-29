@@ -3620,8 +3620,9 @@ def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
                 "dry_run": False,
                 "confirm": True,
                 "expected_record_type": "CNAME",
-                "expected_current_values": ["_dmarc.shared.example.net"],
+                "expected_current_values": ["_dmarc.shared.example.net."],
                 "expected_record_id": "dmarc-cname",
+                "expected_proposed_value": plan["proposed_value"],
             },
         )
 
@@ -3638,6 +3639,56 @@ def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
     assert details["mutation"]["current_record_type"] == "CNAME"
     assert details["mutation"]["effective_value"] == plan["effective_value"]
     assert details["rollback"]["previous_record_type"] == "CNAME"
+
+
+def test_dns_change_plan_apply_rejects_tampered_cname_migration_value(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN, verified=True))
+    db_session.commit()
+    plan = _cname_migration_plan()
+    original = _record(
+        "dmarc-cname",
+        "CNAME",
+        f"_dmarc.{DOMAIN}",
+        "_dmarc.shared.example.net",
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": [original]}),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=FakeWriteCloudflareProvider(
+                zones=[{"id": "zone-1", "name": DOMAIN}],
+                records=[original],
+            ),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+                "value": "v=DMARC1; p=reject",
+                "expected_record_type": "CNAME",
+                "expected_current_values": ["_dmarc.shared.example.net"],
+                "expected_record_id": "dmarc-cname",
+                "expected_proposed_value": plan["proposed_value"],
+            },
+        )
+
+    assert response.status_code == 422
+    assert "Proposed DNS value changed after preview" in response.json()["detail"]
 
 
 def test_dns_change_plan_requires_reviewed_baseline_for_cname_migration_apply(
@@ -4230,6 +4281,28 @@ def test_lexicon_write_provider_blocks_duplicate_records(db_session):
     assert mutation.applicable is False
     assert mutation.current_values == ["v=DMARC1; p=none", "v=DMARC1; p=reject"]
     assert "Multiple provider records" in mutation.blocked_reason
+
+
+def test_lexicon_write_provider_blocks_record_type_replacements(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {"id": "record-1", "content": "_dmarc.shared.example.net"}
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_cname_migration_plan(),
+                value_override=None,
+                ttl=1,
+            )
+        )
+
+    assert mutation.applicable is False
+    assert mutation.record_id == "record-1"
+    assert "record-type replacements" in mutation.blocked_reason
 
 
 def test_cloudflare_discover_denies_user_without_workspace_membership(

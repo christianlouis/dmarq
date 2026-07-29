@@ -1145,6 +1145,7 @@ class DNSWriteApplyRequest(BaseModel):
     expected_record_type: Optional[str] = None
     expected_current_values: Optional[List[str]] = None
     expected_record_id: Optional[str] = None
+    expected_proposed_value: Optional[str] = None
 
 
 class DNSWriteMutationResponse(BaseModel):
@@ -6626,6 +6627,7 @@ async def apply_domain_dns_change_plan(
                 payload.expected_record_type is None
                 or payload.expected_current_values is None
                 or payload.expected_record_id is None
+                or payload.expected_proposed_value is None
             ):
                 raise DNSProviderWriteError(
                     "Preview this record-type migration again before applying it; "
@@ -6643,6 +6645,7 @@ async def apply_domain_dns_change_plan(
                 expected_record_type=payload.expected_record_type,
                 expected_current_values=payload.expected_current_values,
                 expected_record_id=payload.expected_record_id,
+                expected_proposed_value=payload.expected_proposed_value,
             )
     except DNSProviderWriteError as exc:
         raise HTTPException(
