@@ -1425,7 +1425,6 @@ test('onboarding preserves valid specialist goals when preferences change', asyn
   expect(savedWorkspaceProfile.installation_goals).toEqual(['investigate_bounces']);
   expect(savedWorkspaceProfile.sovereignty_preference).toBe('balanced');
 });
-
 test('domain sender view guides DKIM repair from saved mailflow evidence', async ({ page }) => {
   await page.goto('/domains/cklnet.com#sending-sources');
 

@@ -388,12 +388,10 @@ function workspaceOnboarding(options = {}) {
                 const data = await response.json();
                 this.guidanceInterviewCompleted = Boolean(data.interview_completed);
                 this.guidanceDepth = data.depth || 'guided';
-                const legacyGoal = data.goal || '';
                 this.installationGoals = Array.isArray(data.installation_goals)
                     ? data.installation_goals.filter(goal => Boolean(this.guidanceUiGoals[goal]))
                     : [];
-                const primaryGoal = this.installationGoals[0] || this.guidanceGoalIds[legacyGoal] || legacyGoal;
-                this.selectedGoal = this.guidanceUiGoals[primaryGoal] || '';
+                this.selectedGoal = this.guidedGoalForProfile(data);
                 if (!this.installationGoals.length && this.selectedGoal) {
                     this.installationGoals = [this.guidanceGoalIds[this.selectedGoal]];
                 }
@@ -405,6 +403,14 @@ function workspaceOnboarding(options = {}) {
             } catch (_) {
                 // The setup path remains usable when optional guidance is unavailable.
             }
+        },
+        guidedGoalForProfile(data) {
+            const legacyGoal = data && typeof data.goal === 'string' ? data.goal : '';
+            const primaryGoal = data && Array.isArray(data.installation_goals)
+                ? data.installation_goals[0]
+                : '';
+            const profileGoal = primaryGoal || this.guidanceGoalIds[legacyGoal] || legacyGoal;
+            return this.guidanceUiGoals[profileGoal] || '';
         },
         async saveGoal(goal) {
             if (this.savingGoal) return;

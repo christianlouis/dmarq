@@ -275,6 +275,16 @@ def _run_onboarding_expression(storage: dict[str, str], expression: str) -> obje
     return json.loads(result.stdout)
 
 
+def test_onboarding_maps_specialist_goals_to_an_editable_guided_category():
+    assert (
+        _run_onboarding_expression(
+            {},
+            "app.guidedGoalForProfile({goal: 'investigate_bounces', installation_goals: ['investigate_bounces']})",
+        )
+        == "delivery_problem"
+    )
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 
