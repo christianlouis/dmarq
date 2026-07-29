@@ -57,7 +57,7 @@ GMAIL_SCOPES = [
 # ---------------------------------------------------------------------------
 
 DMARC_GMAIL_QUERY = (
-    "((has:attachment (filename:zip OR filename:gz OR filename:xml)) "
+    "-in:trash ((has:attachment (filename:zip OR filename:gz OR filename:xml)) "
     'OR subject:"DMARC failure" OR subject:"failure report" OR subject:forensic OR subject:ruf) '
     "(subject:dmarc OR subject:report OR subject:rua OR subject:submitter "
     'OR subject:"aggregate report" OR subject:"domain report" '
@@ -319,6 +319,10 @@ class GmailClient:
                 "userId": "me",
                 "q": self._search_query(days),
                 "maxResults": _PAGE_SIZE,
+                # Aggregate reports can be classified as spam because they are
+                # automated and frequently forwarded by a collector. Trash is
+                # still excluded explicitly in DMARC_GMAIL_QUERY.
+                "includeSpamTrash": True,
             }
             if page_token:
                 kwargs["pageToken"] = page_token

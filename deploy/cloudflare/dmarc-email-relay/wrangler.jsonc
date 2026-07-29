@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dmarq-email-ingest",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-29",
+  "vars": {
+    "COLLECTOR_ADDRESS": "dmarc@example.com",
+    "DESTINATION_ADDRESS": "verified-dmarc-mailbox@example.com"
+  }
+}

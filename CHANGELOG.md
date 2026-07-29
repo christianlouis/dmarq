@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a deployable Cloudflare Email Worker relay for installations that
+  already use a DMARQ Gmail or IMAP source. The relay accepts one configured
+  collector address, preserves the raw report attachments, and forwards only
+  to a Cloudflare-verified destination mailbox.
 - DNS change plans now show the observed value, proposed value, exact tag/value
   diff, and the lint rationale for every proposed record. Identical values are
   treated as no-op evidence rather than a misleading DNS change.
@@ -59,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Gmail report discovery now includes DMARC messages classified as spam while
+  continuing to exclude Trash. This keeps Cloudflare Email Worker relays and
+  other legitimate automated forwarders from silently starving report intake.
 - Authenticated domain DNS guidance now carries the same provider-preview
   readiness as the dedicated change-plan API, so concrete TXT/CNAME repairs
   can be previewed and explicitly approved from the domain page instead of
