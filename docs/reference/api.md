@@ -802,8 +802,11 @@ history where the provider supports it. Apply responses also include a
 `1.1.1.1` and `8.8.8.8`; provider success alone leaves the result in
 `propagation_pending`. Treat a repair as complete only when
 `verification.verified=true`;
-otherwise the mutation was submitted but the provider readback did not yet show
-the expected DNS value. The same response includes a `rollback` object with a
+`false` means either that provider readback did not return the exclusive expected
+value, or that provider readback succeeded while one or both public resolvers have
+not converged yet. Inspect `verification.status`, `message`, and `resolver_checks`
+to distinguish a failed provider readback from `propagation_pending`; do not roll
+back solely because public DNS is still propagating. The same response includes a `rollback` object with a
 summary, manual steps, captured `previous_values` when available, and
 `previous_record_type` for record-type migrations, plus
 `requires_manual_review=true`. DMARQ does not automatically roll back provider

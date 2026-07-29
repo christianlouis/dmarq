@@ -401,7 +401,12 @@ async def test_cached_cname_dmarc_policy_keeps_inherited_finding():
     )
     assert finding.primary_eligible is True
     assert "_dmarc.shared.example.net" in finding.detail
-    assert guidance.change_plans[0].current_record_type == "CNAME"
+    plan = next(
+        item
+        for item in guidance.change_plans
+        if item.finding_code == "dmarc_report_destination_cname_migration"
+    )
+    assert plan.current_record_type == "CNAME"
 
 
 @pytest.mark.asyncio

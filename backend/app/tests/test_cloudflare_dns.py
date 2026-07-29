@@ -7,6 +7,8 @@ import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import dns.exception
+import dns.resolver
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -3584,7 +3586,7 @@ def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
         "dmarc-cname",
         "CNAME",
         f"_dmarc.{DOMAIN}",
-        "_dmarc.shared.example.net",
+        "_DMARC.SHARED.EXAMPLE.NET.",
     )
     provider = FakeWriteCloudflareProvider(
         zones=[{"id": "zone-1", "name": DOMAIN}],
@@ -4068,6 +4070,121 @@ def test_record_type_replacement_is_verified_when_both_public_resolvers_agree():
     assert "both public resolvers agree" in verification.message
 
 
+class _FakePublicResolver:
+    def __init__(self, answers):
+        self.answers = answers
+        self.nameservers = []
+        self.timeout = 0
+        self.lifetime = 0
+
+    async def resolve(self, _name, record_type):
+        result = self.answers[record_type]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+def _public_resolver_check(mutation, answers):
+    resolver = _FakePublicResolver(answers)
+    with patch("dns.asyncresolver.Resolver", return_value=resolver):
+        return asyncio.run(
+            dns_provider_writes._public_resolver_record_check(  # pylint: disable=protected-access
+                mutation,
+                "1.1.1.1",
+            )
+        )
+
+
+def test_public_resolver_check_joins_txt_strings_and_accepts_absent_previous_type():
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+    )
+
+    result = _public_resolver_check(
+        mutation,
+        {
+            "TXT": [SimpleNamespace(strings=(b"v=DMARC1; ", b"p=reject"))],
+            "CNAME": dns.resolver.NoAnswer(),
+        },
+    )
+
+    assert result["verified"] is True
+    assert result["values"] == [mutation.content]
+    assert result["previous_type_present"] is False
+
+
+@pytest.mark.parametrize("missing_answer", ["nxdomain", "noanswer"])
+def test_public_resolver_check_treats_missing_expected_record_as_pending(missing_answer):
+    missing = dns.resolver.NXDOMAIN() if missing_answer == "nxdomain" else dns.resolver.NoAnswer()
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+    )
+
+    result = _public_resolver_check(
+        mutation,
+        {"TXT": missing, "CNAME": dns.resolver.NoAnswer()},
+    )
+
+    assert result["status"] == "propagation_pending"
+    assert result["verified"] is False
+    assert result["values"] == []
+
+
+@pytest.mark.parametrize("lookup_error", [OSError("offline"), pytest.param("timeout", id="dns")])
+def test_public_resolver_check_reports_lookup_errors_as_unavailable(lookup_error):
+    error = dns.exception.Timeout() if lookup_error == "timeout" else lookup_error
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+    )
+
+    result = _public_resolver_check(mutation, {"TXT": error})
+
+    assert result["status"] == "unavailable"
+    assert result["verified"] is False
+
+
+def test_public_resolver_check_rejects_visible_previous_record_type():
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+    )
+
+    result = _public_resolver_check(
+        mutation,
+        {
+            "TXT": [SimpleNamespace(strings=(mutation.content.encode(),))],
+            "CNAME": [SimpleNamespace()],
+        },
+    )
+
+    assert result["status"] == "propagation_pending"
+    assert result["previous_type_present"] is True
+    assert result["verified"] is False
+
+
 def test_cloudflare_write_provider_blocks_inapplicable_mutation(db_session):
     provider = CloudflareDNSWriteProvider()
     mutation = DNSWriteMutation(
@@ -4183,6 +4300,32 @@ def test_lexicon_write_provider_rejects_failed_apply(db_session):
         )
         with pytest.raises(DNSProviderWriteError, match="did not apply"):
             asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
+def test_lexicon_write_provider_blocks_record_type_replacements(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {
+            "id": "record-1",
+            "type": "CNAME",
+            "name": f"_dmarc.{DOMAIN}",
+            "content": "_dmarc.shared.example.net.",
+        }
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_cname_migration_plan(),
+                value_override=None,
+                ttl=300,
+            )
+        )
+
+    assert mutation.applicable is False
+    assert "cannot safely replace a DNS record type" in mutation.blocked_reason
 
 
 def test_lexicon_write_provider_prepares_noop_for_matching_record(db_session):
