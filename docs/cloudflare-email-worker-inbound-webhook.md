@@ -24,6 +24,16 @@ DMARQ POST /api/v1/webhook/email  or  /api/v1/webhook/email/raw
 DMARC attachment import (no DNS writes)
 ```
 
+If DMARQ already polls a Gmail or IMAP mailbox, the repository also includes a
+secretless relay Worker under
+[`deploy/cloudflare/dmarc-email-relay`](../deploy/cloudflare/dmarc-email-relay/README.md).
+It preserves the raw message and forwards it to a Cloudflare-verified mailbox,
+where the normal DMARQ mailbox source imports the attachment. Use the direct
+webhook flow below when the deployment should not depend on a mailbox.
+The Gmail connector searches the spam folder for matching DMARC attachments
+because automated or forwarded aggregate reports can be classified there;
+messages in Trash remain excluded.
+
 1. Configure Email Routing for the address that receives DMARC reports (for
    example `dmarc-reports@example.com`).
 2. Bind an Email Worker to that route.

@@ -325,6 +325,9 @@ class TestListDmarcMessageIds:
         }
         ids = client._list_dmarc_message_ids(service)
         assert ids == ["id1", "id2"]
+        kwargs = service.users.return_value.messages.return_value.list.call_args.kwargs
+        assert kwargs["includeSpamTrash"] is True
+        assert "-in:trash" in kwargs["q"]
 
     def test_follows_next_page_token(self):
         client = _make_client()
