@@ -2784,7 +2784,7 @@
                                                     <span class="font-mono text-xs" x-text="flow.source_ip"></span>
                                                     <span class="text-sm font-semibold" x-text="flow.sender_name"></span>
                                                     <span class="rounded px-2 py-0.5 text-xs font-semibold"
-                                                          :class="mailflowStatusClass(flow.status === 'healthy' ? 'healthy' : (flow.status === 'likely_unauthorized' ? 'no_action_likely_unauthorized_use' : (flow.status === 'investigate_source' ? 'investigation_required' : 'action_required')))"
+                                                          :class="mailflowStatusClass(flow.status === 'healthy' ? 'healthy' : (flow.status === 'likely_unauthorized' ? 'no_action_likely_unauthorized_use' : (['intermittent_dkim_alignment', 'investigate_alignment', 'investigate_source'].includes(flow.status) ? 'investigation_required' : (flow.status === 'insufficient_evidence' ? 'insufficient_evidence' : 'action_required'))))"
                                                           x-text="flow.label"></span>
                                                 </div>
                                                 <p class="mt-1 text-xs text-muted-foreground" x-text="flow.detail"></p>

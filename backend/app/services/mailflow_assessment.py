@@ -85,6 +85,15 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
             "that this tenant is authorized for the domain."
         )
         next_step = "No immediate action; keep monitoring"
+    elif sender.get("status") == "known" and dmarc_fail:
+        status = "investigate_alignment"
+        label = "Review alignment for this known sender"
+        intended_mail_impact = "unknown"
+        detail = (
+            f"This known sending service failed DMARC for {dmarc_fail} message(s), "
+            "but the aggregate report does not identify the provider-side cause."
+        )
+        next_step = "Review SPF and DKIM alignment for this sending service"
     elif dmarc_fail:
         status = "investigate_source"
         label = "Confirm whether this source is yours"
@@ -121,7 +130,11 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
         "dmarc_status": str(source.get("dmarc_result") or "unknown"),
         "receiver_disposition": str(source.get("disposition") or "none"),
         "intended_mail_impact": intended_mail_impact,
-        "evidence_level": "observed",
+        "evidence_level": (
+            "inferred"
+            if status in {"likely_unauthorized", "investigate_alignment", "investigate_source"}
+            else "observed"
+        ),
         "provider_evidence_status": "not_connected",
         "next_step": next_step,
         "verification_condition": (
@@ -144,10 +157,11 @@ def build_domain_mailflow_assessment(
     priority = {
         "aligned_dkim_not_observed": 0,
         "intermittent_dkim_alignment": 1,
-        "investigate_source": 2,
-        "likely_unauthorized": 3,
-        "healthy": 4,
-        "insufficient_evidence": 5,
+        "investigate_alignment": 2,
+        "investigate_source": 3,
+        "likely_unauthorized": 4,
+        "healthy": 5,
+        "insufficient_evidence": 6,
     }
     flows.sort(key=lambda item: (priority.get(item["status"], 99), -item["message_count"]))
     counts = {key: sum(flow["status"] == key for flow in flows) for key in priority}
@@ -156,7 +170,8 @@ def build_domain_mailflow_assessment(
     investigate = [
         flow
         for flow in flows
-        if flow["status"] in {"intermittent_dkim_alignment", "investigate_source"}
+        if flow["status"]
+        in {"intermittent_dkim_alignment", "investigate_alignment", "investigate_source"}
     ]
     if actionable:
         primary = actionable[0]
@@ -203,6 +218,33 @@ def build_domain_mailflow_assessment(
         next_step = "Keep report intake running"
         confidence = "Not enough evidence"
 
+    inferences = []
+    unknowns = []
+    if actionable:
+        inferences.append(
+            "A missing aligned DKIM pass can indicate disabled signing, a missing key, or the wrong signing domain."
+        )
+        unknowns.append(
+            "The exact provider-side root cause remains unknown without provider evidence."
+        )
+    if counts["likely_unauthorized"]:
+        inferences.append(
+            "Protective handling of an unaligned source suggests unauthorized use, but does not prove ownership."
+        )
+        unknowns.append(
+            "Whether the protected source belongs to an approved sender remains unknown."
+        )
+    if counts["investigate_alignment"]:
+        inferences.append(
+            "Provider recognition identifies a known service, but does not explain its DMARC failure."
+        )
+        unknowns.append("The failing SPF or DKIM identity remains unknown from aggregate evidence.")
+    if counts["investigate_source"]:
+        inferences.append("The failing source may be legitimate, but ownership is not established.")
+        unknowns.append(
+            "Whether the source belongs to an approved sending service remains unknown."
+        )
+
     return {
         "domain": domain,
         "status": status,
@@ -220,18 +262,8 @@ def build_domain_mailflow_assessment(
             f"{len(flows)} active source path(s) were observed in the selected window.",
             f"{len(actionable)} path(s) need DKIM alignment repair.",
         ],
-        "inferences": (
-            [
-                "A missing aligned DKIM pass can indicate disabled signing, a missing key, or the wrong signing domain."
-            ]
-            if actionable
-            else []
-        ),
-        "unknowns": (
-            ["The exact provider-side root cause remains unknown without provider evidence."]
-            if actionable
-            else []
-        ),
+        "inferences": inferences,
+        "unknowns": unknowns,
         "repair_steps": (
             [
                 "Open the sending service's domain settings and confirm DKIM signing is enabled.",

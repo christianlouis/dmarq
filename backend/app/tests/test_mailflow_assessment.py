@@ -63,6 +63,9 @@ def test_unknown_rejected_spoofer_does_not_get_dkim_repair():
     assert result["status"] == "no_action_likely_unauthorized_use"
     assert result["repair_steps"] == []
     assert result["flows"][0]["status"] == "likely_unauthorized"
+    assert result["flows"][0]["evidence_level"] == "inferred"
+    assert result["inferences"]
+    assert result["unknowns"]
 
 
 def test_known_provider_without_alignment_does_not_get_dkim_repair():
@@ -97,6 +100,45 @@ def test_known_sender_with_aligned_dkim_is_healthy():
     assert result["status"] == "healthy"
     assert result["flows"][0]["status"] == "healthy"
     assert result["flows"][0]["dkim_alignment"] == "pass"
+
+
+def test_aligned_dkim_is_healthy_without_provider_recognition():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [_source(spf_pass_count=0, spf_fail_count=12, dkim_pass_count=12, dkim_fail_count=0)],
+        {"192.0.2.10": {"name": "Unclassified sender", "status": "unknown"}},
+    )
+
+    assert result["status"] == "healthy"
+    assert result["flows"][0]["status"] == "healthy"
+
+
+def test_known_sender_dmarc_failure_requests_alignment_review():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [
+            _source(
+                spf_pass_count=0,
+                spf_fail_count=12,
+                dkim_pass_count=0,
+                dkim_fail_count=0,
+                dmarc_pass_count=0,
+                dmarc_fail_count=12,
+                dmarc_result="fail",
+                disposition="none",
+                disposition_counts={"none": 12},
+            )
+        ],
+        {"192.0.2.10": {"name": "Known provider", "status": "known"}},
+    )
+
+    flow = result["flows"][0]
+    assert result["status"] == "investigation_required"
+    assert flow["status"] == "investigate_alignment"
+    assert flow["evidence_level"] == "inferred"
+    assert "known sending service" in flow["detail"]
+    assert result["inferences"]
+    assert result["unknowns"]
 
 
 def test_zero_traffic_is_ignored():
