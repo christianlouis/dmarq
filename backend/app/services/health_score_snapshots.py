@@ -59,6 +59,69 @@ def _snapshot_evidence(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+_PATH_ACTION_FACTORS = {
+    "missing_dmarc": "dns_posture",
+    "missing_spf": "dns_posture",
+    "missing_dkim": "dns_posture",
+    "dmarc_lint": "dns_posture",
+    "low_compliance": "dmarc_compliance",
+    "source_reputation_listed": "source_reputation",
+    "source_reputation_review": "source_reputation",
+}
+
+
+def _path_href(action_type: Any, factor: Any) -> str:
+    """Point a score explanation at the evidence needed for its next step."""
+    action_type = str(action_type or "")
+    factor = str(factor or "")
+    if (
+        action_type in {"missing_dmarc", "missing_spf", "missing_dkim", "dmarc_lint"}
+        or factor == "dns_posture"
+    ):
+        return "#dns-records"
+    if action_type in {
+        "low_compliance",
+        "source_reputation_listed",
+        "source_reputation_review",
+    } or factor in {
+        "dmarc_compliance",
+        "source_reputation",
+    }:
+        return "#sending-sources"
+    if factor == "report_confidence":
+        return "#recent-reports"
+    return "#health-score-history"
+
+
+def _normalise_path_to_100(snapshot: HealthScoreSnapshot, path: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep score explanations actionable and mathematically honest.
+
+    An action's potential impact can be larger than the domain's remaining
+    score gap. The UI must never imply that a 93/100 domain can gain 18
+    points, and every item must name the section where the evidence lives.
+    """
+    remaining_points = max(0, 100 - _as_int(snapshot.score))
+    items = [dict(item) for item in path.get("items") or [] if isinstance(item, dict)]
+    items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
+    budget = float(remaining_points)
+    normalised_items = []
+    for item in items:
+        proposed = max(0.0, float(item.get("expected_score_delta") or 0))
+        delta = min(proposed, budget)
+        if delta <= 0:
+            continue
+        item["expected_score_delta"] = int(delta) if delta.is_integer() else round(delta, 1)
+        item["href"] = str(item.get("href") or _path_href(item.get("id"), item.get("factor")))
+        normalised_items.append(item)
+        budget -= delta
+    return {
+        **path,
+        "score": _as_int(snapshot.score),
+        "remaining_points": remaining_points,
+        "items": normalised_items,
+    }
+
+
 def _legacy_path_to_100(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
     """Explain a non-perfect snapshot created before path-to-100 existed.
 
@@ -102,10 +165,38 @@ def _legacy_path_to_100(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "report_confidence": "The current score is bounded by the amount of available report evidence.",
         "source_reputation": "The saved sender evidence includes unresolved reputation uncertainty.",
     }
+    actions_by_factor: Dict[str, List[Dict[str, Any]]] = {}
+    for action in _snapshot_actions(snapshot):
+        factor = _PATH_ACTION_FACTORS.get(str(action.get("type") or ""))
+        if factor:
+            actions_by_factor.setdefault(factor, []).append(action)
+
     items = []
     for factor, weight in weights.items():
         deduction = round(max(0, 100 - factors[factor]) * weight, 1)
         if deduction <= 0:
+            continue
+        related_actions = actions_by_factor.get(factor) or []
+        if related_actions:
+            for index, action in enumerate(related_actions):
+                items.append(
+                    {
+                        "id": str(action.get("type") or f"legacy_{factor}"),
+                        "factor": factor,
+                        "title": str(action.get("title") or labels[factor]),
+                        "kind": "action_required",
+                        "expected_score_delta": round(deduction / len(related_actions), 1),
+                        "detail": str(action.get("detail") or details[factor]),
+                        "next_step": str(
+                            action.get("next_step")
+                            or "Open the linked evidence before making a change."
+                        ),
+                        "verification": "A refreshed persisted assessment confirms the updated evidence.",
+                        "evidence": list(action.get("evidence") or []),
+                        "primary": index == 0,
+                        "href": _path_href(action.get("type"), factor),
+                    }
+                )
             continue
         items.append(
             {
@@ -118,6 +209,7 @@ def _legacy_path_to_100(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
                 "next_step": "Open the saved evidence before making a DNS or sender change.",
                 "verification": "A refreshed persisted assessment confirms the updated evidence.",
                 "evidence": [],
+                "href": _path_href(None, factor),
             }
         )
     if not items:
@@ -132,15 +224,19 @@ def _legacy_path_to_100(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
                 "next_step": "Refresh the stored DNS and report evidence to capture a full explanation.",
                 "verification": "A new persisted assessment includes its verified path to 100.",
                 "evidence": [],
+                "href": "#health-score-history",
             }
         )
     items.sort(key=lambda item: float(item["expected_score_delta"]), reverse=True)
-    return {
-        "score": _as_int(snapshot.score),
-        "remaining_points": remaining_points,
-        "items": items,
-        "summary": "These remaining points come from saved assessment evidence. Review the listed evidence before making a change.",
-    }
+    return _normalise_path_to_100(
+        snapshot,
+        {
+            "score": _as_int(snapshot.score),
+            "remaining_points": remaining_points,
+            "items": items,
+            "summary": "These remaining points come from saved assessment evidence. Review the listed evidence before making a change.",
+        },
+    )
 
 
 def _snapshot_path_to_100(
@@ -148,7 +244,7 @@ def _snapshot_path_to_100(
 ) -> Dict[str, Any]:
     path = evidence.get("path_to_100")
     if isinstance(path, dict) and path.get("items"):
-        return path
+        return _normalise_path_to_100(snapshot, path)
     if _as_int(snapshot.score) >= 100:
         return _legacy_path_to_100(snapshot)
     return _legacy_path_to_100(snapshot)

@@ -1618,6 +1618,7 @@ class HealthScoreHistoryPoint(BaseModel):
     policy_strength_score: int
     report_confidence_score: int
     top_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    path_to_100: Dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthScoreHistoryResponse(BaseModel):

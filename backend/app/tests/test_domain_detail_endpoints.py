@@ -27,17 +27,17 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.bimi import BIMIResult
-from app.services.mta_sts import MTAStsResult
 from app.services.health_score_snapshots import upsert_health_score_snapshot
+from app.services.mta_sts import MTAStsResult
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_store import ReportStore
 from app.services.source_network import SourceNetworkIntelligence
+from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.source_reputation import (
     DomainReputation,
     ReputationEvidence,
     SourceReputation,
 )
-from app.services.source_read_projection import sync_source_projection_evidence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -525,8 +525,20 @@ def test_domain_health_history_returns_persisted_trend(seeded_client: TestClient
             "score": 88,
             "grade": "B+",
             "status": "attention",
-            "factors": {},
-            "actions": [{"title": "Fix SPF coverage", "severity": "high", "score_impact": 12}],
+            "factors": {
+                "dmarc_compliance": 100,
+                "dns_posture": 100,
+                "report_confidence": 100,
+                "source_reputation": 0,
+            },
+            "actions": [
+                {
+                    "type": "source_reputation_listed",
+                    "title": "Review listed sending IPs",
+                    "severity": "high",
+                    "score_impact": 12,
+                }
+            ],
         },
         policy="quarantine",
         compliance_rate=95,
@@ -543,7 +555,8 @@ def test_domain_health_history_returns_persisted_trend(seeded_client: TestClient
     assert data["current_score"] == 88
     assert data["previous_score"] == 80
     assert data["score_delta"] == 8
-    assert data["points"][1]["top_actions"][0]["title"] == "Fix SPF coverage"
+    assert data["points"][1]["top_actions"][0]["title"] == "Review listed sending IPs"
+    assert data["points"][1]["path_to_100"]["items"][0]["href"] == "#sending-sources"
 
 
 def test_workspace_health_history_returns_persisted_trend(
@@ -3166,9 +3179,7 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     ],
 )
 def test_source_delivery_status_distinguishes_policy_outcomes(source, status):
-    delivery = domains_endpoint._source_delivery_status(  # pylint: disable=protected-access
-        source
-    )
+    delivery = domains_endpoint._source_delivery_status(source)  # pylint: disable=protected-access
 
     assert delivery["status"] == status
 
@@ -3637,7 +3648,9 @@ def test_source_detail_endpoints_use_single_domain_persisted_reports(
     intelligence = authed_client.get(
         "/api/v1/domains/fast-sources.example/source-intelligence?days=3650"
     )
-    reputation = authed_client.get("/api/v1/domains/fast-sources.example/source-reputation?days=3650")
+    reputation = authed_client.get(
+        "/api/v1/domains/fast-sources.example/source-reputation?days=3650"
+    )
 
     assert sources.status_code == 200
     assert sources.json()["sources"][0]["ip"] == "203.0.113.42"
@@ -3971,9 +3984,7 @@ def test_default_source_reads_do_not_trigger_live_enrichment(
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fail_live_lookup)
 
     sources = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=3650")
-    intelligence = seeded_client.get(
-        f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650"
-    )
+    intelligence = seeded_client.get(f"/api/v1/domains/{DOMAIN}/source-intelligence?days=3650")
 
     assert sources.status_code == 200
     assert intelligence.status_code == 200

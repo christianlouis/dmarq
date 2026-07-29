@@ -6,6 +6,36 @@ from typing import Any, Dict, List, Optional
 
 ACTIVE_POLICIES = {"quarantine", "reject"}
 HEALTH_ASSESSMENT_VERSION = "3"
+PATH_FACTOR_WEIGHTS = {
+    "dmarc_compliance": 0.50,
+    "dns_posture": 0.30,
+    "report_confidence": 0.10,
+    "source_reputation": 0.10,
+}
+PATH_ACTION_FACTORS = {
+    "missing_dmarc": "dns_posture",
+    "missing_spf": "dns_posture",
+    "missing_dkim": "dns_posture",
+    "dmarc_lint": "dns_posture",
+    "low_compliance": "dmarc_compliance",
+    "source_reputation_listed": "source_reputation",
+    "source_reputation_review": "source_reputation",
+}
+PATH_ACTION_HREFS = {
+    "missing_dmarc": "#dns-records",
+    "missing_spf": "#dns-records",
+    "missing_dkim": "#dns-records",
+    "dmarc_lint": "#dns-records",
+    "low_compliance": "#sending-sources",
+    "source_reputation_listed": "#sending-sources",
+    "source_reputation_review": "#sending-sources",
+}
+PATH_FACTOR_HREFS = {
+    "dmarc_compliance": "#sending-sources",
+    "dns_posture": "#dns-records",
+    "report_confidence": "#recent-reports",
+    "source_reputation": "#sending-sources",
+}
 
 
 def health_grade(score: int, *, policy: Optional[str] = None, critical_actions: int = 0) -> str:
@@ -455,6 +485,72 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sorted(actions, key=lambda item: item["score_impact"], reverse=True)
 
 
+def _waiting_for_reports_item(factor: str, remaining: float) -> Dict[str, Any]:
+    return {
+        "id": "wait_for_more_reports",
+        "factor": factor,
+        "title": "Build a more representative report window",
+        "kind": "waiting_for_evidence",
+        "expected_score_delta": remaining,
+        "detail": "This is not a DNS failure. The score will become more certain as DMARQ receives more aggregate reports.",
+        "next_step": "Keep report intake enabled and review again after additional normal mail activity.",
+        "verification": "At least 7 reports and 250 observed messages are available.",
+        "evidence": [],
+        "href": "#recent-reports",
+    }
+
+
+def _path_item_for_action(
+    *,
+    factor: str,
+    action: Dict[str, Any],
+    expected_score_delta: float,
+    primary: bool,
+) -> Dict[str, Any]:
+    action_type = str(action.get("type") or "")
+    return {
+        "id": action_type or factor,
+        "factor": factor,
+        "title": str(action.get("title") or "Improve mail health"),
+        "kind": "action_required",
+        "expected_score_delta": expected_score_delta,
+        "detail": str(action.get("detail") or ""),
+        "next_step": str(action.get("next_step") or ""),
+        "verification": "Refresh the stored DNS and report evidence after the change.",
+        "evidence": list(action.get("evidence") or []),
+        "primary": primary,
+        "href": PATH_ACTION_HREFS.get(action_type, "#health-score-history"),
+    }
+
+
+def _review_path_item(factor: str, remaining: float) -> Dict[str, Any]:
+    return {
+        "id": f"review_{factor}",
+        "factor": factor,
+        "title": "Review the persisted assessment evidence",
+        "kind": "investigation_required",
+        "expected_score_delta": remaining,
+        "detail": "The score has a measurable gap, but DMARQ does not yet have a safe, specific remediation.",
+        "next_step": "Open the linked evidence before making a change.",
+        "verification": "A new persisted assessment identifies a specific change or confirms healthy evidence.",
+        "evidence": [],
+        "href": PATH_FACTOR_HREFS.get(factor, "#health-score-history"),
+    }
+
+
+def _cap_path_items(items: List[Dict[str, Any]], score: int) -> List[Dict[str, Any]]:
+    capped_items = []
+    remaining_budget = float(max(0, 100 - int(score)))
+    for item in items:
+        delta = min(float(item.get("expected_score_delta") or 0), remaining_budget)
+        if delta <= 0:
+            continue
+        item["expected_score_delta"] = int(delta) if delta.is_integer() else round(delta, 1)
+        capped_items.append(item)
+        remaining_budget -= delta
+    return capped_items
+
+
 def _path_to_100(
     *,
     score: int,
@@ -469,87 +565,43 @@ def _path_to_100(
     result deliberately excludes DMARC policy and optional hardening because
     neither is part of the core mail-health score.
     """
-    weights = {
-        "dmarc_compliance": 0.50,
-        "dns_posture": 0.30,
-        "report_confidence": 0.10,
-        "source_reputation": 0.10,
-    }
-    action_factor = {
-        "missing_dmarc": "dns_posture",
-        "missing_spf": "dns_posture",
-        "missing_dkim": "dns_posture",
-        "dmarc_lint": "dns_posture",
-        "low_compliance": "dmarc_compliance",
-        "source_reputation_listed": "source_reputation",
-        "source_reputation_review": "source_reputation",
-    }
     by_factor: Dict[str, List[Dict[str, Any]]] = {}
     for action in actions:
-        factor = action_factor.get(str(action.get("type") or ""))
+        factor = PATH_ACTION_FACTORS.get(str(action.get("type") or ""))
         if factor:
             by_factor.setdefault(factor, []).append(action)
 
     items: List[Dict[str, Any]] = []
-    for factor, weight in weights.items():
+    for factor, weight in PATH_FACTOR_WEIGHTS.items():
         value = _bounded(factors.get(factor))
         remaining = round(((100.0 - value) * weight), 1)
         if remaining <= 0:
             continue
         related = by_factor.get(factor) or []
         if factor == "report_confidence" and confidence < 100:
-            items.append(
-                {
-                    "id": "wait_for_more_reports",
-                    "factor": factor,
-                    "title": "Build a more representative report window",
-                    "kind": "waiting_for_evidence",
-                    "expected_score_delta": remaining,
-                    "detail": "This is not a DNS failure. The score will become more certain as DMARQ receives more aggregate reports.",
-                    "next_step": "Keep report intake enabled and review again after additional normal mail activity.",
-                    "verification": "At least 7 reports and 250 observed messages are available.",
-                    "evidence": [],
-                }
-            )
+            items.append(_waiting_for_reports_item(factor, remaining))
             continue
         if related:
             for index, action in enumerate(related):
                 items.append(
-                    {
-                        "id": str(action.get("type") or factor),
-                        "factor": factor,
-                        "title": str(action.get("title") or "Improve mail health"),
-                        "kind": "action_required",
-                        "expected_score_delta": round(remaining / len(related), 1),
-                        "detail": str(action.get("detail") or ""),
-                        "next_step": str(action.get("next_step") or ""),
-                        "verification": "Refresh the stored DNS and report evidence after the change.",
-                        "evidence": list(action.get("evidence") or []),
-                        "primary": index == 0,
-                    }
+                    _path_item_for_action(
+                        factor=factor,
+                        action=action,
+                        expected_score_delta=round(remaining / len(related), 1),
+                        primary=index == 0,
+                    )
                 )
         else:
-            items.append(
-                {
-                    "id": f"review_{factor}",
-                    "factor": factor,
-                    "title": "Review the persisted assessment evidence",
-                    "kind": "investigation_required",
-                    "expected_score_delta": remaining,
-                    "detail": "The score has a measurable gap, but DMARQ does not yet have a safe, specific remediation.",
-                    "next_step": "Open the linked evidence before making a change.",
-                    "verification": "A new persisted assessment identifies a specific change or confirms healthy evidence.",
-                    "evidence": [],
-                }
-            )
+            items.append(_review_path_item(factor, remaining))
     items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
+    capped_items = _cap_path_items(items, score)
     return {
         "score": int(score),
         "remaining_points": max(0, 100 - int(score)),
-        "items": items,
+        "items": capped_items,
         "summary": (
             "Core mail health is at 100/100. Optional hardening and DMARC protection are shown separately."
-            if not items
+            if not capped_items
             else "These are the verified core mail-health gaps; optional hardening is shown separately."
         ),
     }

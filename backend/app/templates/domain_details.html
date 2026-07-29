@@ -270,6 +270,8 @@
                                 <span class="shrink-0 text-xs font-semibold text-[#176d74]" x-text="`up to +${item.expected_score_delta}`"></span>
                             </div>
                             <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.next_step"></p>
+                            <a :href="item.href || '#health-score-history'"
+                               class="mt-2 inline-flex text-xs font-semibold text-[#176d74] hover:underline">Open relevant evidence</a>
                         </div>
                     </template>
                 </div>
@@ -1509,6 +1511,8 @@
                                             </div>
                                             <p class="mt-1 text-sm text-[#5f5c78]" x-text="item.detail"></p>
                                             <p class="mt-2 text-xs text-[#5f5c78]"><span class="font-semibold">Next:</span> <span x-text="item.next_step"></span></p>
+                                            <a :href="item.href || '#health-score-history'"
+                                               class="mt-2 inline-flex text-xs font-semibold text-[#176d74] hover:underline">Open relevant evidence</a>
                                         </div>
                                     </template>
                                 </div>
