@@ -782,10 +782,11 @@ change plans. This flow does not modify Postmark or DNS records.
 `POST /domains/{domain_id}/dns/change-plan/apply` accepts
 `plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, `ttl`, and
 `allow_provider_mismatch`. Record-type migrations additionally submit the
-previewed `expected_record_type`, `expected_current_values`, and
-`expected_record_id`, so apply fails closed if provider state changed after
-review. Calls default to dry-run. Real writes require
-`dry_run=false` and `confirm=true`, and are limited to safe TXT/CNAME
+previewed `expected_record_type`, `expected_current_values`,
+`expected_record_id`, and `expected_proposed_value`, so apply fails closed if
+provider state or the reviewed proposed value changed after review. Calls
+default to dry-run. Real writes require `dry_run=false` and `confirm=true`,
+and are limited to safe TXT/CNAME
 create/update plans that already have a concrete value. In demo mode, confirmed
 applies return a simulated provider result and verification evidence without
 contacting a DNS provider or changing live DNS. If
@@ -806,7 +807,8 @@ history where the provider supports it. Apply responses also include a
 value, or that provider readback succeeded while one or both public resolvers have
 not converged yet. Inspect `verification.status`, `message`, and `resolver_checks`
 to distinguish a failed provider readback from `propagation_pending`; do not roll
-back solely because public DNS is still propagating. The same response includes a `rollback` object with a
+back solely because public DNS is still propagating. The same response includes
+a `rollback` object with a
 summary, manual steps, captured `previous_values` when available, and
 `previous_record_type` for record-type migrations, plus
 `requires_manual_review=true`. DMARQ does not automatically roll back provider

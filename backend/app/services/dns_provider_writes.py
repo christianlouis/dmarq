@@ -66,6 +66,14 @@ class DNSProviderWriteError(ValueError):
     """Raised when a provider write cannot be safely prepared or applied."""
 
 
+def _normalize_reviewed_values(values: List[str], record_type: str) -> List[str]:
+    """Normalize reviewed provider values for safe preview/apply baseline checks."""
+    normalized = [str(value) for value in values]
+    if record_type.upper() == "CNAME":
+        return [value.rstrip(".").lower() for value in normalized]
+    return normalized
+
+
 @dataclass
 class DNSWriteMutation:
     """Concrete provider mutation derived from a DMARQ DNS change plan."""
@@ -271,13 +279,6 @@ def _is_record_type_replacement(plan: Dict[str, Any]) -> bool:
     return _current_record_type(plan) != str(plan.get("record_type") or "").upper()
 
 
-def _normalized_values(record_type: str, values: List[str]) -> List[str]:
-    """Normalize provider values only where DNS syntax permits equivalent forms."""
-    if str(record_type).upper() == "CNAME":
-        return [str(value).rstrip(".").lower() for value in values]
-    return [str(value) for value in values]
-
-
 def _baseline_block_reason(*, plan: Dict[str, Any], records: List[Dict[str, Any]]) -> Optional[str]:
     """Reject a record-type replacement unless the provider matches the reviewed baseline."""
     if not _is_record_type_replacement(plan):
@@ -292,8 +293,8 @@ def _baseline_block_reason(*, plan: Dict[str, Any], records: List[Dict[str, Any]
     actual = records[0]
     actual_type = str(actual.get("type") or "").upper()
     actual_value = str(actual.get("content") or "")
-    actual_values = _normalized_values(expected_type, [actual_value])
-    normalized_expected_values = _normalized_values(expected_type, expected_values)
+    actual_values = _normalize_reviewed_values([actual_value], expected_type)
+    normalized_expected_values = _normalize_reviewed_values(expected_values, expected_type)
     if actual_type != expected_type or actual_values != normalized_expected_values:
         return (
             "Provider state differs from the reviewed CNAME baseline; refresh and preview the "
@@ -1002,6 +1003,7 @@ async def apply_dns_write(
     expected_record_type: Optional[str] = None,
     expected_current_values: Optional[List[str]] = None,
     expected_record_id: Optional[str] = None,
+    expected_proposed_value: Optional[str] = None,
 ) -> DNSWriteResult:
     """Apply one provider-backed DNS mutation after validation."""
     if get_settings().DEMO_MODE:
@@ -1023,13 +1025,17 @@ async def apply_dns_write(
                 "Provider record type changed after preview; refresh and review the change again"
             )
     if expected_current_values is not None:
-        comparison_type = str(expected_record_type or mutation.current_record_type or "")
-        actual_values = _normalized_values(comparison_type, mutation.current_values)
-        reviewed_values = _normalized_values(comparison_type, expected_current_values)
+        record_type = str(mutation.current_record_type or mutation.record_type).upper()
+        actual_values = _normalize_reviewed_values(mutation.current_values, record_type)
+        reviewed_values = _normalize_reviewed_values(expected_current_values, record_type)
         if actual_values != reviewed_values:
             raise DNSProviderWriteError(
                 "Provider values changed after preview; refresh and review the change again"
             )
+    if expected_proposed_value is not None and mutation.content != expected_proposed_value:
+        raise DNSProviderWriteError(
+            "Proposed DNS value changed after preview; refresh and review the change again"
+        )
     if expected_record_id is not None and mutation.record_id != expected_record_id:
         raise DNSProviderWriteError(
             "Provider record identity changed after preview; refresh and review the change again"

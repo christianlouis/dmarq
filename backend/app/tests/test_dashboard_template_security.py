@@ -112,14 +112,12 @@ def _run_dashboard_script(runner_body: str, *args: str) -> str:
         pytest.skip("node is required to execute dashboard-page.js behavior tests")
 
     script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js"
-    runner = textwrap.dedent(
-        f"""
+    runner = textwrap.dedent(f"""
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const dashboardAppFactory = new Function(`${{script}}\\nreturn dashboardApp;`)();
         {runner_body}
-        """
-    )
+        """)
     result = subprocess.run(
         [node, "-e", runner, str(script_path), *args],
         check=True,
@@ -168,8 +166,7 @@ def _run_provider_demo_expression(expression: str) -> str:
         pytest.skip("node is required to execute provider-demo-page.js behavior tests")
 
     script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "provider-demo-page.js"
-    runner = textwrap.dedent(
-        """
+    runner = textwrap.dedent("""
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const document = {addEventListener: () => {}};
@@ -184,8 +181,7 @@ def _run_provider_demo_expression(expression: str) -> str:
         const app = providerDemoFactory();
         const expression = process.argv[2];
         process.stdout.write(String(new Function('app', `return ${expression};`)(app)));
-        """
-    )
+        """)
     result = subprocess.run(
         [node, "-e", runner, str(script_path), expression],
         check=True,
@@ -257,8 +253,7 @@ def _run_onboarding_expression(storage: dict[str, str], expression: str) -> obje
         pytest.skip("node is required to execute onboarding-page.js behavior tests")
 
     script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "onboarding-page.js"
-    runner = textwrap.dedent(
-        """
+    runner = textwrap.dedent("""
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const onboardingFactory = new Function(`${script}\nreturn workspaceOnboarding;`)();
@@ -270,8 +265,7 @@ def _run_onboarding_expression(storage: dict[str, str], expression: str) -> obje
         const app = onboardingFactory();
         const result = new Function('app', `return ${process.argv[3]};`)(app);
         process.stdout.write(JSON.stringify(result));
-        """
-    )
+        """)
     result = subprocess.run(
         [node, "-e", runner, str(script_path), json.dumps(storage), expression],
         check=True,
@@ -319,8 +313,7 @@ def _run_report_detail_expression(payload: dict[str, object], expression: str) -
         pytest.skip("node is required to execute report-detail-page.js behavior tests")
 
     script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "report-detail-page.js"
-    runner = textwrap.dedent(
-        """
+    runner = textwrap.dedent("""
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const reportDetailFactory = new Function(`${script}\nreturn reportDetailApp;`)();
@@ -329,8 +322,7 @@ def _run_report_detail_expression(payload: dict[str, object], expression: str) -
         app.report = { records: JSON.parse(process.argv[2]) };
         const result = new Function('app', `return ${process.argv[3]};`)(app);
         process.stdout.write(JSON.stringify(result));
-        """
-    )
+        """)
     result = subprocess.run(
         [node, "-e", runner, str(script_path), json.dumps(payload["records"]), expression],
         check=True,
@@ -719,8 +711,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
 
 
 def test_dashboard_remediation_filters_and_sorts_cards():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [
                 {
                     domain: 'manual.example',
@@ -889,15 +880,13 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                 app.dashboardRemediationFilteredCount(),
                 app.visibleDashboardRemediationItems()[0].domain
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == "1|1|2|2|1|1|0|1|1|1|1|2|4|blocked.example"
 
 
 def test_dashboard_remediation_dispatch_activity_filters_and_labels():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [
                 {
                     domain: 'follow.example',
@@ -963,8 +952,7 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
                 app.dashboardRemediationDispatchText(app.visibleDashboardRemediationItems()[0]),
                 app.dashboardRemediationDispatchText(app.healthSummary.remediation_loop.items[2])
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "2|1|1|2|follow.example|"
@@ -974,8 +962,7 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
 
 
 def test_dashboard_remediation_dispatch_sort_prioritizes_old_follow_up():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const nowMs = Date.parse('2026-07-06T09:00:00Z');
             const oldLatest = new Date(nowMs - (6 * 24 * 60 * 60 * 1000)).toISOString();
             const freshLatest = new Date(nowMs - (2 * 60 * 60 * 1000)).toISOString();
@@ -1007,15 +994,13 @@ def test_dashboard_remediation_dispatch_sort_prioritizes_old_follow_up():
                 app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[0], nowMs) >
                     app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[1], nowMs)
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == "old.example|fresh.example|true"
 
 
 def test_dashboard_remediation_filter_chips_explain_empty_states():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [
                 {
                     domain: 'ready.example',
@@ -1034,8 +1019,7 @@ def test_dashboard_remediation_filter_chips_explain_empty_states():
                 app.dashboardRemediationFilterTitle('reputation'),
                 app.dashboardRemediationFilterTitle('all')
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]|"
@@ -1048,8 +1032,7 @@ def test_dashboard_remediation_filter_chips_explain_empty_states():
 
 
 def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [
                 {
                     domain: 'ready.example',
@@ -1066,8 +1049,7 @@ def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
                 app.dashboardRemediationEmptyStateText(),
                 app.dashboardRemediationEmptyStateMeta()
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "false|No dispatch blocked remediation cards|"
@@ -1077,15 +1059,13 @@ def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
 
 
 def test_dashboard_remediation_empty_state_copy_has_default_fallback():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.dashboardRemediationFilter = 'unknown_future_filter';
             return [
                 app.dashboardRemediationEmptyStateTitle(),
                 app.dashboardRemediationEmptyStateText()
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "No remediation cards|"
@@ -1094,8 +1074,7 @@ def test_dashboard_remediation_empty_state_copy_has_default_fallback():
 
 
 def test_dashboard_remediation_empty_state_reset_shows_all_cards():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [
                 {
                     domain: 'ready.example',
@@ -1116,15 +1095,13 @@ def test_dashboard_remediation_empty_state_reset_shows_all_cards():
                 app.dashboardRemediationFilterCountCache === null,
                 app.showAllDashboardRemediationItems
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == "0|all|1|true|false"
 
 
 def test_dashboard_remediation_stuck_filter_and_next_action_text():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const item = {
                 domain: 'blocked.example',
                 state: 'needs_approval',
@@ -1147,8 +1124,7 @@ def test_dashboard_remediation_stuck_filter_and_next_action_text():
                 app.dashboardRemediationNextActionText(item),
                 app.dashboardRemediationStuckText(item)
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "1|Select a DNS provider connection first.|"
@@ -1157,8 +1133,7 @@ def test_dashboard_remediation_stuck_filter_and_next_action_text():
 
 
 def test_dashboard_remediation_follow_up_age_text_uses_activity_timestamp():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const latest = new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString();
             app.domains = [{
                 domain_name: 'follow.example',
@@ -1168,15 +1143,13 @@ def test_dashboard_remediation_follow_up_age_text_uses_activity_timestamp():
                 }
             }];
             return app.dashboardRemediationFollowUpAgeText({ domain: 'follow.example' });
-        })()"""
-    )
+        })()""")
 
     assert result == "Follow-up waiting since 2 days ago"
 
 
 def test_dashboard_remediation_aging_follow_up_filter_and_class():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const latest = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000)).toISOString();
             const item = { domain: 'old.example' };
             app.domains = [{
@@ -1192,15 +1165,13 @@ def test_dashboard_remediation_aging_follow_up_filter_and_class():
                 app.dashboardRemediationFollowUpAgeDays(item),
                 app.dashboardRemediationFollowUpAgeClass(item)
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == "1|8|border-[#ffcfbd] bg-[#fff2ec] text-[#8a2d0d]"
 
 
 def test_dashboard_remediation_follow_up_age_class_handles_unknown_age():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const future = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
             return [
                 app.dashboardRemediationFollowUpAgeClass({
@@ -1212,8 +1183,7 @@ def test_dashboard_remediation_follow_up_age_class_handles_unknown_age():
                     needs_operator_follow_up: true
                 })
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert result == (
         "border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]|"
@@ -1222,22 +1192,19 @@ def test_dashboard_remediation_follow_up_age_class_handles_unknown_age():
 
 
 def test_dashboard_remediation_follow_up_age_text_ignores_future_timestamp():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const latest = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
             return app.dashboardRemediationFollowUpAgeText({
                 latest_at: latest,
                 needs_operator_follow_up: true
             });
-        })()"""
-    )
+        })()""")
 
     assert result == "Follow-up is waiting for operator review"
 
 
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             const item = {
                 domain: 'mail.example/a b',
                 evidence_refresh: {
@@ -1253,8 +1220,7 @@ def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
                 app.domainEvidenceHref(item),
                 app.remediationStaleEvidenceText(item)
             ].join('|');
-        })()"""
-    )
+        })()""")
 
     assert (
         result
@@ -1263,8 +1229,7 @@ def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
 
 
 def test_domain_list_remediation_cell_keeps_provider_workload_summary_compact():
-    result = _run_dashboard_expression(
-        """(() => {
+    result = _run_dashboard_expression("""(() => {
             global.document = {
                 createElement: (tagName) => {
                     const element = {
@@ -1321,8 +1286,7 @@ def test_domain_list_remediation_cell_keeps_provider_workload_summary_compact():
                 }
             );
             return cell.textContent.replace(/\\s+/g, ' ').trim();
-        })()"""
-    )
+        })()""")
 
     assert "3 open" in result
     assert "Review provider repair" in result
@@ -2354,7 +2318,10 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "data-domain-detail-reload" in script
     assert "data-domain-detail-refresh-dns" in script
     assert "refreshDNSData" in script
-    assert "await this.fetchPosture({ refresh: true });\n            await this.fetchHealthHistory();" in script
+    assert (
+        "await this.fetchPosture({ refresh: true });\n            await this.fetchHealthHistory();"
+        in script
+    )
     assert "data-domain-detail-delete" in script
     assert "data-domain-detail-verify-ownership" in script
     assert "data-domain-detail-verify-cloudflare" in script
@@ -2446,6 +2413,7 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "expected_record_type" in script
     assert "expected_current_values" in script
     assert "expected_record_id" in script
+    assert "expected_proposed_value" in script
     assert "x-html" not in template
 
 
