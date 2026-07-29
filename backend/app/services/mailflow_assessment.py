@@ -44,10 +44,12 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
     dkim_pass = _count(source.get("dkim_pass_count"))
     dkim_fail = _count(source.get("dkim_fail_count"))
     dmarc_fail = _count(source.get("dmarc_fail_count"))
-    recognized = sender.get("status") == "known" or spf_pass > 0
     protected = _protective_disposition(source)
+    fully_spf_aligned_without_dkim = (
+        messages > 0 and spf_pass == messages and dkim_pass == 0 and dkim_fail == messages
+    )
 
-    if recognized and dkim_pass == 0 and dkim_fail > 0:
+    if fully_spf_aligned_without_dkim:
         status = "aligned_dkim_not_observed"
         label = "Aligned DKIM not observed"
         intended_mail_impact = "likely_affected" if dmarc_fail else "fragile"
@@ -57,28 +59,30 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
             "a key is missing, or a signature uses the wrong domain."
         )
         next_step = "Confirm DKIM signing for this domain in the sending service"
-    elif recognized and dkim_pass > 0 and dkim_fail > 0:
+    elif dkim_pass > 0 and dkim_fail > 0:
         status = "intermittent_dkim_alignment"
-        label = "DKIM alignment is intermittent"
-        intended_mail_impact = "likely_affected"
+        label = "Separate mixed DKIM identities"
+        intended_mail_impact = "unknown"
         detail = (
             f"Aligned DKIM passed for {dkim_pass} message(s) and failed for {dkim_fail}. "
-            "Compare the affected sending path, signing domain, and selector."
+            "This source-IP projection combines observed domains and selectors, so it cannot "
+            "identify which value belongs to the failures."
         )
-        next_step = "Compare failing and passing DKIM paths"
-    elif recognized and dkim_pass > 0:
+        next_step = "Separate the failing identity before changing DKIM"
+    elif dkim_pass > 0:
         status = "healthy"
         label = "Aligned DKIM observed"
         intended_mail_impact = "likely_not_affected"
         detail = f"Receivers reported aligned DKIM for {dkim_pass} message(s)."
         next_step = "Keep report intake running"
-    elif not recognized and protected:
+    elif protected:
         status = "likely_unauthorized"
         label = "Likely unauthorized use"
         intended_mail_impact = "likely_not_affected"
         detail = (
-            f"An unrecognized source failed DMARC for {dmarc_fail} message(s), and receivers "
-            "reported quarantine or reject. Do not authorize it unless an owner is confirmed."
+            f"A source without aligned SPF or DKIM failed DMARC for {dmarc_fail} message(s), "
+            "and receivers reported quarantine or reject. A provider match alone does not prove "
+            "that this tenant is authorized for the domain."
         )
         next_step = "No immediate action; keep monitoring"
     elif dmarc_fail:
@@ -148,12 +152,12 @@ def build_domain_mailflow_assessment(
     flows.sort(key=lambda item: (priority.get(item["status"], 99), -item["message_count"]))
     counts = {key: sum(flow["status"] == key for flow in flows) for key in priority}
 
-    actionable = [
+    actionable = [flow for flow in flows if flow["status"] == "aligned_dkim_not_observed"]
+    investigate = [
         flow
         for flow in flows
-        if flow["status"] in {"aligned_dkim_not_observed", "intermittent_dkim_alignment"}
+        if flow["status"] in {"intermittent_dkim_alignment", "investigate_source"}
     ]
-    investigate = [flow for flow in flows if flow["status"] == "investigate_source"]
     if actionable:
         primary = actionable[0]
         status = "action_required"
@@ -167,10 +171,10 @@ def build_domain_mailflow_assessment(
     elif investigate:
         primary = investigate[0]
         status = "investigation_required"
-        title = "Classify a failing sender before changing DNS"
+        title = "Separate the failing mailflow identity"
         summary = (
-            f"DMARQ observed {len(investigate)} failing path(s) for {domain} that are not yet "
-            "linked to an approved sender."
+            f"DMARQ observed {len(investigate)} path(s) for {domain} whose failing identity "
+            "cannot be isolated from the source-IP projection."
         )
         next_step = primary["next_step"]
         confidence = "Medium"

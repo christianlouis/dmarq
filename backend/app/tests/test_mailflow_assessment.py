@@ -65,6 +65,28 @@ def test_unknown_rejected_spoofer_does_not_get_dkim_repair():
     assert result["flows"][0]["status"] == "likely_unauthorized"
 
 
+def test_known_provider_without_alignment_does_not_get_dkim_repair():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [
+            _source(
+                spf_pass_count=0,
+                spf_fail_count=7,
+                dkim_fail_count=7,
+                dmarc_pass_count=0,
+                dmarc_fail_count=7,
+                dmarc_result="fail",
+                disposition="reject",
+                disposition_counts={"reject": 7},
+            )
+        ],
+        {"192.0.2.10": {"name": "Shared provider", "status": "known"}},
+    )
+
+    assert result["status"] == "no_action_likely_unauthorized_use"
+    assert result["repair_steps"] == []
+
+
 def test_known_sender_with_aligned_dkim_is_healthy():
     result = build_domain_mailflow_assessment(
         "example.com",
@@ -88,7 +110,7 @@ def test_zero_traffic_is_ignored():
     assert result["flows"] == []
 
 
-def test_mixed_dkim_path_requires_investigation_and_preserves_identity_map():
+def test_mixed_dkim_path_requires_identity_correlation_before_repair():
     result = build_domain_mailflow_assessment(
         "example.com",
         [
@@ -106,4 +128,6 @@ def test_mixed_dkim_path_requires_investigation_and_preserves_identity_map():
     assert flow["status"] == "intermittent_dkim_alignment"
     assert flow["dkim_domains"] == ["example.com", "relay.example.net"]
     assert flow["dkim_selectors"] == ["mail", "relay"]
-    assert result["verification_condition"].startswith("A fresh aggregate report")
+    assert "cannot identify which value" in flow["detail"]
+    assert result["status"] == "investigation_required"
+    assert result["repair_steps"] == []

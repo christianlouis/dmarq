@@ -277,7 +277,13 @@ a private key, or signed with the wrong domain. DMARQ therefore labels that
 root cause as unknown unless optional provider evidence confirms it. Private
 DKIM keys are never requested or imported. Unknown sources that fail DMARC and
 are already quarantined or rejected are kept as evidence without receiving a
-misleading DKIM repair recommendation.
+misleading DKIM repair recommendation. A recognized provider name does not by
+itself prove that the observed tenant is authorized for the domain.
+
+Daily source projections group observations by source IP. If one IP has both
+passing and failing DKIM outcomes, DMARQ shows the observed identity values but
+does not claim that a particular selector caused the failure. It asks the
+operator to separate the failing identity before changing DKIM.
 
 The domain detail page groups sending sources into regions, reverse DNS
 hostnames, ASNs, BGP prefixes, registries, and likely network operators when
