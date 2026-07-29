@@ -275,6 +275,13 @@ def _run_onboarding_expression(storage: dict[str, str], expression: str) -> obje
     return json.loads(result.stdout)
 
 
+def test_onboarding_ignores_guidance_goals_it_cannot_edit():
+    assert _run_onboarding_expression(
+        {},
+        "app.guidedGoalForProfile({goal: 'investigate_bounces', installation_goals: ['investigate_bounces']})",
+    ) == ""
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 

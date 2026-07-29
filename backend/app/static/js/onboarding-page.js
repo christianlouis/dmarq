@@ -376,14 +376,7 @@ function workspaceOnboarding(options = {}) {
                 const data = await response.json();
                 this.guidanceInterviewCompleted = Boolean(data.interview_completed);
                 this.guidanceDepth = data.depth || 'guided';
-                const legacyGoal = data.goal || '';
-                const primaryGoal = Array.isArray(data.installation_goals)
-                    ? data.installation_goals[0]
-                    : '';
-                const reverseGoals = Object.fromEntries(
-                    Object.entries(this.guidanceGoalIds).map(([key, value]) => [value, key])
-                );
-                this.selectedGoal = legacyGoal || reverseGoals[primaryGoal] || '';
+                this.selectedGoal = this.guidedGoalForProfile(data);
                 this.sovereigntyPreference = data.sovereignty_preference || 'not_sure';
                 this.notificationPosture = data.notification_posture || 'actionable_only';
                 this.mailContext = data.mail_context && typeof data.mail_context === 'object'
@@ -392,6 +385,17 @@ function workspaceOnboarding(options = {}) {
             } catch (_) {
                 // The setup path remains usable when optional guidance is unavailable.
             }
+        },
+        guidedGoalForProfile(data) {
+            const legacyGoal = data && typeof data.goal === 'string' ? data.goal : '';
+            if (this.guidanceGoalIds[legacyGoal]) return legacyGoal;
+            const primaryGoal = data && Array.isArray(data.installation_goals)
+                ? data.installation_goals[0]
+                : '';
+            const reverseGoals = Object.fromEntries(
+                Object.entries(this.guidanceGoalIds).map(([key, value]) => [value, key])
+            );
+            return reverseGoals[primaryGoal] || '';
         },
         async saveGoal(goal) {
             if (this.savingGoal) return;
