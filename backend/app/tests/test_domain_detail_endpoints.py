@@ -3193,6 +3193,17 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
             "none",
             "unknown",
         ),
+        (
+            {
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 12,
+                "disposition_counts": {"none": 6, "reject": 6},
+            },
+            "mixed",
+            "mixed_authentication",
+            "mixed",
+            "unknown",
+        ),
     ],
 )
 def test_source_delivery_status_distinguishes_receiver_observations(

@@ -8454,7 +8454,7 @@ def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
             "label": "Receiver-reported protective action",
             "detail": "Receivers reported quarantine or reject for observed failures; final delivery is unknown.",
         }
-    if failed and delivered_failures and not passed:
+    if failed and delivered_failures >= failed and not blocked and not passed:
         return {
             "status": "unauthenticated_delivered",
             "label": "Receiver reported no DMARC action",
@@ -8497,7 +8497,7 @@ def _source_authentication_observation(source: Dict[str, Any]) -> Dict[str, str]
             "disposition": "protective_action",
             "disposition_label": "Receivers reported quarantine or reject",
         }
-    if failed and no_action and not passed:
+    if failed and no_action >= failed and not protected and not passed:
         return {
             "status": "receiver_no_dmarc_action",
             "label": "Receiver reported no DMARC action",
