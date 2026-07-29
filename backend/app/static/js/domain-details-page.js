@@ -2611,6 +2611,7 @@ function domainDetailsApp(domainId = '') {
             const previousValues = mutation.current_values || [];
             const previousText = previousValues.length ? previousValues.join('\n') : 'None captured by the provider preview.';
             const proposedText = mutation.content || 'No proposed value available.';
+            const previousType = mutation.current_record_type || mutation.record_type || 'unknown';
             const rollbackText = preview?.rollback?.summary || 'Review provider history before reverting this DNS record.';
             const provider = this.providerName(preview?.provider || mutation.provider || this.dnsWrite.provider);
             return [
@@ -2619,11 +2620,12 @@ function domainDetailsApp(domainId = '') {
                 `Provider: ${provider}`,
                 `Operation: ${mutation.operation || 'unknown'}`,
                 `Record: ${mutation.name || 'unknown'}`,
-                `Type: ${mutation.record_type || 'unknown'}`,
+                `Record type: ${previousType}${previousType !== mutation.record_type ? ` -> ${mutation.record_type}` : ''}`,
                 `TTL: ${mutation.ttl || 'provider default'}`,
                 '',
-                'Previous value:',
+                `Previous ${previousType} value:`,
                 previousText,
+                ...(mutation.effective_value ? ['', 'Inherited effective DMARC policy:', mutation.effective_value] : []),
                 '',
                 'Proposed value:',
                 proposedText,
@@ -2658,7 +2660,10 @@ function domainDetailsApp(domainId = '') {
                         provider: this.dnsWrite.provider,
                         allow_provider_mismatch: this.dnsWrite.allowProviderMismatch,
                         dry_run: !apply,
-                        confirm: apply
+                        confirm: apply,
+                        expected_record_type: apply ? this.dnsWrite.preview?.mutation?.current_record_type : null,
+                        expected_current_values: apply ? this.dnsWrite.preview?.mutation?.current_values : null,
+                        expected_record_id: apply ? this.dnsWrite.preview?.mutation?.record_id : null
                     })
                 });
                 const data = await response.json();

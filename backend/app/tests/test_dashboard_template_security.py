@@ -2441,6 +2441,11 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "dnsWritePreviewMatches(plan)" in script
     assert "dnsWriteErrorMessage(detail, apply)" in script
     assert "Zone:Read, DNS:Read, and DNS:Edit" in script
+    assert "Inherited effective DMARC policy" in template
+    assert "previous_record_type" in template
+    assert "expected_record_type" in script
+    assert "expected_current_values" in script
+    assert "expected_record_id" in script
     assert "x-html" not in template
 
 

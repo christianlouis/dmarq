@@ -331,7 +331,7 @@ async def test_authorized_external_report_destination_gets_additive_plan():
 
 
 @pytest.mark.asyncio
-async def test_cname_dmarc_policy_does_not_offer_destructive_txt_replacement():
+async def test_cname_dmarc_policy_offers_safe_local_txt_migration():
     provider = FakeDNSProvider({})
     provider._cnames["_dmarc.example.com"] = "_dmarc.shared.example.net"
     current = "v=DMARC1; p=reject; rua=mailto:shared@example.net"
@@ -347,15 +347,29 @@ async def test_cname_dmarc_policy_does_not_offer_destructive_txt_replacement():
     )
 
     finding = next(
-        item for item in guidance.findings if item.code == "dmarc_report_destination_inherited"
+        item
+        for item in guidance.findings
+        if item.code == "dmarc_report_destination_cname_migration"
     )
-    assert finding.primary_eligible is False
-    assert "_dmarc.shared.example.net" in finding.detail
-    assert not [
-        plan
-        for plan in guidance.change_plans
-        if plan.name == "_dmarc.example.com" and plan.proposed_value != current
-    ]
+    assert finding.primary_eligible is True
+    assert finding.current_record_type == "CNAME"
+    assert finding.current_record_values == ["_dmarc.shared.example.net"]
+    assert finding.effective_value == current
+    plan = next(
+        item
+        for item in guidance.change_plans
+        if item.finding_code == "dmarc_report_destination_cname_migration"
+    )
+    assert plan.operation == "update"
+    assert plan.current_record_type == "CNAME"
+    assert plan.record_type == "TXT"
+    assert plan.current_values == ["_dmarc.shared.example.net"]
+    assert plan.effective_value == current
+    assert plan.proposed_value == (
+        "v=DMARC1; p=reject; " "rua=mailto:shared@example.net,mailto:reports@example.com"
+    )
+    assert "Leave the shared DMARC target unchanged." in plan.changes
+    assert "previous CNAME" in plan.rollback
 
 
 @pytest.mark.asyncio
@@ -381,10 +395,71 @@ async def test_cached_cname_dmarc_policy_keeps_inherited_finding():
     )
 
     finding = next(
+        item
+        for item in guidance.findings
+        if item.code == "dmarc_report_destination_cname_migration"
+    )
+    assert finding.primary_eligible is True
+    assert "_dmarc.shared.example.net" in finding.detail
+    assert guidance.change_plans[0].current_record_type == "CNAME"
+
+
+@pytest.mark.asyncio
+async def test_treewalk_policy_does_not_offer_record_type_migration():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=reject; rua=mailto:shared@example.net"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_record_kind="treewalk",
+        dmarc_policy_domain="example.com",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "mail.example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@mail.example.com"),
+        allow_live=False,
+    )
+
+    assert "dmarc_report_destination_cname_migration" not in {
+        item.code for item in guidance.findings
+    }
+    inherited = next(
         item for item in guidance.findings if item.code == "dmarc_report_destination_inherited"
     )
-    assert finding.primary_eligible is False
-    assert "_dmarc.shared.example.net" in finding.detail
+    assert inherited.primary_eligible is False
+
+
+@pytest.mark.asyncio
+async def test_cname_policy_with_local_mailbox_is_already_complete():
+    provider = FakeDNSProvider({})
+    current = "v=DMARC1; p=reject; rua=mailto:reports@example.com"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record=current,
+        dmarc_record_kind="cname",
+        dmarc_cname_target="_dmarc.shared.example.net",
+        spf=True,
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(report_mailbox="reports@example.com"),
+        allow_live=False,
+    )
+
+    assert "dmarc_report_destination_cname_migration" not in {
+        item.code for item in guidance.findings
+    }
 
 
 @pytest.mark.asyncio

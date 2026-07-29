@@ -82,6 +82,8 @@ class DNSWriteMutation:
     zone_name: Optional[str] = None
     record_id: Optional[str] = None
     current_values: List[str] = field(default_factory=list)
+    current_record_type: Optional[str] = None
+    effective_value: Optional[str] = None
     blocked_reason: Optional[str] = None
 
     @property
@@ -100,6 +102,8 @@ class DNSWriteMutation:
             "zone_name": self.zone_name,
             "record_id": self.record_id,
             "current_values": self.current_values,
+            "current_record_type": self.current_record_type,
+            "effective_value": self.effective_value,
             "applicable": self.applicable,
             "blocked_reason": self.blocked_reason,
         }
@@ -113,6 +117,7 @@ class DNSWriteVerification:
     verified: bool
     checked_values: List[str] = field(default_factory=list)
     message: str = ""
+    resolver_checks: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -120,6 +125,7 @@ class DNSWriteVerification:
             "verified": self.verified,
             "checked_values": self.checked_values,
             "message": self.message,
+            "resolver_checks": self.resolver_checks,
         }
 
 
@@ -256,6 +262,43 @@ def _validate_plan_for_automation(plan: Dict[str, Any]) -> None:
         )
 
 
+def _current_record_type(plan: Dict[str, Any]) -> str:
+    """Return the provider record type expected before the reviewed change."""
+    return str(plan.get("current_record_type") or plan.get("record_type") or "").upper()
+
+
+def _is_record_type_replacement(plan: Dict[str, Any]) -> bool:
+    return _current_record_type(plan) != str(plan.get("record_type") or "").upper()
+
+
+def _baseline_block_reason(*, plan: Dict[str, Any], records: List[Dict[str, Any]]) -> Optional[str]:
+    """Reject a record-type replacement unless the provider matches the reviewed baseline."""
+    if not _is_record_type_replacement(plan):
+        return None
+    expected_type = _current_record_type(plan)
+    expected_values = [str(value) for value in plan.get("current_values") or []]
+    if len(records) != 1:
+        return (
+            "The reviewed record-type migration requires exactly one provider record at this "
+            "owner name; refresh DNS evidence before trying again"
+        )
+    actual = records[0]
+    actual_type = str(actual.get("type") or "").upper()
+    actual_value = str(actual.get("content") or "")
+    if expected_type == "CNAME":
+        actual_values = [actual_value.rstrip(".").lower()]
+        normalized_expected_values = [value.rstrip(".").lower() for value in expected_values]
+    else:
+        actual_values = [actual_value]
+        normalized_expected_values = expected_values
+    if actual_type != expected_type or actual_values != normalized_expected_values:
+        return (
+            "Provider state differs from the reviewed CNAME baseline; refresh and preview the "
+            "migration again before applying"
+        )
+    return None
+
+
 def _verification_from_records(
     *,
     mutation: DNSWriteMutation,
@@ -272,20 +315,38 @@ def _verification_from_records(
             == mutation.name.rstrip(".").lower()
         )
     ]
-    verified = mutation.content in checked_values
+    conflicting_previous_records = [
+        record
+        for record in records
+        if mutation.current_record_type
+        and mutation.current_record_type != mutation.record_type
+        and str(record.get("type") or "").upper() == mutation.current_record_type
+        and (
+            not record.get("name")
+            or str(record.get("name") or "").rstrip(".").lower()
+            == mutation.name.rstrip(".").lower()
+        )
+    ]
+    verified = mutation.content in checked_values and not conflicting_previous_records
     if verified:
         return DNSWriteVerification(
             status="verified",
             verified=True,
             checked_values=checked_values,
-            message="Provider API returned the expected DNS record after apply.",
+            message=(
+                "Provider API returned the expected DNS record after apply and no previous "
+                "record type remains at the owner name."
+                if mutation.current_record_type
+                and mutation.current_record_type != mutation.record_type
+                else "Provider API returned the expected DNS record after apply."
+            ),
         )
     return DNSWriteVerification(
         status="failed",
         verified=False,
         checked_values=checked_values,
         message=(
-            "Provider API did not return the expected DNS record after apply; "
+            "Provider API did not return the expected DNS record exclusively after apply; "
             "verify propagation and provider state before treating this as repaired."
         ),
     )
@@ -302,6 +363,102 @@ def _noop_verification(mutation: DNSWriteMutation) -> DNSWriteVerification:
             "Provider already has the expected DNS value."
             if verified
             else "Provider preview marked this record unchanged, but the expected value was not present."
+        ),
+    )
+
+
+async def _public_resolver_record_check(
+    mutation: DNSWriteMutation, nameserver: str
+) -> Dict[str, Any]:
+    """Check one public resolver for the new TXT and absence of the replaced CNAME."""
+    import dns.asyncresolver  # pylint: disable=import-outside-toplevel
+    import dns.exception  # pylint: disable=import-outside-toplevel
+    import dns.resolver  # pylint: disable=import-outside-toplevel
+
+    resolver = dns.asyncresolver.Resolver(configure=False)
+    resolver.nameservers = [nameserver]
+    resolver.timeout = 2.0
+    resolver.lifetime = 3.0
+    values: List[str] = []
+    previous_type_present = False
+    try:
+        answer = await resolver.resolve(mutation.name, mutation.record_type)
+        for record in answer:
+            strings = getattr(record, "strings", None)
+            if strings is not None:
+                values.append(b"".join(strings).decode("utf-8", errors="replace"))
+            else:
+                values.append(str(record).strip().strip('"'))
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        values = []
+    except (dns.exception.DNSException, OSError) as exc:
+        return {
+            "resolver": nameserver,
+            "status": "unavailable",
+            "verified": False,
+            "values": [],
+            "message": str(exc),
+        }
+
+    if mutation.current_record_type and mutation.current_record_type != mutation.record_type:
+        try:
+            await resolver.resolve(mutation.name, mutation.current_record_type)
+            previous_type_present = True
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            previous_type_present = False
+        except (dns.exception.DNSException, OSError) as exc:
+            return {
+                "resolver": nameserver,
+                "status": "unavailable",
+                "verified": False,
+                "values": values,
+                "message": str(exc),
+            }
+
+    verified = mutation.content in values and not previous_type_present
+    return {
+        "resolver": nameserver,
+        "status": "verified" if verified else "propagation_pending",
+        "verified": verified,
+        "values": values,
+        "previous_type_present": previous_type_present,
+        "message": (
+            "Expected record type and value are visible; the previous type is absent."
+            if verified
+            else "Public DNS does not yet agree with the reviewed provider state."
+        ),
+    }
+
+
+async def _verify_public_record_type_replacement(
+    mutation: DNSWriteMutation, verification: DNSWriteVerification
+) -> DNSWriteVerification:
+    """Require Cloudflare and Google public DNS agreement for record-type replacements."""
+    if (
+        not verification.verified
+        or not mutation.current_record_type
+        or mutation.current_record_type == mutation.record_type
+    ):
+        return verification
+    checks = await asyncio.gather(
+        *(
+            _public_resolver_record_check(mutation, nameserver)
+            for nameserver in ("1.1.1.1", "8.8.8.8")
+        )
+    )
+    public_verified = all(bool(check.get("verified")) for check in checks)
+    return DNSWriteVerification(
+        status="verified" if public_verified else "propagation_pending",
+        verified=public_verified,
+        checked_values=verification.checked_values,
+        resolver_checks=list(checks),
+        message=(
+            "Provider readback and both public resolvers agree on the replacement."
+            if public_verified
+            else (
+                "Provider readback is correct, but both public resolvers do not agree yet. "
+                "Wait for propagation and refresh DNS evidence before treating this as complete."
+            )
         ),
     )
 
@@ -325,13 +482,67 @@ class CloudflareDNSWriteProvider:
         record_type = str(plan["record_type"]).upper()
         record_name = str(plan["name"])
         zone = await get_zone_for_domain(db, domain)
-        matches = [
+        owner_matches = [
             record
             for record in zone.get("records", [])
-            if str(record.get("type") or "").upper() == record_type
-            and str(record.get("name") or "").rstrip(".").lower() == record_name.rstrip(".").lower()
+            if str(record.get("name") or "").rstrip(".").lower() == record_name.rstrip(".").lower()
         ]
+        replacement = _is_record_type_replacement(plan)
+        matches = (
+            owner_matches
+            if replacement
+            else [
+                record
+                for record in owner_matches
+                if str(record.get("type") or "").upper() == record_type
+            ]
+        )
         current_values = [str(record.get("content") or "") for record in matches]
+        if not replacement and len(owner_matches) != len(matches):
+            conflicting_types = sorted(
+                {
+                    str(record.get("type") or "").upper()
+                    for record in owner_matches
+                    if str(record.get("type") or "").upper() != record_type
+                }
+            )
+            return DNSWriteMutation(
+                operation=str(plan["operation"]).lower(),
+                record_type=record_type,
+                name=record_name,
+                content=value,
+                ttl=ttl,
+                provider=self.provider_id,
+                zone_id=zone.get("id"),
+                zone_name=zone.get("name"),
+                current_values=current_values,
+                current_record_type=_current_record_type(plan),
+                effective_value=plan.get("effective_value"),
+                blocked_reason=(
+                    "A conflicting provider record exists at this owner name "
+                    f"({', '.join(conflicting_types)}); use an explicit reviewed record-type "
+                    "migration instead of creating a conflicting record"
+                ),
+            )
+        baseline_block = _baseline_block_reason(plan=plan, records=matches)
+        if baseline_block:
+            return DNSWriteMutation(
+                operation=str(plan["operation"]).lower(),
+                record_type=record_type,
+                name=record_name,
+                content=value,
+                ttl=ttl,
+                provider=self.provider_id,
+                zone_id=zone.get("id"),
+                zone_name=zone.get("name"),
+                record_id=matches[0].get("id") if len(matches) == 1 else None,
+                current_values=current_values,
+                current_record_type=(
+                    str(matches[0].get("type") or "").upper() if len(matches) == 1 else None
+                ),
+                effective_value=plan.get("effective_value"),
+                blocked_reason=baseline_block,
+            )
         if len(matches) > 1:
             return DNSWriteMutation(
                 operation=str(plan["operation"]).lower(),
@@ -343,11 +554,13 @@ class CloudflareDNSWriteProvider:
                 zone_id=zone.get("id"),
                 zone_name=zone.get("name"),
                 current_values=current_values,
+                current_record_type=_current_record_type(plan),
+                effective_value=plan.get("effective_value"),
                 blocked_reason=(
                     "Multiple provider records match this name/type; merge them manually first"
                 ),
             )
-        if matches and current_values[0] == value:
+        if matches and not replacement and current_values[0] == value:
             operation = "noop"
         elif matches:
             operation = "update"
@@ -364,6 +577,10 @@ class CloudflareDNSWriteProvider:
             zone_name=zone.get("name"),
             record_id=matches[0].get("id") if matches else None,
             current_values=current_values,
+            current_record_type=(
+                str(matches[0].get("type") or "").upper() if matches else _current_record_type(plan)
+            ),
+            effective_value=plan.get("effective_value"),
         )
 
     async def apply_mutation(
@@ -418,6 +635,7 @@ class CloudflareDNSWriteProvider:
             records=records,
         )
         verification = _verification_from_records(mutation=mutation, records=records)
+        verification = await _verify_public_record_type_replacement(mutation, verification)
         return DNSWriteResult(
             provider=self.provider_id,
             dry_run=False,
@@ -450,13 +668,29 @@ class LexiconDNSWriteProvider:
         value = _plan_value(plan, value_override)
         record_type = str(plan["record_type"]).upper()
         record_name = str(plan["name"])
+        current_record_type = _current_record_type(plan)
         current = await asyncio.to_thread(
             self._list_records,
             domain,
-            record_type,
+            current_record_type,
             record_name,
         )
         current_values = [str(record.get("content") or "") for record in current]
+        baseline_block = _baseline_block_reason(plan=plan, records=current)
+        if baseline_block:
+            return DNSWriteMutation(
+                operation=str(plan["operation"]).lower(),
+                record_type=record_type,
+                name=record_name,
+                content=value,
+                ttl=ttl,
+                provider=self.provider_id,
+                record_id=str(current[0].get("id") or "") if len(current) == 1 else None,
+                current_values=current_values,
+                current_record_type=current_record_type,
+                effective_value=plan.get("effective_value"),
+                blocked_reason=baseline_block,
+            )
         if len(current) > 1:
             return DNSWriteMutation(
                 operation=str(plan["operation"]).lower(),
@@ -466,11 +700,17 @@ class LexiconDNSWriteProvider:
                 ttl=ttl,
                 provider=self.provider_id,
                 current_values=current_values,
+                current_record_type=current_record_type,
+                effective_value=plan.get("effective_value"),
                 blocked_reason=(
                     "Multiple provider records match this name/type; merge them manually first"
                 ),
             )
-        operation = "noop" if current_values == [value] else ("update" if current else "create")
+        operation = (
+            "noop"
+            if not _is_record_type_replacement(plan) and current_values == [value]
+            else ("update" if current else "create")
+        )
         return DNSWriteMutation(
             operation=operation,
             record_type=record_type,
@@ -480,6 +720,8 @@ class LexiconDNSWriteProvider:
             provider=self.provider_id,
             record_id=str(current[0].get("id") or "") if current else None,
             current_values=current_values,
+            current_record_type=current_record_type,
+            effective_value=plan.get("effective_value"),
         )
 
     async def apply_mutation(
@@ -511,13 +753,23 @@ class LexiconDNSWriteProvider:
             mutation.record_type,
             mutation.name,
         )
+        if mutation.current_record_type and mutation.current_record_type != mutation.record_type:
+            previous_type_records = await asyncio.to_thread(
+                self._list_records,
+                domain,
+                mutation.current_record_type,
+                mutation.name,
+            )
+            records = [*records, *previous_type_records]
+        verification = _verification_from_records(mutation=mutation, records=records)
+        verification = await _verify_public_record_type_replacement(mutation, verification)
         return DNSWriteResult(
             provider=self.provider_id,
             dry_run=False,
             applied=True,
             mutation=mutation,
             provider_result={"ok": True},
-            verification=_verification_from_records(mutation=mutation, records=records),
+            verification=verification,
         )
 
     def _client_config(self, domain: str):
@@ -608,6 +860,8 @@ def _demo_dns_mutation(
         zone_name=domain,
         record_id=demo_record_id if operation == "update" else None,
         current_values=list(plan.get("current_values") or []),
+        current_record_type=_current_record_type(plan),
+        effective_value=plan.get("effective_value"),
     )
 
 
@@ -721,6 +975,9 @@ async def apply_dns_write(
     provider_id: str,
     value_override: Optional[str] = None,
     ttl: int = 1,
+    expected_record_type: Optional[str] = None,
+    expected_current_values: Optional[List[str]] = None,
+    expected_record_id: Optional[str] = None,
 ) -> DNSWriteResult:
     """Apply one provider-backed DNS mutation after validation."""
     if get_settings().DEMO_MODE:
@@ -735,6 +992,20 @@ async def apply_dns_write(
         value_override=value_override,
         ttl=ttl,
     )
+    if expected_record_type is not None:
+        actual_type = str(mutation.current_record_type or mutation.record_type).upper()
+        if actual_type != str(expected_record_type).upper():
+            raise DNSProviderWriteError(
+                "Provider record type changed after preview; refresh and review the change again"
+            )
+    if expected_current_values is not None and mutation.current_values != expected_current_values:
+        raise DNSProviderWriteError(
+            "Provider values changed after preview; refresh and review the change again"
+        )
+    if expected_record_id is not None and mutation.record_id != expected_record_id:
+        raise DNSProviderWriteError(
+            "Provider record identity changed after preview; refresh and review the change again"
+        )
     result = await provider.apply_mutation(db, domain=domain, mutation=mutation)
     db.flush()
     return result

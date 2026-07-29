@@ -39,6 +39,7 @@ from app.services.dns_provider_writes import (
     CloudflareDNSWriteProvider,
     DNSProviderWriteError,
     DNSWriteMutation,
+    DNSWriteVerification,
     LexiconDNSWriteProvider,
 )
 from app.services.organizations import OrganizationPlanLimitError
@@ -2911,6 +2912,29 @@ def _dns_plan(plan_id="dmarc-missing-example-com-txt", operation="create", propo
     }
 
 
+def _cname_migration_plan():
+    current = "v=DMARC1; p=reject; rua=mailto:shared@example.net; aspf=s"
+    return {
+        **_dns_plan(
+            plan_id="dmarc-report-destination-cname-migration-dmarc-example-com-txt",
+            operation="update",
+            proposed_value=(
+                "v=DMARC1; p=reject; "
+                "rua=mailto:shared@example.net,mailto:dmarc@example.com; aspf=s"
+            ),
+        ),
+        "finding_code": "dmarc_report_destination_cname_migration",
+        "current_record_type": "CNAME",
+        "current_values": ["_dmarc.shared.example.net"],
+        "effective_value": current,
+        "shared_record_target": "_dmarc.shared.example.net",
+        "rollback": (
+            "Replace the local TXT record with the previous CNAME to "
+            "_dmarc.shared.example.net; do not edit the shared target."
+        ),
+    }
+
+
 def _dns_guidance_with_plan(plan):
     return {
         "domain": DOMAIN,
@@ -3174,6 +3198,88 @@ def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
     assert data["rollback"]["name"] == f"_dmarc.{DOMAIN}"
     assert data["rollback"]["requires_manual_review"] is True
     assert "Delete the created record" in " ".join(data["rollback"]["steps"])
+
+
+def test_dns_change_plan_previews_cname_to_txt_replacement(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _cname_migration_plan()
+    records = [
+        _record(
+            "dmarc-cname",
+            "CNAME",
+            f"_dmarc.{DOMAIN}",
+            "_dmarc.shared.example.net.",
+        )
+    ]
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mutation"]["operation"] == "update"
+    assert data["mutation"]["record_id"] == "dmarc-cname"
+    assert data["mutation"]["current_record_type"] == "CNAME"
+    assert data["mutation"]["record_type"] == "TXT"
+    assert data["mutation"]["current_values"] == ["_dmarc.shared.example.net."]
+    assert data["mutation"]["effective_value"] == plan["effective_value"]
+    assert data["rollback"]["previous_record_type"] == "CNAME"
+    assert "Replace the TXT record" in " ".join(data["rollback"]["steps"])
+    assert "Do not edit the shared" in " ".join(data["rollback"]["steps"])
+
+
+def test_dns_change_plan_blocks_cname_migration_when_provider_baseline_drifted(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _cname_migration_plan()
+    records = [
+        _record(
+            "dmarc-cname",
+            "CNAME",
+            f"_dmarc.{DOMAIN}",
+            "_dmarc.changed.example.net",
+        )
+    ]
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mutation"]["applicable"] is False
+    assert (
+        "differs from the reviewed CNAME baseline" in response.json()["mutation"]["blocked_reason"]
+    )
 
 
 def test_dns_change_plan_apply_uses_resolved_domain_for_provider_calls(
@@ -3465,6 +3571,99 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert audit_details["verification"]["status"] == "verified"
     assert audit_details["verification"]["verified"] is True
     assert audit_details["rollback"]["previous_values"] == ["v=DMARC1; p=none"]
+
+
+def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN, verified=True))
+    db_session.commit()
+    plan = _cname_migration_plan()
+    original = _record(
+        "dmarc-cname",
+        "CNAME",
+        f"_dmarc.{DOMAIN}",
+        "_dmarc.shared.example.net",
+    )
+    provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[original],
+    )
+
+    async def keep_provider_verification(_mutation, verification):
+        return verification
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": [original]}),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=provider,
+        ),
+        patch(
+            "app.services.dns_provider_writes._verify_public_record_type_replacement",
+            new=keep_provider_verification,
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+                "expected_record_type": "CNAME",
+                "expected_current_values": ["_dmarc.shared.example.net"],
+                "expected_record_id": "dmarc-cname",
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] is True
+    assert data["verification"]["verified"] is True
+    assert provider.updated[0]["id"] == "dmarc-cname"
+    assert provider.updated[0]["type"] == "TXT"
+    assert provider.updated[0]["content"] == plan["proposed_value"]
+    assert data["rollback"]["previous_record_type"] == "CNAME"
+    audit = db_session.query(WorkspaceAuditLog).one()
+    details = json.loads(audit.details)
+    assert details["mutation"]["current_record_type"] == "CNAME"
+    assert details["mutation"]["effective_value"] == plan["effective_value"]
+    assert details["rollback"]["previous_record_type"] == "CNAME"
+
+
+def test_dns_change_plan_requires_reviewed_baseline_for_cname_migration_apply(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN, verified=True))
+    db_session.commit()
+    plan = _cname_migration_plan()
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "Preview this record-type migration again" in response.json()["detail"]
 
 
 def test_dns_change_plan_apply_reports_unverified_provider_readback(
@@ -3782,6 +3981,91 @@ def test_cloudflare_write_provider_creates_record_and_syncs_history(db_session):
     assert result.verification.verified is True
     assert result.changes[0]["change_type"] == "added"
     assert db_session.query(DNSRecordChange).count() == 1
+
+
+def test_record_type_replacement_waits_for_both_public_resolvers():
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+        current_values=["_dmarc.shared.example.net"],
+    )
+    provider_verification = DNSWriteVerification(
+        status="verified",
+        verified=True,
+        checked_values=[mutation.content],
+    )
+
+    async def resolver_check(_mutation, nameserver):
+        return {
+            "resolver": nameserver,
+            "status": "verified" if nameserver == "1.1.1.1" else "propagation_pending",
+            "verified": nameserver == "1.1.1.1",
+            "values": [mutation.content] if nameserver == "1.1.1.1" else [],
+        }
+
+    with patch(
+        "app.services.dns_provider_writes._public_resolver_record_check",
+        new=resolver_check,
+    ):
+        verification = asyncio.run(
+            dns_provider_writes._verify_public_record_type_replacement(  # pylint: disable=protected-access
+                mutation,
+                provider_verification,
+            )
+        )
+
+    assert verification.status == "propagation_pending"
+    assert verification.verified is False
+    assert len(verification.resolver_checks) == 2
+    assert "both public resolvers do not agree yet" in verification.message
+
+
+def test_record_type_replacement_is_verified_when_both_public_resolvers_agree():
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        ttl=1,
+        provider="cloudflare",
+        current_record_type="CNAME",
+        current_values=["_dmarc.shared.example.net"],
+    )
+    provider_verification = DNSWriteVerification(
+        status="verified",
+        verified=True,
+        checked_values=[mutation.content],
+    )
+
+    async def resolver_check(_mutation, nameserver):
+        return {
+            "resolver": nameserver,
+            "status": "verified",
+            "verified": True,
+            "values": [mutation.content],
+            "previous_type_present": False,
+        }
+
+    with patch(
+        "app.services.dns_provider_writes._public_resolver_record_check",
+        new=resolver_check,
+    ):
+        verification = asyncio.run(
+            dns_provider_writes._verify_public_record_type_replacement(  # pylint: disable=protected-access
+                mutation,
+                provider_verification,
+            )
+        )
+
+    assert verification.status == "verified"
+    assert verification.verified is True
+    assert len(verification.resolver_checks) == 2
+    assert "both public resolvers agree" in verification.message
 
 
 def test_cloudflare_write_provider_blocks_inapplicable_mutation(db_session):
