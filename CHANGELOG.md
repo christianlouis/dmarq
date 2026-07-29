@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guidance preferences are now durable and versioned instead of browser-only.
+  Each signed-in user can choose explanation depth, Watch/Diagnose/Evidence
+  context, and contextual teaching hints without changing colleagues' views;
+  auth-disabled single-user installs retain the same choices as a workspace
+  fallback. Workspace owners can separately store ordered installation goals,
+  a neutral report-data preference, Calm Watch posture, and validated
+  non-secret mail context with a sanitized audit trail.
 - Domain sender views now start with a report-backed mailflow diagnosis. DMARQ
   maps Header From, Envelope From, SPF domains, DKIM signing domains, and
   selectors from stored ingest projections; distinguishes missing or

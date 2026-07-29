@@ -877,6 +877,39 @@ async function installApiMocks(page) {
         auth_disabled: true,
         auth_provider_label: 'Auth disabled',
       },
+      '/api/v1/workspaces/guidance': {
+        available: true,
+        enabled: false,
+        requested_enabled: false,
+        depth: 'standard',
+        context: 'watch',
+        teaching_hints_enabled: false,
+        preference_scope: 'workspace',
+        profile_version: 1,
+        goal: null,
+        installation_goals: [],
+        sovereignty_preference: 'not_sure',
+        mail_context: {dns_provider: 'Cloudflare'},
+        notification_posture: 'actionable_only',
+        interview_version: 1,
+        interview_completed: false,
+      },
+      '/api/v1/workspaces/guidance/preferences': {
+        depth: 'guided',
+        context: 'diagnose',
+        teaching_hints_enabled: true,
+        preference_scope: 'workspace',
+        profile_version: 1,
+      },
+      '/api/v1/workspaces/guidance/workspace-profile': {
+        installation_goals: ['understand_reports'],
+        sovereignty_preference: 'privacy_first',
+        notification_posture: 'actionable_only',
+        mail_context: {dns_provider: 'Cloudflare'},
+        interview_version: 1,
+        interview_completed: true,
+        profile_version: 1,
+      },
       '/api/v1/onboarding/preview': {
         plan: {
           tasks: [
@@ -1079,6 +1112,12 @@ async function installApiMocks(page) {
         },
       },
     };
+    responses['/api/v1/domains/cklnet.com/detail/cached'] = {
+      dns: responses['/api/v1/domains/cklnet.com/dns'],
+      dns_health: responses['/api/v1/domains/cklnet.com/dns/health'],
+      dns_guidance: responses['/api/v1/domains/cklnet.com/dns/lint'],
+      posture: responses['/api/v1/domains/cklnet.com/posture'],
+    };
     responses['/api/v1/operator/demo/provider-console'] = {
       demo_mode: true,
       provider_console: providerConsole,
@@ -1240,7 +1279,69 @@ test('profile page renders the registered Alpine component', async ({ page }) =>
   await expect(main.getByText('operator', { exact: true })).toBeVisible();
   await expect(main.getByText('Auth mode')).toBeVisible();
   await expect(main.getByText('Auth disabled')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How DMARQ explains findings' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Guide me/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: 'Diagnose' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByText('Failed to load user profile')).not.toBeVisible();
+});
+
+test('profile preferences save independently and remain usable on mobile', async ({ page }) => {
+  let savedPreference = null;
+  await page.route('**/api/v1/workspaces/guidance/preferences', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    savedPreference = route.request().postDataJSON();
+    await route.fulfill(json({...savedPreference, preference_scope: 'workspace', profile_version: 1}));
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/profile');
+  await page.getByRole('radio', { name: /Show full technical detail/i }).click();
+  await page.getByRole('radio', { name: 'Evidence', exact: true }).click();
+  await page.getByRole('checkbox', { name: /Explain unfamiliar terms/ }).uncheck();
+  await page.getByRole('button', { name: 'Save explanation preferences' }).click();
+
+  await expect(page.getByText('Your explanation preferences are saved.')).toBeVisible();
+  expect(savedPreference).toEqual({
+    depth: 'expert',
+    context: 'evidence',
+    teaching_hints_enabled: false,
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+});
+
+test('authenticated users save a personal view without changing workspace context', async ({ page }) => {
+  let savedPreference = null;
+  await page.route('**/api/v1/auth/me', async (route) => {
+    await route.fulfill(json({
+      email: 'analyst@example.com',
+      full_name: 'Workspace Analyst',
+      username: 'analyst',
+      logto_id: 'logto-analyst',
+      is_superuser: false,
+      auth_disabled: false,
+      auth_provider_label: 'Logto',
+    }));
+  });
+  await page.route('**/api/v1/workspaces/guidance/preferences', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    savedPreference = route.request().postDataJSON();
+    await route.fulfill(json({...savedPreference, preference_scope: 'user', profile_version: 1}));
+  });
+
+  await page.goto('/profile');
+  const main = page.getByRole('main');
+  await expect(main.getByText('Workspace Analyst')).toBeVisible();
+  await expect(main.getByText('Logto', { exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: /Balanced/ }).click();
+  await page.getByRole('radio', { name: 'Watch', exact: true }).click();
+  await page.getByRole('button', { name: 'Save explanation preferences' }).click();
+
+  await expect(page.getByText('Your explanation preferences are saved.')).toBeVisible();
+  expect(savedPreference).toEqual({
+    depth: 'standard',
+    context: 'watch',
+    teaching_hints_enabled: true,
+  });
 });
 
 test('onboarding page keeps setup controls wired without inline handlers', async ({ page }) => {
@@ -1255,6 +1356,40 @@ test('onboarding page keeps setup controls wired without inline handlers', async
   await page.getByRole('button', { name: 'Preview tasks' }).click();
   await expect(page.getByText('Preview is ready. Review the task list before applying setup.')).toBeVisible();
   await expect(page.getByText('Review DNS posture')).toBeVisible();
+});
+
+test('onboarding persists the problem-first goal without losing existing mail context', async ({ page }) => {
+  let savedPreference = null;
+  let savedWorkspaceProfile = null;
+  await page.route('**/api/v1/workspaces/guidance/preferences', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    savedPreference = route.request().postDataJSON();
+    await route.fulfill(json({...savedPreference, preference_scope: 'workspace', profile_version: 1}));
+  });
+  await page.route('**/api/v1/workspaces/guidance/workspace-profile', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    savedWorkspaceProfile = route.request().postDataJSON();
+    await route.fulfill(json({...savedWorkspaceProfile, profile_version: 1, interview_completed: true}));
+  });
+
+  await page.goto('/onboarding');
+  await page.getByLabel('Report data preference').selectOption('privacy_first');
+  await page.getByRole('button', { name: /I received DMARC reports/ }).click();
+
+  await expect(page.getByRole('heading', { name: 'Bring in one report before changing DNS' })).toBeVisible();
+  expect(savedPreference).toEqual({
+    depth: 'standard',
+    context: 'watch',
+    teaching_hints_enabled: false,
+  });
+  expect(savedWorkspaceProfile).toEqual({
+    installation_goals: ['understand_reports'],
+    sovereignty_preference: 'privacy_first',
+    notification_posture: 'actionable_only',
+    mail_context: {dns_provider: 'Cloudflare'},
+    interview_version: 1,
+    interview_completed: true,
+  });
 });
 
 test('domain sender view guides DKIM repair from saved mailflow evidence', async ({ page }) => {
@@ -1298,16 +1433,15 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
     has: page.locator('summary', { hasText: 'Sending sources' }),
   });
   await sendingSources.locator(':scope > summary').click();
-  await expect(sendingSources.getByText('Postmark').first()).toBeVisible();
-  await expect(sendingSources.getByText('Owned infrastructure').first()).toBeVisible();
-  const trustSignals = sendingSources.locator('details', {
-    has: page.locator('summary', { hasText: 'Trust signals' }),
-  });
-  await trustSignals.nth(0).locator(':scope > summary').click();
-  await trustSignals.nth(1).locator(':scope > summary').click();
-  await expect(sendingSources.getByText('Reputation clean').first()).toBeVisible();
-  await expect(sendingSources.getByText('Reputation not checked').first()).toBeVisible();
-  await expect(sendingSources.getByText('Fix DKIM on owned infrastructure').first()).toBeVisible();
+  const postmarkSource = sendingSources.locator('article:visible').filter({ hasText: '50.31.205.203' });
+  const ownedSource = sendingSources.locator('article:visible').filter({ hasText: '2a01:4f8:c17:311b::1' });
+  await expect(postmarkSource.getByText('Postmark', { exact: true })).toBeVisible();
+  await expect(ownedSource.getByText('Owned infrastructure', { exact: true })).toBeVisible();
+  await postmarkSource.locator('summary', { hasText: 'Trust signals' }).click();
+  await ownedSource.locator('summary', { hasText: 'Trust signals' }).click();
+  await expect(postmarkSource.getByText('Reputation clean')).toBeVisible();
+  await expect(ownedSource.getByText('Reputation not checked', { exact: true }).first()).toBeVisible();
+  await expect(ownedSource.getByText('Fix DKIM on owned infrastructure')).toBeVisible();
   await expect(page.getByText('Sending sources could not be loaded.')).not.toBeVisible();
   await expect(page.getByText('No data available for this time period')).not.toBeVisible();
   const recentReports = page.locator('details', {
@@ -1336,15 +1470,20 @@ test('reports list and aggregate detail keep source evidence actionable', async 
   await page.locator('select[x-model="recordRiskFilter"]').selectOption('all');
   const rawEvidence = page.locator('#report-records');
   await rawEvidence.locator(':scope > summary').click();
-  await expect(rawEvidence.getByText('mta203-ab1.mtasv.net', { exact: true })).toBeVisible();
+  await expect(rawEvidence.getByText('mta203-ab1.mtasv.net', { exact: true }).first()).toBeVisible();
+  const evidenceRows = rawEvidence.locator('details summary', { hasText: 'View evidence' });
+  await expect(evidenceRows).toHaveCount(2);
+  await evidenceRows.first().click();
   await expect(rawEvidence.getByText('AS23352').first()).toBeVisible();
   await expect(rawEvidence.getByText('SERVERCENTRAL - DEFT.COM, US').first()).toBeVisible();
-  await expect(rawEvidence.getByRole('columnheader', { name: 'Reputation' })).toBeVisible();
+  await expect(rawEvidence.getByRole('columnheader', { name: 'Evidence' })).toBeVisible();
   await expect(rawEvidence.getByText('Reputation clean').first()).toBeVisible();
   await expect(rawEvidence.getByText('risk 0/100').first()).toBeVisible();
   await expect(rawEvidence.getByText('No blacklist listings found.').first()).toBeVisible();
-  await expect(rawEvidence.getByText('Reputation not checked').first()).toBeVisible();
-  await expect(rawEvidence.getByText('Reputation feeds are disabled.').first()).toBeVisible();
+  await evidenceRows.nth(1).click();
+  const secondEvidence = evidenceRows.nth(1).locator('..');
+  await expect(secondEvidence.getByText('Reputation not checked', { exact: true })).toBeVisible();
+  await expect(secondEvidence.getByText('Reputation feeds are disabled.')).toBeVisible();
   await expect(rawEvidence.getByText('DKIM did not pass for this source.')).toBeVisible();
   await expect(page.getByText('Failed to load report')).not.toBeVisible();
 });

@@ -31,6 +31,7 @@ if (!useExternalServer) {
     env: {
       ...process.env,
       DMARQ_BROWSER_SMOKE_PORT: port,
+      GUIDED_MAIL_HEALTH_UI_ENABLED: process.env.GUIDED_MAIL_HEALTH_UI_ENABLED || 'true',
     },
   };
 }

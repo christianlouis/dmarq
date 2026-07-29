@@ -19,6 +19,9 @@ function workspaceOnboarding(options = {}) {
         guidanceInterviewCompleted: false,
         guidanceDepth: 'guided',
         selectedGoal: '',
+        sovereigntyPreference: 'not_sure',
+        notificationPosture: 'actionable_only',
+        mailContext: {},
         savingGoal: false,
         goalSaved: false,
         goalError: '',
@@ -30,6 +33,14 @@ function workspaceOnboarding(options = {}) {
             {id: 'preventive_monitoring', label: 'I want to keep mail delivery healthy', description: 'Set up monitoring before a problem appears.'},
             {id: 'curious', label: 'I want to understand my mail setup', description: 'Show me the current picture without assuming there is a problem.'},
         ],
+        guidanceGoalIds: {
+            delivery_problem: 'troubleshoot_delivery',
+            spam_or_inconsistent: 'improve_authentication',
+            reports_confusing: 'understand_reports',
+            suspected_abuse: 'protect_against_spoofing',
+            preventive_monitoring: 'continuous_monitoring',
+            curious: 'learn_or_explore',
+        },
         setupState: {
             domains: 0,
             reports: 0,
@@ -121,6 +132,16 @@ function workspaceOnboarding(options = {}) {
                 },
             };
             return recommendations[this.selectedGoal] || recommendations.curious;
+        },
+        get sovereigntyDescription() {
+            const descriptions = {
+                keep_data_local: 'Prefer a mailbox or bridge close to DMARQ, with more operator responsibility.',
+                privacy_first: 'Prefer privacy-focused paths while allowing clearly described managed components.',
+                balanced: 'Rank reliable options by both data path and maintenance effort.',
+                convenience_first: 'Prefer fewer moving parts while still explaining who processes report data.',
+                not_sure: 'DMARQ will compare the trade-offs before recommending an intake path.',
+            };
+            return descriptions[this.sovereigntyPreference] || descriptions.not_sure;
         },
         get setupStatusItems() {
             const state = this.setupState;
@@ -355,7 +376,19 @@ function workspaceOnboarding(options = {}) {
                 const data = await response.json();
                 this.guidanceInterviewCompleted = Boolean(data.interview_completed);
                 this.guidanceDepth = data.depth || 'guided';
-                this.selectedGoal = data.goal || '';
+                const legacyGoal = data.goal || '';
+                const primaryGoal = Array.isArray(data.installation_goals)
+                    ? data.installation_goals[0]
+                    : '';
+                const reverseGoals = Object.fromEntries(
+                    Object.entries(this.guidanceGoalIds).map(([key, value]) => [value, key])
+                );
+                this.selectedGoal = legacyGoal || reverseGoals[primaryGoal] || '';
+                this.sovereigntyPreference = data.sovereignty_preference || 'not_sure';
+                this.notificationPosture = data.notification_posture || 'actionable_only';
+                this.mailContext = data.mail_context && typeof data.mail_context === 'object'
+                    ? data.mail_context
+                    : {};
             } catch (_) {
                 // The setup path remains usable when optional guidance is unavailable.
             }
@@ -366,21 +399,51 @@ function workspaceOnboarding(options = {}) {
             this.goalError = '';
             this.goalSaved = false;
             try {
-                const response = await fetch('/api/v1/workspaces/guidance/profile', {
+                const preferenceResponse = await fetch('/api/v1/workspaces/guidance/preferences', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({goal, depth: this.guidanceDepth}),
+                    body: JSON.stringify({
+                        depth: this.guidanceDepth,
+                        context: 'watch',
+                        teaching_hints_enabled: this.guidanceDepth === 'guided',
+                    }),
                 });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.detail || 'Your setup goal could not be saved.');
-                this.selectedGoal = data.goal || goal;
-                this.guidanceDepth = data.depth || this.guidanceDepth;
-                this.guidanceInterviewCompleted = Boolean(data.interview_completed);
+                const preference = await preferenceResponse.json().catch(() => ({}));
+                if (!preferenceResponse.ok) {
+                    throw new Error(preference.detail || 'Your explanation preference could not be saved.');
+                }
+                this.selectedGoal = goal;
+                this.guidanceDepth = preference.depth || this.guidanceDepth;
+                await this.saveWorkspaceGuidanceProfile(true);
                 this.goalSaved = true;
             } catch (error) {
                 this.goalError = error.message || 'Your setup goal could not be saved.';
             } finally {
                 this.savingGoal = false;
+            }
+        },
+        async saveWorkspaceGuidanceProfile(throwOnFailure = false) {
+            if (!this.selectedGoal) return;
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/workspace-profile', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        installation_goals: [this.guidanceGoalIds[this.selectedGoal]],
+                        sovereignty_preference: this.sovereigntyPreference,
+                        notification_posture: this.notificationPosture,
+                        mail_context: this.mailContext,
+                        interview_version: 1,
+                        interview_completed: true,
+                    }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Your setup preferences could not be saved.');
+                this.guidanceInterviewCompleted = Boolean(data.interview_completed);
+                this.sovereigntyPreference = data.sovereignty_preference || this.sovereigntyPreference;
+            } catch (error) {
+                this.goalError = error.message || 'Your setup preferences could not be saved.';
+                if (throwOnFailure) throw error;
             }
         },
         draftFields() {
