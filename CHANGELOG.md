@@ -67,9 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DNS change when an existing direct DMARC TXT record does not contain it. The
   proposal adds one `rua` destination while preserving policy, alignment,
   forensic reporting, and all existing aggregate destinations. DMARC policies
-  inherited through CNAME remain explicitly manual to avoid destructive record
-  replacement. Record-kind provenance is persisted for cached reads, and
-  external report destinations must publish their DMARC authorization TXT
+  inherited through CNAME now get a separately reviewed record-type migration:
+  DMARQ copies the effective policy into a local TXT record, adds only the local
+  `rua`, leaves the shared target untouched, binds apply to the previewed CNAME
+  baseline, and records CNAME rollback evidence. Provider readback plus
+  Cloudflare and Google public DNS agreement are required before the migration
+  is marked verified. Record-kind provenance is persisted for cached reads,
+  and external report destinations must publish their DMARC authorization TXT
   record before the monitored-domain update becomes apply-ready.
 - The setup assistant now detects domains owned by another workspace during
   preview and points operators to the existing domain instead of allowing a

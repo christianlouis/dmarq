@@ -336,10 +336,16 @@ destination domain to authorize reports first. DMARQ checks the required
 `<policy-domain>._report._dmarc.<destination-domain>` TXT record and keeps the
 `rua` update manual until a `v=DMARC1` authorization value is visible.
 
-When `_dmarc.<domain>` is a CNAME, DMARQ does not replace it automatically with
-a TXT record. The shared policy target may serve several domains, so the UI
-identifies the target and keeps the change manual until the operator decides
-whether to update the shared policy or migrate the alias separately.
+When `_dmarc.<domain>` is a CNAME, DMARQ never edits the shared target merely
+to enroll one domain. Instead, the change plan can prepare a domain-local
+migration: it shows the CNAME and target, the inherited effective policy, and a
+local TXT policy that preserves every tag and existing destination while adding
+only the configured mailbox to `rua`. Preview binds the final confirmation to
+the exact provider record ID, type, and value. If that baseline changes, apply
+stops and requires a fresh preview. A confirmed provider operation replaces the
+local CNAME with the TXT record; rollback restores the previous CNAME. DMARQ
+marks the migration verified only after provider readback and both `1.1.1.1`
+and `8.8.8.8` show the TXT value without the old CNAME.
 
 When DMARQ can detect the authoritative DNS provider from nameservers and a
 matching connector is available, the change-plan section highlights the

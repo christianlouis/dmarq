@@ -2419,14 +2419,21 @@
                                                 <p class="font-semibold">What changes</p>
                                                 <template x-if="plan.current_values && plan.current_values.length">
                                                     <div class="mt-2">
-                                                        <p class="font-medium">Before</p>
+                                                        <p class="font-medium">Before <span x-show="plan.current_record_type" x-text="'(' + plan.current_record_type + ')' "></span></p>
                                                         <template x-for="value in plan.current_values" :key="value">
                                                             <code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="value"></code>
                                                         </template>
                                                     </div>
                                                 </template>
+                                                <template x-if="plan.effective_value">
+                                                    <div class="mt-2">
+                                                        <p class="font-medium">Inherited effective DMARC policy</p>
+                                                        <code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="plan.effective_value"></code>
+                                                        <p class="mt-1 text-base-content/65">This shared target is evidence only and will not be edited.</p>
+                                                    </div>
+                                                </template>
                                                 <template x-if="plan.proposed_value">
-                                                    <div class="mt-2"><p class="font-medium">After</p><code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="plan.proposed_value"></code></div>
+                                                    <div class="mt-2"><p class="font-medium">After <span x-text="'(' + plan.record_type + ')' "></span></p><code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="plan.proposed_value"></code></div>
                                                 </template>
                                                 <ul class="mt-2 list-disc space-y-1 pl-4"><template x-for="change in plan.changes" :key="change"><li x-text="change"></li></template></ul>
                                                 <p class="mt-2"><span class="font-semibold">Why:</span> <span x-text="plan.rationale"></span></p>
@@ -2491,7 +2498,7 @@
                                                     </div>
                                                     <div class="mt-2 grid gap-2 sm:grid-cols-2">
                                                         <div>
-                                                            <p class="font-semibold">Before</p>
+                                                            <p class="font-semibold">Before <span x-show="dnsWrite.preview.mutation.current_record_type" x-text="'(' + dnsWrite.preview.mutation.current_record_type + ')' "></span></p>
                                                             <template x-if="dnsWrite.preview.mutation.current_values && dnsWrite.preview.mutation.current_values.length">
                                                                 <template x-for="value in dnsWrite.preview.mutation.current_values" :key="value">
                                                                     <code class="mt-1 block break-all rounded bg-white/70 p-2" x-text="value"></code>
@@ -2500,10 +2507,16 @@
                                                             <p x-show="!dnsWrite.preview.mutation.current_values || !dnsWrite.preview.mutation.current_values.length" class="mt-1 text-base-content/70">No matching record exists; this will create one.</p>
                                                         </div>
                                                         <div>
-                                                            <p class="font-semibold">After</p>
+                                                            <p class="font-semibold">After <span x-text="'(' + dnsWrite.preview.mutation.record_type + ')' "></span></p>
                                                             <code class="mt-1 block break-all rounded bg-white/70 p-2" x-text="dnsWrite.preview.mutation.content"></code>
                                                         </div>
                                                     </div>
+                                                    <template x-if="dnsWrite.preview.mutation.effective_value">
+                                                        <div class="mt-2 rounded bg-white/70 p-2">
+                                                            <p class="font-semibold">Inherited effective DMARC policy (unchanged shared target)</p>
+                                                            <code class="mt-1 block break-all" x-text="dnsWrite.preview.mutation.effective_value"></code>
+                                                        </div>
+                                                    </template>
                                                     <template x-if="dnsWrite.preview.verification && dnsWrite.preview.verification.status !== 'not_run'">
                                                         <div class="mt-2 rounded bg-white/70 p-2">
                                                             <p>
@@ -2522,7 +2535,7 @@
                                                             </p>
                                                             <template x-if="dnsWrite.preview.rollback.previous_values && dnsWrite.preview.rollback.previous_values.length">
                                                                 <div class="mt-2">
-                                                                    <p class="font-semibold">Previous value</p>
+                                                                    <p class="font-semibold">Previous <span x-text="dnsWrite.preview.rollback.previous_record_type || dnsWrite.preview.rollback.record_type"></span> value</p>
                                                                     <template x-for="value in dnsWrite.preview.rollback.previous_values" :key="value">
                                                                         <code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="value"></code>
                                                                     </template>

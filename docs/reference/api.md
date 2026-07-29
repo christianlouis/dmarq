@@ -781,8 +781,12 @@ change plans. This flow does not modify Postmark or DNS records.
 
 `POST /domains/{domain_id}/dns/change-plan/apply` accepts
 `plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, `ttl`, and
-`allow_provider_mismatch`. Calls default to dry-run. Real writes require
-`dry_run=false` and `confirm=true`, and are limited to safe TXT/CNAME
+`allow_provider_mismatch`. Record-type migrations additionally submit the
+previewed `expected_record_type`, `expected_current_values`,
+`expected_record_id`, and `expected_proposed_value`, so apply fails closed if
+provider state or the reviewed proposed value changed after review. Calls
+default to dry-run. Real writes require `dry_run=false` and `confirm=true`,
+and are limited to safe TXT/CNAME
 create/update plans that already have a concrete value. In demo mode, confirmed
 applies return a simulated provider result and verification evidence without
 contacting a DNS provider or changing live DNS. If
@@ -795,10 +799,18 @@ Applied changes are written to the workspace audit log, including provider
 mismatch override details when present, and refresh provider-backed DNS change
 history where the provider supports it. Apply responses also include a
 `verification` object with `status`, `verified`, `checked_values`, and
-`message`. Treat a repair as complete only when `verification.verified=true`;
-otherwise the mutation was submitted but the provider readback did not yet show
-the expected DNS value. The same response includes a `rollback` object with a
+`message`. CNAME-to-TXT migrations also include per-resolver checks for
+`1.1.1.1` and `8.8.8.8`; provider success alone leaves the result in
+`propagation_pending`. Treat a repair as complete only when
+`verification.verified=true`;
+`false` means either that provider readback did not return the exclusive expected
+value, or that provider readback succeeded while one or both public resolvers have
+not converged yet. Inspect `verification.status`, `message`, and `resolver_checks`
+to distinguish a failed provider readback from `propagation_pending`; do not roll
+back solely because public DNS is still propagating. The same response includes
+a `rollback` object with a
 summary, manual steps, captured `previous_values` when available, and
+`previous_record_type` for record-type migrations, plus
 `requires_manual_review=true`. DMARQ does not automatically roll back provider
 writes; operators should use this evidence to restore the prior value only
 after confirming the rollback is still safe.

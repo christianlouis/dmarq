@@ -59,6 +59,10 @@ class DNSLintFinding:
     evidence: List[str] = field(default_factory=list)
     remediation_steps: List[str] = field(default_factory=list)
     primary_eligible: bool = True
+    current_record_type: Optional[str] = None
+    current_record_values: List[str] = field(default_factory=list)
+    effective_value: Optional[str] = None
+    shared_record_target: Optional[str] = None
 
 
 @dataclass
@@ -86,6 +90,9 @@ class DNSChangePlan:
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
     learn_more_label: Optional[str] = None
+    current_record_type: Optional[str] = None
+    effective_value: Optional[str] = None
+    shared_record_target: Optional[str] = None
 
 
 @dataclass
@@ -349,6 +356,10 @@ def _finding(
     evidence: Optional[List[str]] = None,
     remediation_steps: Optional[List[str]] = None,
     primary_eligible: bool = True,
+    current_record_type: Optional[str] = None,
+    current_record_values: Optional[List[str]] = None,
+    effective_value: Optional[str] = None,
+    shared_record_target: Optional[str] = None,
 ) -> DNSLintFinding:
     return DNSLintFinding(
         code=code,
@@ -362,6 +373,10 @@ def _finding(
         evidence=list(evidence or []),
         remediation_steps=list(remediation_steps or _default_remediation_steps(code)),
         primary_eligible=primary_eligible,
+        current_record_type=current_record_type,
+        current_record_values=list(current_record_values or []),
+        effective_value=effective_value,
+        shared_record_target=shared_record_target,
     )
 
 
@@ -386,6 +401,11 @@ _REMEDIATION_STEPS_EN: Dict[str, List[str]] = {
         "Open the authoritative DMARC target referenced by the CNAME.",
         "Decide whether all domains using that shared policy should send reports to DMARQ.",
         "Update the shared target manually or replace the CNAME in a separately reviewed migration.",
+    ],
+    "dmarc_report_destination_cname_migration": [
+        "Review the local CNAME, the inherited effective policy, and the proposed local TXT policy.",
+        "Preview the single provider record-type replacement and confirm the CNAME baseline is unchanged.",
+        "Apply only after approval, then verify provider readback and public DNS propagation.",
     ],
     "dmarc_report_destination_provenance_unknown": [
         "Refresh DNS evidence so DMARQ can distinguish a direct TXT record from an alias.",
@@ -520,6 +540,11 @@ _REMEDIATION_STEPS_DE: Dict[str, List[str]] = {
         "Oeffne das autoritative DMARC-Ziel, auf das der CNAME verweist.",
         "Entscheide, ob alle Domains mit dieser gemeinsamen Policy Reports an DMARQ senden sollen.",
         "Aendere das gemeinsame Ziel manuell oder ersetze den CNAME in einer separat geprueften Migration.",
+    ],
+    "dmarc_report_destination_cname_migration": [
+        "Pruefe den lokalen CNAME, die geerbte wirksame Policy und den vorgeschlagenen lokalen TXT-Record.",
+        "Pruefe den einmaligen Record-Typ-Wechsel beim Provider und bestaetige die unveraenderte CNAME-Baseline.",
+        "Wende die Aenderung erst nach Freigabe an und pruefe danach Provider-Readback und oeffentliche DNS-Aufloesung.",
     ],
     "dmarc_report_destination_provenance_unknown": [
         "Aktualisiere die DNS-Evidenz, damit DMARQ direkten TXT-Record und Alias unterscheiden kann.",
@@ -670,7 +695,37 @@ def _dmarc_findings(
         and report_mailbox
         and not _dmarc_has_report_mailbox(result.dmarc_record, report_mailbox)
     ):
-        if record_kind in {"cname", "treewalk"}:
+        if record_kind == "cname" and cname_target and report_authorization is True:
+            proposed = _append_dmarc_report_mailbox(result.dmarc_record, report_mailbox)
+            migration_target = _record_with_value(target, proposed)
+            findings.append(
+                _finding(
+                    "dmarc_report_destination_cname_migration",
+                    "info",
+                    "Move this domain to a local DMARC policy",
+                    (
+                        f"{target.name} is a CNAME to {cname_target}. Editing that shared target "
+                        "could change reporting for other domains, so DMARQ will instead replace "
+                        "this domain's CNAME with an equivalent local TXT policy."
+                    ),
+                    (
+                        f"Replace only the local CNAME with a TXT record and add {report_mailbox} "
+                        "to rua; keep every inherited policy tag and existing report destination."
+                    ),
+                    "TXT",
+                    target.name,
+                    target_record=migration_target,
+                    evidence=[
+                        f"{target.name} CNAME {cname_target}",
+                        f"Inherited effective policy: {result.dmarc_record}",
+                    ],
+                    current_record_type="CNAME",
+                    current_record_values=[cname_target],
+                    effective_value=result.dmarc_record,
+                    shared_record_target=cname_target,
+                )
+            )
+        elif record_kind in {"cname", "treewalk"}:
             inherited_target = cname_target or result.dmarc_policy_domain or "the parent policy"
             findings.append(
                 _finding(
@@ -1658,7 +1713,10 @@ def _plan_id(finding: DNSLintFinding) -> str:
 
 def _operation_for_finding(finding: DNSLintFinding) -> str:
     code = finding.code
-    if code == "dmarc_report_destination_missing":
+    if code in {
+        "dmarc_report_destination_missing",
+        "dmarc_report_destination_cname_migration",
+    }:
         return "update"
     if (
         code.endswith("_missing")
@@ -1712,6 +1770,11 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
         "dmarc_report_destination_missing": (
             "Low mail-flow risk: this adds one aggregate-report destination without changing "
             "policy, alignment, or existing destinations. A typo can prevent DMARQ intake."
+        ),
+        "dmarc_report_destination_cname_migration": (
+            "Low policy risk when the inherited policy is copied exactly. The reviewed change "
+            "replaces one local CNAME with one TXT record; an incomplete copy could alter DMARC "
+            "behavior, so provider drift and public DNS verification are mandatory."
         ),
         "dmarc_report_destination_authorization_missing": (
             "Low mail-flow risk, but the external destination will not receive reports until "
@@ -1767,6 +1830,12 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
 
 
 def _rollback_for_plan(finding: DNSLintFinding, operation: str) -> str:
+    if finding.code == "dmarc_report_destination_cname_migration":
+        target = finding.shared_record_target or "the previously captured shared target"
+        return (
+            f"Replace the local TXT record with the previous CNAME to {target}; "
+            "do not edit the shared target."
+        )
     if operation == "create":
         return f"Delete the newly created {finding.record_type} record at {finding.record_name}."
     if operation == "review-remove":
@@ -1856,7 +1925,7 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
         proposed_value = _proposed_value(finding)
         if operation == "defer":
             continue
-        current_values = list(finding.evidence)
+        current_values = list(finding.current_record_values or finding.evidence)
         # A matching value is only a no-op when it is the sole RRset member.
         # Consolidation findings (for example, multiple SPF or TLS-RPT TXT
         # values) still need an update plan even if one member is already the
@@ -1870,6 +1939,20 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
             )
         ):
             continue
+        changes = _plan_changes(current_values, proposed_value)
+        if finding.current_record_type and finding.current_record_type != finding.record_type:
+            value_changes = _plan_changes(
+                [finding.effective_value] if finding.effective_value else [],
+                proposed_value,
+            )
+            changes = [
+                (
+                    f"Replace the {finding.current_record_type} record with one "
+                    f"{finding.record_type} record at the same owner name."
+                ),
+                *value_changes,
+                "Leave the shared DMARC target unchanged.",
+            ]
         plans.append(
             DNSChangePlan(
                 plan_id=_plan_id(finding),
@@ -1886,7 +1969,7 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
                 expected_health_impact=_expected_health_impact(finding),
                 manual_steps=_manual_steps_for_plan(finding, operation),
                 provider_value_required=_provider_value_required(finding),
-                changes=_plan_changes(current_values, proposed_value),
+                changes=changes,
                 what_it_does=(
                     finding.target_record.what_it_does if finding.target_record else None
                 ),
@@ -1896,6 +1979,9 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
                 learn_more_label=(
                     finding.target_record.learn_more_label if finding.target_record else None
                 ),
+                current_record_type=finding.current_record_type,
+                effective_value=finding.effective_value,
+                shared_record_target=finding.shared_record_target,
             )
         )
     return plans

@@ -569,6 +569,10 @@ class DNSLintFindingResponse(BaseModel):
     evidence: List[str] = Field(default_factory=list)
     remediation_steps: List[str] = Field(default_factory=list)
     primary_eligible: bool = True
+    current_record_type: Optional[str] = None
+    current_record_values: List[str] = Field(default_factory=list)
+    effective_value: Optional[str] = None
+    shared_record_target: Optional[str] = None
 
 
 class DKIMSelectorEvidenceResponse(BaseModel):
@@ -616,6 +620,9 @@ class DNSChangePlanItemResponse(BaseModel):
     what_it_does: Optional[str] = None
     learn_more_url: Optional[str] = None
     learn_more_label: Optional[str] = None
+    current_record_type: Optional[str] = None
+    effective_value: Optional[str] = None
+    shared_record_target: Optional[str] = None
 
 
 class DNSChangePlanResponse(BaseModel):
@@ -1135,6 +1142,10 @@ class DNSWriteApplyRequest(BaseModel):
     allow_provider_mismatch: bool = False
     value: Optional[str] = None
     ttl: int = Field(default=1, ge=1, le=86400)
+    expected_record_type: Optional[str] = None
+    expected_current_values: Optional[List[str]] = None
+    expected_record_id: Optional[str] = None
+    expected_proposed_value: Optional[str] = None
 
 
 class DNSWriteMutationResponse(BaseModel):
@@ -1150,6 +1161,8 @@ class DNSWriteMutationResponse(BaseModel):
     zone_name: Optional[str] = None
     record_id: Optional[str] = None
     current_values: List[str] = Field(default_factory=list)
+    current_record_type: Optional[str] = None
+    effective_value: Optional[str] = None
     applicable: bool
     blocked_reason: Optional[str] = None
 
@@ -1161,6 +1174,7 @@ class DNSWriteVerificationResponse(BaseModel):
     verified: bool
     checked_values: List[str] = Field(default_factory=list)
     message: str = ""
+    resolver_checks: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class DNSWriteRollbackResponse(BaseModel):
@@ -1169,6 +1183,7 @@ class DNSWriteRollbackResponse(BaseModel):
     summary: str
     steps: List[str] = Field(default_factory=list)
     previous_values: List[str] = Field(default_factory=list)
+    previous_record_type: Optional[str] = None
     record_type: str
     name: str
     provider: str
@@ -6453,6 +6468,7 @@ def _dns_write_rollback_guidance(plan: Dict[str, Any], result: Any) -> Dict[str,
     """Return manual rollback guidance for a prepared or applied DNS mutation."""
     mutation = result.mutation
     previous_values = list(mutation.current_values or [])
+    previous_record_type = mutation.current_record_type or mutation.record_type
     summary = str(plan.get("rollback") or "").strip()
     if not summary:
         summary = "Review provider history and restore the previous DNS value if needed."
@@ -6465,7 +6481,15 @@ def _dns_write_rollback_guidance(plan: Dict[str, Any], result: Any) -> Dict[str,
             "Refresh DMARQ DNS evidence and confirm the domain returns to the intended state.",
         ]
     elif mutation.operation == "update":
-        if previous_values:
+        if previous_values and previous_record_type != mutation.record_type:
+            steps = [
+                f"Open {mutation.provider} DNS for the zone that contains {mutation.name}.",
+                f"Replace the {mutation.record_type} record named {mutation.name} with {previous_record_type}.",
+                "Restore the previous target shown in DMARQ's rollback evidence.",
+                "Do not edit the shared DMARC target.",
+                "Refresh DMARQ DNS evidence and confirm the restored alias is visible.",
+            ]
+        elif previous_values:
             steps = [
                 f"Open {mutation.provider} DNS for the zone that contains {mutation.name}.",
                 f"Edit the {mutation.record_type} record named {mutation.name}.",
@@ -6495,6 +6519,7 @@ def _dns_write_rollback_guidance(plan: Dict[str, Any], result: Any) -> Dict[str,
         "summary": summary,
         "steps": steps,
         "previous_values": previous_values,
+        "previous_record_type": previous_record_type,
         "record_type": mutation.record_type,
         "name": mutation.name,
         "provider": mutation.provider,
@@ -6593,6 +6618,21 @@ async def apply_domain_dns_change_plan(
                 ttl=payload.ttl,
             )
         else:
+            record_type_replacement = bool(
+                plan.get("current_record_type")
+                and str(plan.get("current_record_type")).upper()
+                != str(plan.get("record_type") or "").upper()
+            )
+            if record_type_replacement and (
+                payload.expected_record_type is None
+                or payload.expected_current_values is None
+                or payload.expected_record_id is None
+                or payload.expected_proposed_value is None
+            ):
+                raise DNSProviderWriteError(
+                    "Preview this record-type migration again before applying it; "
+                    "the reviewed provider baseline is required"
+                )
             _require_verified_domain_for_dns_write(db, workspace, resolved_domain)
             result = await apply_dns_write(
                 db,
@@ -6602,6 +6642,10 @@ async def apply_domain_dns_change_plan(
                 provider_id=payload.provider,
                 value_override=payload.value,
                 ttl=payload.ttl,
+                expected_record_type=payload.expected_record_type,
+                expected_current_values=payload.expected_current_values,
+                expected_record_id=payload.expected_record_id,
+                expected_proposed_value=payload.expected_proposed_value,
             )
     except DNSProviderWriteError as exc:
         raise HTTPException(
