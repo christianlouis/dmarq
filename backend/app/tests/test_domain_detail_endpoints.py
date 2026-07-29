@@ -2753,6 +2753,48 @@ def test_get_domain_sources_returns_200(seeded_client: TestClient):
     assert source["spf"] == "pass"
     assert source["dkim"] == "pass"
     assert source["dmarc"] == "pass"
+    assert source["mailflow"]["dkim_alignment"] == "pass"
+    assert data["mailflow_assessment"]["status"] == "healthy"
+    assert data["mailflow_assessment"]["flows"][0]["header_from_domains"] == [DOMAIN]
+
+
+def test_get_domain_sources_guides_dkim_repair_from_stored_report_facts(
+    seeded_client: TestClient,
+    db_session,
+):
+    """An SPF-aligned path with failing DKIM gets a bounded repair workflow."""
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-dkim-missing",
+        "records": [
+            {
+                "source_ip": "192.0.2.44",
+                "count": 8,
+                "disposition": "none",
+                "dkim_result": "fail",
+                "spf_result": "pass",
+                "header_from": DOMAIN,
+                "envelope_from": f"bounce.{DOMAIN}",
+                "dkim": [{"domain": DOMAIN, "selector": "mail", "result": "fail"}],
+                "spf": [{"domain": DOMAIN, "scope": "mfrom", "result": "pass"}],
+            }
+        ],
+        "summary": {"total_count": 8, "passed_count": 8, "failed_count": 0},
+    }
+    report_persistence.save_parsed_report(db_session, report)
+    db_session.commit()
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    data = response.json()
+    assessment = data["mailflow_assessment"]
+    assert assessment["status"] == "action_required"
+    assert assessment["repair_steps"]
+    affected = next(source for source in data["sources"] if source["ip"] == "192.0.2.44")
+    assert affected["mailflow"]["status"] == "aligned_dkim_not_observed"
+    assert affected["mailflow"]["dkim_selectors"] == ["mail"]
+    assert affected["mailflow"]["provider_evidence_status"] == "not_connected"
 
 
 def test_get_domain_migration_readiness_projects_parallel_cutover_state(
@@ -3209,14 +3251,14 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
 def test_source_delivery_status_distinguishes_receiver_observations(
     source, status, authentication_status, receiver_disposition, certainty
 ):
-    delivery = domains_endpoint._source_delivery_status(  # pylint: disable=protected-access
-        source
-    )
+    delivery = domains_endpoint._source_delivery_status(source)  # pylint: disable=protected-access
 
     assert delivery["status"] == status
     assert "delivery" not in delivery["label"].lower()
-    observation = domains_endpoint._source_authentication_observation(  # pylint: disable=protected-access
-        source
+    observation = (
+        domains_endpoint._source_authentication_observation(  # pylint: disable=protected-access
+            source
+        )
     )
     assert observation["status"] == authentication_status
     assert observation["disposition"] == receiver_disposition

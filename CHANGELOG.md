@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Domain sender views now start with a report-backed mailflow diagnosis. DMARQ
+  maps Header From, Envelope From, SPF domains, DKIM signing domains, and
+  selectors from stored ingest projections; distinguishes missing or
+  intermittent aligned DKIM from rejected unknown senders; and provides a
+  provider-neutral repair checklist whose closure gate is a fresh aligned DKIM
+  pass. Provider access is optional, and aggregate reports are not presented as
+  proof of message delivery or a specific server-side root cause.
 - Added a deployable Cloudflare Email Worker relay for installations that
   already use a DMARQ Gmail or IMAP source. The relay accepts one configured
   collector address, preserves the raw report attachments, and forwards only

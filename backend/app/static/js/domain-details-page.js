@@ -186,6 +186,17 @@ function domainDetailsApp(domainId = '') {
         reportsLoading: true,
         reportsError: '',
         sources: [],
+        mailflowAssessment: {
+            status: 'loading',
+            title: 'Loading mailflow evidence...',
+            summary: '',
+            next_step: '',
+            confidence: '',
+            evidence_scope: '',
+            repair_steps: [],
+            flows: [],
+            counts: {}
+        },
         // Keep the sender panel in a loading state until the first projection read settles.
         // Otherwise a slow but successful first response is briefly presented as an empty domain.
         sourcesLoading: true,
@@ -2116,6 +2127,55 @@ function domainDetailsApp(domainId = '') {
             return 'bg-blue-500';
         },
 
+        mailflowStatusClass(status) {
+            if (status === 'healthy') return 'bg-green-100 text-green-800';
+            if (status === 'action_required') return 'bg-red-100 text-red-800';
+            if (status === 'investigation_required') return 'bg-amber-100 text-amber-800';
+            if (status === 'no_action_likely_unauthorized_use') return 'bg-blue-100 text-blue-800';
+            return 'bg-gray-100 text-gray-700';
+        },
+
+        mailflowStatusLabel(status) {
+            return {
+                healthy: 'Healthy',
+                action_required: 'Action required',
+                investigation_required: 'Needs classification',
+                no_action_likely_unauthorized_use: 'Protected',
+                insufficient_evidence: 'Waiting for evidence'
+            }[status] || 'Review';
+        },
+
+        mailflowIdentityValues(flow) {
+            const values = [];
+            const add = (label, entries) => {
+                if (Array.isArray(entries) && entries.length) {
+                    values.push(`${label}: ${entries.join(', ')}`);
+                }
+            };
+            add('Header From', flow?.header_from_domains);
+            add('Envelope From', flow?.envelope_from_domains);
+            add('SPF domain', flow?.spf_domains);
+            add('DKIM domain', flow?.dkim_domains);
+            add('Selector', flow?.dkim_selectors);
+            return values;
+        },
+
+        mailflowAlignmentClass(value) {
+            if (value === 'pass') return 'bg-green-100 text-green-800';
+            if (value === 'mixed') return 'bg-amber-100 text-amber-800';
+            if (value === 'not_observed') return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-700';
+        },
+
+        mailflowAlignmentLabel(value) {
+            return {
+                pass: 'aligned pass',
+                mixed: 'mixed',
+                not_observed: 'not observed',
+                unknown: 'unknown'
+            }[value] || value;
+        },
+
         senderStatusClass(status) {
             if (status === 'known') return 'bg-green-100 text-green-800';
             if (status === 'ambiguous') return 'bg-yellow-100 text-yellow-800';
@@ -3435,6 +3495,17 @@ function domainDetailsApp(domainId = '') {
                 const data = await response.json();
                 this.sources = (Array.isArray(data.sources) ? data.sources : [])
                     .map(source => this.normalizeSource(source));
+                this.mailflowAssessment = data.mailflow_assessment || {
+                    status: 'insufficient_evidence',
+                    title: 'Waiting for mailflow evidence',
+                    summary: 'No report-backed mailflow assessment is available for this window.',
+                    next_step: 'Keep report intake running',
+                    confidence: 'Not enough evidence',
+                    evidence_scope: '',
+                    repair_steps: [],
+                    flows: [],
+                    counts: {}
+                };
                 this.sourceReputationRefreshError = '';
             } catch (error) {
                 const hasExistingSources = (this.sources || []).length > 0;
