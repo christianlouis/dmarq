@@ -3152,14 +3152,25 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
             "failed": 6,
         }
     ]
-    assert source["delivery_status"] == "mixed"
-    assert source["delivery_label"] == "Mixed delivery"
+    assert source["delivery_status"] == "mixed"  # Deprecated API compatibility field.
+    assert source["authentication_status"] == "mixed_authentication"
+    assert source["authentication_label"] == "Mixed authentication results"
+    assert source["receiver_disposition"] == "mixed"
+    assert source["evidence_kind"] == "dmarc_aggregate_report"
+    assert source["claim_level"] == "observed"
+    assert source["delivery_certainty"] == "unknown"
 
 
 @pytest.mark.parametrize(
-    ("source", "status"),
+    ("source", "status", "authentication_status", "receiver_disposition", "certainty"),
     [
-        ({"dmarc_pass_count": 12, "dmarc_fail_count": 0}, "aligned"),
+        (
+            {"dmarc_pass_count": 12, "dmarc_fail_count": 0},
+            "aligned",
+            "authenticated",
+            "no_failing_messages",
+            "unknown",
+        ),
         (
             {
                 "dmarc_pass_count": 0,
@@ -3167,6 +3178,9 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
                 "disposition_counts": {"reject": 12},
             },
             "policy_blocked",
+            "receiver_protective_action",
+            "protective_action",
+            "unknown",
         ),
         (
             {
@@ -3175,13 +3189,44 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
                 "disposition_counts": {"none": 12},
             },
             "unauthenticated_delivered",
+            "receiver_no_dmarc_action",
+            "none",
+            "unknown",
+        ),
+        (
+            {
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 12,
+                "disposition_counts": {"none": 6, "reject": 6},
+            },
+            "mixed",
+            "mixed_authentication",
+            "mixed",
+            "unknown",
         ),
     ],
 )
-def test_source_delivery_status_distinguishes_policy_outcomes(source, status):
-    delivery = domains_endpoint._source_delivery_status(source)  # pylint: disable=protected-access
+def test_source_delivery_status_distinguishes_receiver_observations(
+    source, status, authentication_status, receiver_disposition, certainty
+):
+    delivery = domains_endpoint._source_delivery_status(  # pylint: disable=protected-access
+        source
+    )
 
     assert delivery["status"] == status
+    assert "delivery" not in delivery["label"].lower()
+    observation = domains_endpoint._source_authentication_observation(  # pylint: disable=protected-access
+        source
+    )
+    assert observation["status"] == authentication_status
+    assert observation["disposition"] == receiver_disposition
+    assert observation["disposition_label"] != receiver_disposition
+    assert "delivery" not in observation["label"].lower()
+    assert certainty == "unknown"
+    assert any(
+        phrase in observation["detail"].lower()
+        for phrase in ("do not", "does not", "unknown", "not a per-message")
+    )
 
 
 def test_get_domain_sources_returns_recommendations(

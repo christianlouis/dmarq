@@ -2700,11 +2700,11 @@
                             <option value="clean">Clean reputation</option>
                         </select>
                         <select x-model="filters.sourceDeliveryFilter" class="select select-sm select-bordered">
-                            <option value="all">All delivery outcomes</option>
-                            <option value="aligned">Aligned delivery</option>
-                            <option value="policy_blocked">Blocked by policy</option>
-                            <option value="unauthenticated_delivered">Unauthenticated delivery</option>
-                            <option value="mixed">Mixed delivery</option>
+                            <option value="all">All authentication observations</option>
+                            <option value="authenticated">Authenticated in receiver reports</option>
+                            <option value="receiver_protective_action">Receiver-reported protective action</option>
+                            <option value="receiver_no_dmarc_action">Receiver reported no DMARC action</option>
+                            <option value="mixed_authentication">Mixed authentication results</option>
                         </select>
                         <button type="button"
                                 class="btn btn-sm btn-default"
@@ -2747,20 +2747,20 @@
                         :aria-pressed="sourceSummaryFilterActive('recent')">
                         <span x-text="sourceRiskCounts.recent"></span><span class="ml-1">recent</span>
                     </button>
-                    <button type="button" data-domain-detail-source-filter="delivery:aligned"
+                    <button type="button" data-domain-detail-source-filter="delivery:authenticated"
                         class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800 hover:ring-2 hover:ring-green-500/30 focus:outline-none focus:ring-2 focus:ring-green-600"
-                        :aria-pressed="sourceSummaryFilterActive('delivery:aligned')">
-                        <span x-text="sourceRiskCounts.aligned"></span><span class="ml-1">aligned delivery</span>
+                        :aria-pressed="sourceSummaryFilterActive('delivery:authenticated')">
+                        <span x-text="sourceRiskCounts.authenticated"></span><span class="ml-1">authenticated in receiver reports</span>
                     </button>
-                    <button type="button" data-domain-detail-source-filter="delivery:policy_blocked"
+                    <button type="button" data-domain-detail-source-filter="delivery:receiver_protective_action"
                         class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800 hover:ring-2 hover:ring-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        :aria-pressed="sourceSummaryFilterActive('delivery:policy_blocked')">
-                        <span x-text="sourceRiskCounts.blocked"></span><span class="ml-1">blocked by policy</span>
+                        :aria-pressed="sourceSummaryFilterActive('delivery:receiver_protective_action')">
+                        <span x-text="sourceRiskCounts.protectiveAction"></span><span class="ml-1">receiver-reported protective action</span>
                     </button>
-                    <button type="button" data-domain-detail-source-filter="delivery:unauthenticated_delivered"
+                    <button type="button" data-domain-detail-source-filter="delivery:receiver_no_dmarc_action"
                         class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800 hover:ring-2 hover:ring-red-500/30 focus:outline-none focus:ring-2 focus:ring-red-600"
-                        :aria-pressed="sourceSummaryFilterActive('delivery:unauthenticated_delivered')">
-                        <span x-text="sourceRiskCounts.unauthenticated"></span><span class="ml-1">unauthenticated delivery</span>
+                        :aria-pressed="sourceSummaryFilterActive('delivery:receiver_no_dmarc_action')">
+                        <span x-text="sourceRiskCounts.noDmarcAction"></span><span class="ml-1">receiver reported no DMARC action</span>
                     </button>
                     <button type="button" data-domain-detail-source-filter="unchecked"
                         class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70 hover:ring-2 hover:ring-[#2f9da5]/40 focus:outline-none focus:ring-2 focus:ring-[#2f9da5]"
@@ -2813,8 +2813,8 @@
                                               x-text="sourceActivityLabel(source)"></span>
                                         <span class="inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
                                               :class="sourceDeliveryClass(source)"
-                                              :title="source.delivery_detail"
-                                              x-text="source.delivery_label"></span>
+                                              :title="source.authentication_detail"
+                                              x-text="source.authentication_label"></span>
                                     </div>
                                     <div class="space-y-1">
                                         <div class="flex flex-wrap items-center gap-2">
@@ -2946,15 +2946,9 @@
                                         </div>
                                         <div class="auth-status-cell" data-auth="disposition">
                                             <span class="auth-label">Disposition</span>
-                                    <template x-if="source.disposition === 'none'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">None</span>
-                                    </template>
-                                    <template x-if="source.disposition === 'quarantine'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Quarantine</span>
-                                    </template>
-                                    <template x-if="source.disposition === 'reject'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Reject</span>
-                                    </template>
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs"
+                                          :class="source.receiver_disposition === 'protective_action' ? 'bg-red-100 text-red-800' : (source.receiver_disposition === 'none' ? 'bg-blue-100 text-blue-800' : (source.receiver_disposition === 'mixed' ? 'bg-yellow-100 text-yellow-800' : 'bg-base-200 text-base-content/70'))"
+                                          x-text="source.receiver_disposition_label"></span>
                                         </div>
                                     </div>
                                     <div class="sending-source-recs min-w-0">

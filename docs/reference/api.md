@@ -1041,6 +1041,26 @@ failures.
 next to the raw sending-source evidence. `volume_history` is a list of per-day
 `{date, count, passed, failed}` points for the source IP.
 
+### Sender authentication and delivery certainty
+
+DMARC aggregate reports describe how a reporting receiver evaluated domain
+authentication and which DMARC disposition it recorded. They do **not** prove
+that an individual message was accepted, delivered, bounced, or placed in an
+inbox. Source responses therefore include additive fields:
+
+- `authentication_status`, `authentication_label`, and `authentication_detail`
+  describe the aggregate DMARC observation;
+- `receiver_disposition` and `receiver_disposition_label` describe only the
+  receiver-reported DMARC action;
+- `evidence_kind` is currently `dmarc_aggregate_report`;
+- `claim_level` is `observed` for these protocol facts; and
+- `delivery_certainty` remains `unknown` until DMARQ has actual delivery
+  evidence such as a DSN or a signed provider delivery event.
+
+The older `delivery_status`, `delivery_label`, and `delivery_detail` fields are
+retained for compatibility but are deprecated. New integrations should use the
+explicit authentication and receiver-disposition fields.
+
 #### Get Source Reputation
 
 ```http

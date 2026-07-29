@@ -2065,6 +2065,16 @@ class SourceEntry(BaseModel):
     delivery_status: str = "unknown"
     delivery_label: str = "Delivery status unknown"
     delivery_detail: str = "No DMARC delivery outcome is available for this source."
+    # Deprecated compatibility aliases. DMARC aggregate reports do not prove
+    # individual delivery; use the explicit observation fields below instead.
+    authentication_status: str = "unknown"
+    authentication_label: str = "Authentication result unknown"
+    authentication_detail: str = "No receiver authentication observation is available for this source."
+    receiver_disposition: str = "unknown"
+    receiver_disposition_label: str = "Receiver-reported disposition unavailable"
+    evidence_kind: str = "dmarc_aggregate_report"
+    claim_level: str = "observed"
+    delivery_certainty: str = "unknown"
     hostname: Optional[str] = None
     ptr_status: Optional[str] = None
     ptr_detail: Optional[str] = None
@@ -8421,7 +8431,11 @@ def _source_recommendations(
 
 
 def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
-    """Describe the observed DMARC outcome without claiming sender ownership."""
+    """Return deprecated delivery aliases without claiming end-user delivery.
+
+    Kept for API compatibility. New callers should use
+    :func:`_source_authentication_observation` and the explicit evidence fields.
+    """
     passed = int(source.get("dmarc_pass_count") or 0)
     failed = int(source.get("dmarc_fail_count") or 0)
     dispositions = source.get("disposition_counts") or {}
@@ -8431,31 +8445,80 @@ def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
     if passed and not failed:
         return {
             "status": "aligned",
-            "label": "Aligned delivery",
-            "detail": "All observed messages passed DMARC in the selected window.",
+            "label": "Authenticated in receiver reports",
+            "detail": "All observed messages passed DMARC in the selected window; final delivery is unknown.",
         }
     if failed and blocked >= failed and not delivered_failures:
         return {
             "status": "policy_blocked",
-            "label": "Blocked by policy",
-            "detail": "Observed DMARC failures were quarantined or rejected by policy.",
+            "label": "Receiver-reported protective action",
+            "detail": "Receivers reported quarantine or reject for observed failures; final delivery is unknown.",
         }
-    if failed and delivered_failures and not passed:
+    if failed and delivered_failures >= failed and not blocked and not passed:
         return {
             "status": "unauthenticated_delivered",
-            "label": "Unauthenticated delivery",
-            "detail": "Observed DMARC failures were delivered with disposition none.",
+            "label": "Receiver reported no DMARC action",
+            "detail": "Receivers reported disposition none for observed failures; this does not prove delivery or inbox placement.",
         }
     if passed or failed:
         return {
             "status": "mixed",
-            "label": "Mixed delivery",
-            "detail": "The selected window contains both aligned and failing DMARC outcomes.",
+            "label": "Mixed authentication results",
+            "detail": "The selected window contains both passing and failing DMARC observations; final delivery is unknown.",
         }
     return {
         "status": "unknown",
-        "label": "Delivery status unknown",
-        "detail": "No DMARC delivery outcome is available for this source.",
+        "label": "Authentication result unknown",
+        "detail": "No DMARC authentication observation is available for this source.",
+    }
+
+
+def _source_authentication_observation(source: Dict[str, Any]) -> Dict[str, str]:
+    """Describe aggregate DMARC facts without inferring individual delivery."""
+    passed = int(source.get("dmarc_pass_count") or 0)
+    failed = int(source.get("dmarc_fail_count") or 0)
+    dispositions = source.get("disposition_counts") or {}
+    protected = int(dispositions.get("reject") or 0) + int(dispositions.get("quarantine") or 0)
+    no_action = int(dispositions.get("none") or 0)
+
+    if passed and not failed:
+        return {
+            "status": "authenticated",
+            "label": "Authenticated in receiver reports",
+            "detail": "All observed messages passed DMARC in this window. Aggregate reports do not confirm final delivery or inbox placement.",
+            "disposition": "no_failing_messages",
+            "disposition_label": "No failing-message disposition reported",
+        }
+    if failed and protected >= failed and not no_action:
+        return {
+            "status": "receiver_protective_action",
+            "label": "Receiver-reported protective action",
+            "detail": "Receivers reported quarantine or reject for all observed DMARC failures. This is not a per-message bounce confirmation.",
+            "disposition": "protective_action",
+            "disposition_label": "Receivers reported quarantine or reject",
+        }
+    if failed and no_action >= failed and not protected and not passed:
+        return {
+            "status": "receiver_no_dmarc_action",
+            "label": "Receiver reported no DMARC action",
+            "detail": "Receivers reported disposition none for observed DMARC failures. That does not prove delivery, inbox placement, or acceptance.",
+            "disposition": "none",
+            "disposition_label": "Receivers reported disposition none",
+        }
+    if passed or failed:
+        return {
+            "status": "mixed_authentication",
+            "label": "Mixed authentication results",
+            "detail": "This window includes both passing and failing DMARC observations. Aggregate reports do not confirm final delivery.",
+            "disposition": "mixed",
+            "disposition_label": "Receiver-reported dispositions vary",
+        }
+    return {
+        "status": "unknown",
+        "label": "Authentication result unknown",
+        "detail": "No DMARC authentication observation is available for this source.",
+        "disposition": "unknown",
+        "disposition_label": "Receiver-reported disposition unavailable",
     }
 
 
@@ -8927,6 +8990,7 @@ async def get_domain_sources(
         source_anomalies = anomalies_by_ip.get(ip, [])
         reputation = reputations_by_ip.get(ip)
         delivery = _source_delivery_status(source)
+        authentication = _source_authentication_observation(source)
         recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
         recommendations.extend(_anomaly_recommendations(source_anomalies))
         recommendations.extend(_reputation_recommendations(reputation))
@@ -8954,6 +9018,14 @@ async def get_domain_sources(
                 delivery_status=delivery["status"],
                 delivery_label=delivery["label"],
                 delivery_detail=delivery["detail"],
+                authentication_status=authentication["status"],
+                authentication_label=authentication["label"],
+                authentication_detail=authentication["detail"],
+                receiver_disposition=authentication["disposition"],
+                receiver_disposition_label=authentication["disposition_label"],
+                evidence_kind="dmarc_aggregate_report",
+                claim_level="observed",
+                delivery_certainty="unknown",
                 hostname=hostname,
                 ptr_status=(ptr_by_ip.get(ip).status if ptr_by_ip.get(ip) else None),
                 ptr_detail=(ptr_by_ip.get(ip).detail if ptr_by_ip.get(ip) else None),
