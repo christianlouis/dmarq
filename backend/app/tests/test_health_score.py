@@ -146,6 +146,31 @@ def test_report_confidence_waiting_item_links_to_recent_reports():
     assert report_item["href"] == "#recent-reports"
 
 
+def test_unmapped_compliance_gap_links_to_sending_sources():
+    health = score_domain_health(
+        {
+            "domain_name": "example.com",
+            "total_emails": 25_000,
+            "failed_count": 1_250,
+            "pass_rate": 95,
+            "report_count": 30,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "dmarc_policy": "reject",
+            "dmarc_warnings": [],
+            "source_reputation": {"summary": {"total_sources": 1, "highest_risk_score": 0}},
+        }
+    )
+
+    compliance_item = next(
+        item for item in health["path_to_100"]["items"] if item["factor"] == "dmarc_compliance"
+    )
+
+    assert compliance_item["kind"] == "investigation_required"
+    assert compliance_item["href"] == "#sending-sources"
+
+
 def test_missing_dmarc_scores_worse_than_policy_none():
     """Missing DMARC must penalize more than a real p=none monitoring record."""
     shared = {

@@ -493,6 +493,16 @@ def _path_to_100(
         "source_reputation_listed": "#sending-sources",
         "source_reputation_review": "#sending-sources",
     }
+
+    def factor_href(factor: str) -> str:
+        if factor == "dns_posture":
+            return "#dns-records"
+        if factor in {"dmarc_compliance", "source_reputation"}:
+            return "#sending-sources"
+        if factor == "report_confidence":
+            return "#recent-reports"
+        return "#health-score-history"
+
     by_factor: Dict[str, List[Dict[str, Any]]] = {}
     for action in actions:
         factor = action_factor.get(str(action.get("type") or ""))
@@ -553,11 +563,7 @@ def _path_to_100(
                     "next_step": "Open the linked evidence before making a change.",
                     "verification": "A new persisted assessment identifies a specific change or confirms healthy evidence.",
                     "evidence": [],
-                    "href": (
-                        "#recent-reports"
-                        if factor == "report_confidence"
-                        else "#health-score-history"
-                    ),
+                    "href": factor_href(factor),
                 }
             )
     items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
