@@ -51,7 +51,8 @@ def test_sending_sources_keeps_auth_and_recommendations_data() -> None:
     assert "source.spf" in section
     assert "source.dkim" in section
     assert "source.dmarc" in section
-    assert "source.disposition" in section
+    assert "source.receiver_disposition" in section
+    assert "source.receiver_disposition_label" in section
     assert "source.recommendations" in section
     assert "Trust signals" in section
     assert "sourceNetworkSummary(source)" in section
