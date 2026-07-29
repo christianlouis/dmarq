@@ -1,5 +1,17 @@
 function settingsApp() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
+
+        localizeRuntimeMessage(message) {
+            const text = String(message || '');
+            const separator = text.indexOf(': ');
+            if (separator < 0) return this.t(text);
+            const prefix = text.slice(0, separator);
+            return `${this.t(prefix)}: ${text.slice(separator + 2)}`;
+        },
+
         s: {},           // flat map of key → value (strings)
         saving: false,
         flashMsg: '',
@@ -258,9 +270,9 @@ function settingsApp() {
         },
 
         accountReadinessStatusLabel(status) {
-            if (status === 'complete') return 'Complete';
-            if (status === 'operational_with_setup_needed') return 'Setup needed';
-            return status || 'Unknown';
+            if (status === 'complete') return this.t('Complete');
+            if (status === 'operational_with_setup_needed') return this.t('Setup needed');
+            return status ? this.t(status) : this.t('Unknown');
         },
 
         applyCloudflareOAuthQueryState() {
@@ -669,10 +681,10 @@ function settingsApp() {
 
         selectedDnsProviderConnectionLabel() {
             const status = this.selectedDnsProviderConnectionStatus();
-            if (status === 'connected') return 'Connected';
-            if (status === 'needs_credentials') return 'Needs credentials';
-            if (status === 'planned') return 'Planned';
-            return 'Not configured';
+            if (status === 'connected') return this.t('Connected');
+            if (status === 'needs_credentials') return this.t('Needs credentials');
+            if (status === 'planned') return this.t('Planned');
+            return this.t('Not configured');
         },
 
         selectedDnsProviderConnectionClass() {
@@ -698,16 +710,19 @@ function settingsApp() {
         },
 
         dnsProviderImportErrorTitle() {
-            return `${this.selectedDnsProviderName()} discovery needs attention`;
+            return this.t('{provider} discovery needs attention', { provider: this.selectedDnsProviderName() });
         },
 
         dnsProviderNoImportableZonesTitle() {
-            return `${this.selectedDnsProviderName()} returned no importable zones`;
+            return this.t('{provider} returned no importable zones', { provider: this.selectedDnsProviderName() });
         },
 
         alertPreviewLabel() {
-            if (!this.alertPreview) return 'No active alerts found.';
-            return `${this.alertPreview} active alert${this.alertPreview === 1 ? '' : 's'} found.`;
+            if (!this.alertPreview) return this.t('No active alerts found.');
+            return this.t(
+                this.alertPreview === 1 ? '{count} active alert found.' : '{count} active alerts found.',
+                { count: this.alertPreview },
+            );
         },
 
         summaryPreviewLabel() {
@@ -1159,7 +1174,7 @@ function settingsApp() {
         },
 
         showFlash(msg, ok) {
-            this.flashMsg = msg;
+            this.flashMsg = this.localizeRuntimeMessage(msg);
             this.flashOk = ok;
             if (this._flashTimer) clearTimeout(this._flashTimer);
             this._flashTimer = setTimeout(() => {

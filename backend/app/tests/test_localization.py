@@ -3,6 +3,7 @@ from pathlib import Path
 from starlette.requests import Request
 
 from app.core.localization import (
+    DE_TRANSLATIONS,
     normalize_locale,
     resolve_request_locale,
     template_locale_context,
@@ -63,9 +64,40 @@ def test_english_catalog_translates_legacy_provider_copy():
     assert translate("Kundenkonten", "en") == "Customer accounts"
 
 
+def test_german_catalog_covers_operational_copy_rendered_after_page_load():
+    """Interactive pages must not add English status copy after initial render."""
+    expected = {
+        "Report intake blocked": "Berichtseingang blockiert",
+        "Scheduled checks active": "Geplante Prüfungen aktiv",
+        "Pending DNS refresh": "DNS-Aktualisierung ausstehend",
+        "DNS queued": "DNS-Prüfung eingeplant",
+        "Queued": "Eingeplant",
+        "Completed": "Abgeschlossen",
+        "Reports Per Page": "Berichte pro Seite",
+        "Session Lifetime (minutes)": "Sitzungsdauer (Minuten)",
+        "Connected": "Verbunden",
+        "Not authorised": "Nicht autorisiert",
+        "Settings saved successfully.": "Einstellungen wurden gespeichert.",
+        "Failed to load settings": "Einstellungen konnten nicht geladen werden",
+    }
+
+    for source, german in expected.items():
+        assert DE_TRANSLATIONS[source] == german
+
+
 def test_base_template_passes_resolved_locale_to_browser_catalog():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
     ).read_text(encoding="utf-8")
 
     assert '/ui/localization-catalog.js?lang={{ locale }}' in template
+
+
+def test_setup_template_uses_the_same_browser_locale_catalog():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "setup.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'data-app-locale="{{ locale }}"' in template
+    assert '/ui/localization-catalog.js?lang={{ locale }}' in template
+    assert 'mailboxRecoveryHint?.summary' not in template

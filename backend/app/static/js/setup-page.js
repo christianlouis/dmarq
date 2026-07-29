@@ -1,5 +1,8 @@
 function setupWizard() {
     return {
+        t(message, replacements = {}) {
+            return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
+        },
         statusLoading: true,
         saving: false,
         currentStep: 1,
@@ -31,7 +34,7 @@ function setupWizard() {
             try {
                 const response = await fetch('/api/v1/setup/status');
                 if (!response.ok) {
-                    throw new Error('Could not load setup status.');
+                    throw new Error(this.t('Could not load setup status.'));
                 }
                 const status = await response.json();
                 this.system.app_name = status.app_name || this.system.app_name;
@@ -42,7 +45,7 @@ function setupWizard() {
                 this.enabledMailSources = status.enabled_mail_sources || 0;
                 this.mailboxRecoveryHint = status.mailbox_recovery_hint || null;
             } catch (err) {
-                this.error = err.message || 'Could not load setup status.';
+                this.error = err.message || this.t('Could not load setup status.');
             } finally {
                 this.statusLoading = false;
             }
@@ -108,7 +111,7 @@ function setupWizard() {
         async submitSystem() {
             this.error = '';
             if (this.system.cloudflare_enabled && !this.system.cloudflare_api_token) {
-                this.error = 'Enter a Cloudflare API token or leave Cloudflare disabled for now.';
+                this.error = this.t('Enter a Cloudflare API token or leave Cloudflare disabled for now.');
                 return;
             }
             await this.save('/api/v1/setup/system', this.system, () => {
@@ -116,8 +119,8 @@ function setupWizard() {
                 this.complete = true;
                 this.currentStep = 3;
                 this.message = this.system.cloudflare_enabled
-                    ? 'Your setup settings and Cloudflare connector have been saved.'
-                    : 'Your setup settings have been saved.';
+                    ? this.t('Your setup settings and Cloudflare connector have been saved.')
+                    : this.t('Your setup settings have been saved.');
             });
         },
         async save(url, payload, onSuccess) {
@@ -130,11 +133,11 @@ function setupWizard() {
                 });
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || 'Setup could not be saved.');
+                    throw new Error(data.detail || this.t('Setup could not be saved.'));
                 }
                 onSuccess();
             } catch (err) {
-                this.error = err.message || 'Setup could not be saved.';
+                this.error = err.message || this.t('Setup could not be saved.');
             } finally {
                 this.saving = false;
             }
@@ -147,10 +150,13 @@ function setupWizard() {
             }));
         },
         get domainsConfiguredLabel() {
-            return `(${this.totalDomains} configured)`;
+            return this.t('({count} configured)', { count: this.totalDomains });
         },
         get mailSourcesEnabledLabel() {
-            return `(${this.enabledMailSources}/${this.totalMailSources} enabled)`;
+            return this.t('({enabled}/{total} enabled)', {
+                enabled: this.enabledMailSources,
+                total: this.totalMailSources,
+            });
         },
         get mailboxRecoverySteps() {
             return Array.isArray(this.mailboxRecoveryHint?.recovery_steps)
