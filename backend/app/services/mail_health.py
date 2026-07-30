@@ -157,6 +157,7 @@ def _assessment(
     watch_condition: str | None = None,
     supporting_signals: list[Dict[str, Any]] | None = None,
     conclusion_claim_level: str = "inferred",
+    delivery_certainty: str = "inferred_only",
     derived_facts: list[str] | None = None,
 ) -> Dict[str, Any]:
     derived_fact_set = set(derived_facts or [])
@@ -202,7 +203,7 @@ def _assessment(
         "watch_condition": watch_condition,
         "claim_type": "aggregate_dmarc_authentication",
         "claim_level": conclusion_claim_level,
-        "delivery_certainty": "inferred_only",
+        "delivery_certainty": delivery_certainty,
         "signal_schema_version": MAIL_SIGNAL_SCHEMA_VERSION,
         "supporting_signals": supporting_signals or [],
         "claims": observed_claims + derived_claims + inferred_claims + unknown_claims,
@@ -265,6 +266,7 @@ def build_workspace_mail_health_assessment(
                 )
             ],
             conclusion_claim_level="derived",
+            delivery_certainty="not_applicable",
         )
 
     known_failing: list[Dict[str, Any]] = []
@@ -442,6 +444,7 @@ def build_workspace_mail_health_assessment(
             watch_condition="DMARQ will reassess when usable authentication evidence arrives.",
             supporting_signals=_source_signals(source),
             conclusion_claim_level="derived",
+            delivery_certainty="not_applicable",
         )
 
     source = max(sources.values(), key=lambda item: _count(item["dmarc_pass_count"]))

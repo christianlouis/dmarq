@@ -11,7 +11,7 @@ import secrets
 from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, Response
@@ -2043,6 +2043,18 @@ class SourceVolumeHistoryEntry(BaseModel):
     failed: int = 0
 
 
+ClaimLevel = Literal["observed", "derived", "inferred", "operator_reported", "unknown"]
+DeliveryCertainty = Literal[
+    "not_applicable",
+    "authentication_only",
+    "receiver_disposition_reported",
+    "transport_failure_reported",
+    "non_delivery_reported",
+    "delivery_reported",
+    "inferred_only",
+]
+
+
 class MailflowIdentity(BaseModel):
     """Report-backed authentication identity for one sending path."""
 
@@ -2064,8 +2076,8 @@ class MailflowIdentity(BaseModel):
     receiver_disposition: str = "none"
     intended_mail_impact: str = "unknown"
     evidence_level: str = "observed"
-    claim_level: str = "observed"
-    delivery_certainty: str = "authentication_only"
+    claim_level: ClaimLevel = "observed"
+    delivery_certainty: DeliveryCertainty = "authentication_only"
     signals: List[Dict[str, Any]] = Field(default_factory=list)
     provider_evidence_status: str = "not_connected"
     next_step: str
@@ -2128,8 +2140,8 @@ class SourceEntry(BaseModel):
     receiver_disposition: str = "unknown"
     receiver_disposition_label: str = "Receiver-reported disposition unavailable"
     evidence_kind: str = "dmarc_aggregate_report"
-    claim_level: str = "observed"
-    delivery_certainty: str = "unknown"
+    claim_level: ClaimLevel = "observed"
+    delivery_certainty: DeliveryCertainty = "authentication_only"
     signals: List[Dict[str, Any]] = Field(default_factory=list)
     hostname: Optional[str] = None
     ptr_status: Optional[str] = None

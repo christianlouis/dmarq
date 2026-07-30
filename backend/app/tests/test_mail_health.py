@@ -221,6 +221,7 @@ def test_empty_workspace_requests_report_intake_before_any_technical_work(db_ses
     assert result["outcome"] == "insufficient_evidence"
     assert result["href"] == "/mail-sources"
     assert result["claim_level"] == "derived"
+    assert result["delivery_certainty"] == "not_applicable"
     assert result["supporting_signals"][0]["family"] == "intake_health"
     assert result["supporting_signals"][0]["delivery_certainty"] == "not_applicable"
 
@@ -238,6 +239,7 @@ def test_sender_activity_without_authentication_results_is_not_reported_healthy(
     assert result["outcome"] == "insufficient_evidence"
     assert result["next_step"] == "Review report intake"
     assert "not enough" in result["evidence_scope"].lower()
+    assert result["delivery_certainty"] == "not_applicable"
 
 
 def test_successful_authentication_evidence_is_reported_as_healthy(db_session):
