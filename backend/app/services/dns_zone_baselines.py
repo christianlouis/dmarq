@@ -32,7 +32,7 @@ def _normalize_value(record_type: str, value: str) -> str:
     return value
 
 
-def parse_bind_zone(domain: str, zone_text: str) -> List[Dict[str, Any]]:
+def parse_bind_zone(domain: str, zone_text: str) -> List[Dict[str, Any]]:  # noqa: C901
     """Parse a BIND export with an explicit zone origin and no provider credentials."""
     normalized_domain = domain.strip().strip(".").lower()
     if not normalized_domain:
