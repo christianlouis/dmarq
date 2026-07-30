@@ -385,7 +385,9 @@ def test_workspace_guidance_profile_is_versioned_validated_and_audited(authed_cl
     audit = db_session.query(WorkspaceAuditLog).one()
     assert audit.action == "workspace.guidance_profile_updated"
     assert audit.workspace_id == workspace.id
-    assert json.loads(audit.details)["mail_context"]["known_mail_providers"] == ["Poste.io"]
+    audit_details = json.loads(audit.details)
+    assert audit_details["current"]["mail_context"]["known_mail_providers"] == ["Poste.io"]
+    assert audit_details["previous"]["mail_context"] == {}
 
 
 def test_workspace_guidance_profile_rejects_unknown_schema_values(authed_client, db_session):
