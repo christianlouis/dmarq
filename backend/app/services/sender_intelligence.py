@@ -56,6 +56,25 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
         docs_url="https://learn.microsoft.com/en-us/defender-office-365/email-authentication-dkim-configure",
     ),
     SenderProfile(
+        id="cloudflare-email-routing",
+        name="Cloudflare Email Routing",
+        provider="Cloudflare",
+        category="forwarding_service",
+        hostname_tokens=("cloudflare-email.net",),
+        domain_tokens=(),
+        selector_tokens=(),
+        extension_tokens=("cloudflare-email-routing",),
+        remediation_hint=(
+            "Treat this as forwarding infrastructure, not as a normal outbound sender. "
+            "Do not add Cloudflare relay IPs to your SPF record. Confirm that the original "
+            "sender signs aligned DKIM, then verify the next forwarded reports."
+        ),
+        docs_url=(
+            "https://developers.cloudflare.com/email-service/"
+            "configuration/email-routing-addresses/"
+        ),
+    ),
+    SenderProfile(
         id="amazon-ses",
         name="Amazon SES",
         provider="Amazon Web Services",
@@ -784,7 +803,7 @@ def identify_sender(
     )
     owned = None if suspicious_hostname else _owned_infrastructure(domain, hostname)
     if owned:
-        return owned
+        return _with_authorization_plan(owned, source=source, hostname=hostname, domain=domain)
 
     profile_matches = []
     for profile in SENDER_PROFILES:
@@ -797,33 +816,43 @@ def identify_sender(
         best_score, best_profile, best_evidence = profile_matches[0]
         if len(profile_matches) > 1 and profile_matches[1][0] == best_score:
             tied_names = sorted({best_profile.name, profile_matches[1][1].name})
-            return {
-                "id": "ambiguous-sender",
-                "name": "Ambiguous sender",
-                "provider": None,
-                "category": "unknown",
-                "status": "ambiguous",
-                "confidence": max(40, min(best_score, 60)),
-                "reason": "Multiple sender profiles matched with the same confidence.",
-                "evidence": [f"Matched: {', '.join(tied_names)}"],
-                "remediation_hint": (
-                    "Confirm the service owner before making DNS changes; do not authorize "
-                    "an ambiguous source based on IP alone."
-                ),
-                "docs_url": None,
-            }
-        return {
-            "id": best_profile.id,
-            "name": best_profile.name,
-            "provider": best_profile.provider,
-            "category": best_profile.category,
-            "status": "known",
-            "confidence": max(55, best_score),
-            "reason": "Sender matched known provider evidence.",
-            "evidence": best_evidence,
-            "remediation_hint": best_profile.remediation_hint,
-            "docs_url": best_profile.docs_url,
-        }
+            return _with_authorization_plan(
+                {
+                    "id": "ambiguous-sender",
+                    "name": "Ambiguous sender",
+                    "provider": None,
+                    "category": "unknown",
+                    "status": "ambiguous",
+                    "confidence": max(40, min(best_score, 60)),
+                    "reason": "Multiple sender profiles matched with the same confidence.",
+                    "evidence": [f"Matched: {', '.join(tied_names)}"],
+                    "remediation_hint": (
+                        "Confirm the service owner before making DNS changes; do not authorize "
+                        "an ambiguous source based on IP alone."
+                    ),
+                    "docs_url": None,
+                },
+                source=source,
+                hostname=hostname,
+                domain=domain,
+            )
+        return _with_authorization_plan(
+            {
+                "id": best_profile.id,
+                "name": best_profile.name,
+                "provider": best_profile.provider,
+                "category": best_profile.category,
+                "status": "known",
+                "confidence": max(55, best_score),
+                "reason": "Sender matched known provider evidence.",
+                "evidence": best_evidence,
+                "remediation_hint": best_profile.remediation_hint,
+                "docs_url": best_profile.docs_url,
+            },
+            source=source,
+            hostname=hostname,
+            domain=domain,
+        )
 
     dmarc_failed = (
         int(source.get("dmarc_fail_count", 0) or 0) > 0 or source.get("dmarc_result") == "fail"
@@ -842,18 +871,108 @@ def identify_sender(
     if hostname:
         evidence.append(f"PTR hostname {hostname}")
 
-    return {
-        "id": "unknown-sender",
-        "name": "Unknown sender",
-        "provider": None,
-        "category": "unknown",
-        "status": status,
-        "confidence": 0,
-        "reason": reason,
-        "evidence": evidence,
-        "remediation_hint": (
-            "Identify the business owner for this source before authorizing it. If nobody "
-            "owns it, keep it blocked by DMARC enforcement."
-        ),
-        "docs_url": None,
-    }
+    return _with_authorization_plan(
+        {
+            "id": "unknown-sender",
+            "name": "Unknown sender",
+            "provider": None,
+            "category": "unknown",
+            "status": status,
+            "confidence": 0,
+            "reason": reason,
+            "evidence": evidence,
+            "remediation_hint": (
+                "Identify the business owner for this source before authorizing it. If nobody "
+                "owns it, keep it blocked by DMARC enforcement."
+            ),
+            "docs_url": None,
+        },
+        source=source,
+        hostname=hostname,
+        domain=domain,
+    )
+
+
+def _with_authorization_plan(
+    identity: Dict[str, Any],
+    *,
+    source: Dict[str, Any],
+    hostname: Optional[str],
+    domain: Optional[str],
+) -> Dict[str, Any]:
+    """Attach one bounded, verification-first authorization workflow."""
+    result = dict(identity)
+    category = str(result.get("category") or "unknown")
+    sender_name = str(result.get("name") or "this sender")
+    dkim_passes = (
+        int(source.get("dkim_pass_count", 0) or 0) > 0
+        or str(source.get("dkim_result") or "").lower() == "pass"
+    )
+    spf_passes = (
+        int(source.get("spf_pass_count", 0) or 0) > 0
+        or str(source.get("spf_result") or "").lower() == "pass"
+    )
+
+    if category == "forwarding_service":
+        plan = {
+            "mode": "expected_forwarding",
+            "title": "Allow this forwarding path safely",
+            "summary": (
+                f"{sender_name} forwarded mail using this relay. Forwarding commonly breaks SPF; "
+                "the original message needs aligned DKIM to pass DMARC reliably."
+            ),
+            "primary_label": "Mark expected forwarding",
+            "classification": "expected_forwarding",
+            "steps": [
+                "Confirm that this forwarding rule is yours and that the destination is expected.",
+                "Enable aligned DKIM on every original service that sends as this domain.",
+                "Wait for a newer report and verify that DKIM passes on forwarded mail.",
+            ],
+            "warning": "Do not add shared forwarding relay IPs to the domain SPF record.",
+            "verification": "confirm in a newer aggregate report that aligned DKIM passes for this path.",
+            "docs_url": result.get("docs_url"),
+            "next_action_label": "Open DKIM setup",
+            "next_action_href": (f"/domains/{domain}#mail-auth-wizard" if domain else "/domains"),
+        }
+    else:
+        known_or_owned = (
+            str(result.get("status") or "") == "known" or result.get("id") == "owned-infrastructure"
+        )
+        auth_state = (
+            "already authenticates" if dkim_passes or spf_passes else "does not yet authenticate"
+        )
+        plan = {
+            "mode": "intended_sender" if known_or_owned else "confirm_ownership",
+            "title": "Allow this intended sender",
+            "summary": (
+                f"{sender_name} {auth_state} as {domain or 'this domain'}. "
+                "Record that you use it, then complete provider-side domain authentication. "
+                "This decision does not change DNS."
+            ),
+            "primary_label": "I use this sender",
+            "classification": "legitimate",
+            "steps": [
+                "Confirm that your organization or an approved supplier operates this source.",
+                str(
+                    result.get("remediation_hint")
+                    or "Configure aligned DKIM and SPF for the service."
+                ),
+                "Wait for a newer report and verify that DKIM or SPF passes with alignment.",
+            ],
+            "warning": (
+                "Classification records intent; it does not authorize an IP or change DNS by itself. "
+                "Never add a source IP to SPF unless the sending architecture explicitly requires it."
+            ),
+            "verification": (
+                "confirm in a newer aggregate report that aligned DKIM or SPF passes for this sender."
+            ),
+            "docs_url": result.get("docs_url"),
+            "next_action_label": "Open authentication setup",
+            "next_action_href": (f"/domains/{domain}#mail-auth-wizard" if domain else "/domains"),
+        }
+
+    if str(result.get("status") or "") in {"unknown", "ambiguous", "suspicious"}:
+        plan["secondary_label"] = "This is not mine"
+        plan["secondary_classification"] = "unauthorized"
+    result["authorization"] = plan
+    return result

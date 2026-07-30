@@ -141,6 +141,7 @@ def test_workspace_retention_update_is_audited(
             "aggregate_reports_days": 730,
             "forensic_reports_days": 120,
             "tls_reports_days": 365,
+            "delivery_events_days": 45,
         },
         headers={"x-forwarded-for": "203.0.113.9"},
     )
@@ -150,7 +151,9 @@ def test_workspace_retention_update_is_audited(
     assert workspace.report_retention_days == 730
     assert workspace.forensic_retention_days == 120
     assert workspace.tls_report_retention_days == 365
+    assert workspace.delivery_event_retention_days == 45
     assert response.json()["retention"]["aggregate_reports_days"] == 730
+    assert response.json()["retention"]["delivery_events_days"] == 45
 
     audit = (
         db_session.query(WorkspaceAuditLog)

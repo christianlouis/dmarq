@@ -16,7 +16,9 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
+from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
+from app.services.dsn_parser import is_dsn_message
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.webhook_events import EVENT_REPORT_IMPORTED, enqueue_webhook_event
@@ -258,8 +260,23 @@ def _handle_raw_email(
 ) -> Dict[str, Any]:
     try:
         msg = email.message_from_bytes(raw_email)
-        attachment_results = _process_email_attachments(msg, db)
-        db.commit()
+        if is_dsn_message(msg):
+            delivery_results = ingest_dsn_email(
+                db,
+                raw_email,
+                workspace_id=None,
+                source_system="webhook_dsn",
+            )
+            attachment_results = {
+                "reports_found": 0,
+                "imported": 0,
+                "duplicates": 0,
+                "errors": [],
+                "delivery_events": delivery_results,
+            }
+        else:
+            attachment_results = _process_email_attachments(msg, db)
+            db.commit()
     except HTTPException:
         raise
     except Exception as exc:  # pylint: disable=broad-exception-caught

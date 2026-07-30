@@ -88,6 +88,10 @@ def test_templates_do_not_reintroduce_csp_blocking_inline_markup(template_name: 
     assert not _has_inline_script(template)
     assert not _has_inline_style(template)
     assert "x-html" not in template
+    assert not re.search(
+        r"\bx-(?:text|show|if|class|bind|model|for|effect)\s*=\s*[\"'][^>\n]*`",
+        template,
+    )
 
 
 def _dashboard_template() -> str:
@@ -1973,6 +1977,13 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "record.reputation.feed_status" in template
     assert "record.reputation.feed_summary" in template
     assert "recordRiskFilter" in template
+    assert "data-report-sender-action" in template
+    assert "data-report-sender-action" in script
+    assert "/api/v1/workspaces/mail-health/sender-classifications" in script
+    assert "payload.classification?.classification || classification" in script
+    assert "data-report-guidance-context" in template
+    assert "data-report-guidance-context" in script
+    assert "/api/v1/workspaces/guidance/preferences" in script
     assert "filteredRecords" in template
     assert "visibleFilteredRecords" in template
     assert "recordRiskCounts" in template
@@ -2378,6 +2389,11 @@ def test_domain_details_externalizes_detail_actions_without_inline_handlers():
     assert "navigator.clipboard.writeText" not in template
     assert "x-html" not in template
     assert "sourceEvidenceCount" in template
+    assert "data-domain-detail-sender-action" in template
+    assert "data-domain-detail-sender-action" in script
+    assert "data-domain-guidance-context" in template
+    assert "data-domain-guidance-context" in script
+    assert "/api/v1/workspaces/mail-health/sender-classifications" in script
     assert "x-html" not in template
 
 

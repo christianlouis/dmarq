@@ -1089,7 +1089,7 @@ The older `delivery_status`, `delivery_label`, and `delivery_detail` fields are
 retained for compatibility but are deprecated. New integrations should use the
 explicit authentication and receiver-disposition fields. See the
 [Mail signal contract](mail-signal-contract.md) for claim levels, delivery
-certainty, privacy boundaries, and future DSN/provider-event adapters.
+certainty, privacy boundaries, and current DSN/provider-event adapters.
 
 ### Deterministic mail-health assessment
 
@@ -1106,8 +1106,50 @@ verification condition, and supporting mail-signal references. Raw report data,
 message bodies, credentials, and superseded audit details are not returned.
 
 The MCP tool `mail_health_assessment` accepts the same bounded `days` value.
-Both paths query persisted report projections and sender-classification audit
-rows only; they never trigger DNS, PTR, reputation, provider, or AI calls.
+Both paths query persisted report projections, sender-classification audit
+rows, and privacy-minimized delivery events only; they never trigger DNS, PTR,
+reputation, provider, or AI calls.
+
+### Delivery evidence
+
+```http
+POST /delivery-events/provider
+X-API-Key: <token with delivery-events:write>
+Content-Type: application/json
+```
+
+Accepts the versioned `dmarq.provider_delivery_event.v1` contract. Required
+fields are `provider`, stable `event_id`, normalized `event`, and
+`occurred_at`. Optional fields include domain, recipient, message/envelope
+correlation IDs, enhanced SMTP status, sanitized diagnostic text, remote MTA,
+reason code, and a short description of provider semantics. Events are
+workspace-scoped, idempotent, and rejected outside the seven-day replay
+window. The endpoint never accepts message bodies.
+
+```json
+{
+  "schema_version": "dmarq.provider_delivery_event.v1",
+  "provider": "example-provider",
+  "event_id": "evt-20260730-001",
+  "event": "bounced",
+  "occurred_at": "2026-07-30T10:01:00Z",
+  "domain": "example.com",
+  "recipient": "person@example.net",
+  "status_code": "5.7.26",
+  "diagnostic_text": "DMARC authentication failed"
+}
+```
+
+Admin sessions can use `POST /delivery-events/dsn` for a bounded RFC 822 DSN
+upload and `GET /delivery-events?domain=example.com&limit=100` for the selected
+workspace's privacy-minimized evidence. The UI exposes the same list under
+**More > Delivery events**. Recipient addresses, original bodies, and raw
+correlation identifiers are never returned.
+
+Workspace retention updates accept the optional `delivery_events_days` field
+alongside aggregate, forensic, and TLS report retention. It is bounded to
+1-400 days and defaults to the workspace's existing 30-day value when omitted,
+so existing operator clients remain compatible.
 
 #### Get Source Reputation
 

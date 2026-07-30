@@ -20,6 +20,9 @@ class Workspace(Base):
     report_retention_days = Column(Integer, default=400, nullable=False)
     forensic_retention_days = Column(Integer, default=90, nullable=False)
     tls_report_retention_days = Column(Integer, default=400, nullable=False)
+    # DSNs and provider events can contain recipient-level correlation data.
+    # Keep their default retention deliberately shorter than aggregate reports.
+    delivery_event_retention_days = Column(Integer, default=30, nullable=False)
     # The guided experience is deliberately workspace-scoped. This protects
     # established operators from an unexpected dashboard change while allowing
     # a new or less technical workspace to opt in.

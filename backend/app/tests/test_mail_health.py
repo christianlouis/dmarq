@@ -7,6 +7,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DomainSourceDailyProjection
 from app.models.workspace import Workspace
+from app.services.delivery_events import ingest_provider_event
 from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.sender_classifications import record_sender_classification
 
@@ -58,6 +59,74 @@ def _assessment(db_session, workspace):
         start_ts=int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
         end_ts=int(datetime(2026, 7, 31, tzinfo=timezone.utc).timestamp()),
     )
+
+
+def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(db_session):
+    workspace = Workspace(slug="delivery-evidence", name="Delivery evidence")
+    db_session.add(workspace)
+    db_session.commit()
+    ingest_provider_event(
+        db_session,
+        workspace=workspace,
+        payload={
+            "schema_version": "dmarq.provider_delivery_event.v1",
+            "provider": "postmark",
+            "event_id": "bounce-1",
+            "event": "bounced",
+            "occurred_at": datetime(2026, 7, 25),
+            "domain": "example.test",
+            "recipient": "recipient@example.net",
+            "status_code": "5.7.26",
+            "diagnostic_text": "DMARC authentication failed",
+        },
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "action_required"
+    assert result["domain"] == "example.test"
+    assert result["delivery_certainty"] == "non_delivery_reported"
+    assert result["supporting_signals"][0]["family"] == "provider_delivery_event"
+    assert result["next_action"]["href"] == "/delivery-events?domain=example.test"
+
+
+def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
+    workspace = Workspace(slug="delivery-retry", name="Delivery retry")
+    db_session.add(workspace)
+    db_session.commit()
+    base = {
+        "schema_version": "dmarq.provider_delivery_event.v1",
+        "provider": "postmark",
+        "domain": "example.test",
+        "recipient": "recipient@example.net",
+        "message_id": "retry-message-1",
+    }
+    ingest_provider_event(
+        db_session,
+        workspace=workspace,
+        payload={
+            **base,
+            "event_id": "bounce-before-retry",
+            "event": "bounced",
+            "occurred_at": datetime(2026, 7, 25),
+            "status_code": "4.7.0",
+        },
+    )
+    ingest_provider_event(
+        db_session,
+        workspace=workspace,
+        payload={
+            **base,
+            "event_id": "delivered-after-retry",
+            "event": "delivered",
+            "occurred_at": datetime(2026, 7, 26),
+        },
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] != "action_required"
+    assert result["title"] != "A sending system reported non-delivery"
 
 
 def test_known_sender_failures_are_actionable_without_claiming_delivery(db_session):

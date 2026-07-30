@@ -79,6 +79,11 @@
                 <a href="#recent-reports" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">Reports</a>
                 <a href="#posture-dashboard" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">Advanced</a>
             </nav>
+            <div class="mt-3 inline-flex rounded-md border border-[#c9dde0] bg-white p-1" role="group" aria-label="Domain information depth">
+                <button type="button" class="btn btn-sm" :class="guidanceContextButtonClass('watch')" :aria-pressed="guidanceContext === 'watch'" data-domain-guidance-context="watch">Watch</button>
+                <button type="button" class="btn btn-sm" :class="guidanceContextButtonClass('diagnose')" :aria-pressed="guidanceContext === 'diagnose'" data-domain-guidance-context="diagnose">Diagnose</button>
+                <button type="button" class="btn btn-sm" :class="guidanceContextButtonClass('evidence')" :aria-pressed="guidanceContext === 'evidence'" data-domain-guidance-context="evidence">Evidence</button>
+            </div>
             <div class="mt-5 rounded-lg border border-[#e6e3e1] bg-[#fbfaf9] p-4">
                 <template x-if="remediationQueueLoading">
                     <div class="flex items-center gap-3 text-sm text-[#5f5c78]">
@@ -267,7 +272,7 @@
                         <div class="rounded-md border border-[#d7eef0] bg-white p-3">
                             <div class="flex items-start justify-between gap-3">
                                 <p class="font-semibold text-[#120d36]" x-text="item.title"></p>
-                                <span class="shrink-0 text-xs font-semibold text-[#176d74]" x-text="`up to +${item.expected_score_delta}`"></span>
+                                <span class="shrink-0 text-xs font-semibold text-[#176d74]" x-text="'up to +' + item.expected_score_delta"></span>
                             </div>
                             <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.next_step"></p>
                             <a :href="item.href || '#health-score-history'"
@@ -1497,7 +1502,7 @@
                                            x-text="pathValue(latestHealthPoint, 'path_to_100.summary', 'Stored score evidence is loading.')"></p>
                                     </div>
                                     <span class="shrink-0 rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#272a5f]"
-                                          x-text="`${pathValue(latestHealthPoint, 'path_to_100.remaining_points', 0)} points remaining`"></span>
+                                          x-text="pathValue(latestHealthPoint, 'path_to_100.remaining_points', 0) + ' points remaining'"></span>
                                 </div>
                                 <template x-if="pathValue(latestHealthPoint, 'path_to_100.items', []).length === 0">
                                     <p class="mt-3 text-sm text-[#5f5c78]">No core mail-health action remains. Domain protection and optional hardening stay available separately.</p>
@@ -1507,7 +1512,7 @@
                                         <div class="rounded bg-[#f8f7f6] p-3">
                                             <div class="flex flex-wrap items-center justify-between gap-2">
                                                 <p class="font-semibold text-[#120d36]" x-text="item.title"></p>
-                                                <span class="text-xs font-semibold text-[#272a5f]" x-text="`up to +${item.expected_score_delta} points`"></span>
+                                                <span class="text-xs font-semibold text-[#272a5f]" x-text="'up to +' + item.expected_score_delta + ' points'"></span>
                                             </div>
                                             <p class="mt-1 text-sm text-[#5f5c78]" x-text="item.detail"></p>
                                             <p class="mt-2 text-xs text-[#5f5c78]"><span class="font-semibold">Next:</span> <span x-text="item.next_step"></span></p>
@@ -3046,10 +3051,45 @@
                                     </div>
                                     <div class="sending-source-recs min-w-0">
                                         <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">Recommendations</div>
+                                    <template x-if="sourceAuthorization(source).title">
+                                        <div class="mb-2 rounded-md border border-[#b9dfe2] bg-[#f2fbfb] p-3 text-xs text-[#34324a]">
+                                            <p class="font-semibold text-[#120d36]" x-text="sourceAuthorization(source).title"></p>
+                                            <p class="mt-1" x-text="sourceAuthorization(source).summary"></p>
+                                            <ol class="mt-2 list-decimal space-y-1 pl-4">
+                                                <template x-for="step in (sourceAuthorization(source).steps || [])" :key="step">
+                                                    <li x-text="step"></li>
+                                                </template>
+                                            </ol>
+                                            <p class="mt-2 font-semibold text-[#8a4d00]" x-show="sourceAuthorization(source).warning" x-text="sourceAuthorization(source).warning"></p>
+                                            <div class="mt-3 flex flex-wrap gap-2">
+                                                <button type="button" class="btn btn-primary btn-xs"
+                                                        data-domain-detail-sender-action
+                                                        :data-source-ip="source.ip"
+                                                        :data-sender-classification="sourceAuthorization(source).classification"
+                                                        :disabled="senderActionPending === senderActionKey(source) || senderDecisionSaved(source, sourceAuthorization(source).classification)"
+                                                        x-text="senderActionPending === senderActionKey(source) ? 'Saving…' : senderActionLabel(source, sourceAuthorization(source).classification, sourceAuthorization(source).primary_label)"></button>
+                                                <button type="button" class="btn btn-outline btn-xs"
+                                                        x-show="sourceAuthorization(source).secondary_classification"
+                                                        data-domain-detail-sender-action
+                                                        :data-source-ip="source.ip"
+                                                        :data-sender-classification="sourceAuthorization(source).secondary_classification"
+                                                        :disabled="senderActionPending === senderActionKey(source) || senderDecisionSaved(source, sourceAuthorization(source).secondary_classification)"
+                                                        x-text="senderActionLabel(source, sourceAuthorization(source).secondary_classification, sourceAuthorization(source).secondary_label)"></button>
+                                                <a class="btn btn-ghost btn-xs" x-show="sourceAuthorization(source).docs_url"
+                                                   :href="sourceAuthorization(source).docs_url" target="_blank" rel="noopener noreferrer">Provider guide</a>
+                                                <a class="btn btn-outline btn-xs" x-show="sourceAuthorization(source).next_action_href"
+                                                   :href="sourceAuthorization(source).next_action_href"
+                                                   x-text="sourceAuthorization(source).next_action_label"></a>
+                                            </div>
+                                            <p class="mt-2 font-semibold text-[#2f9da5]"
+                                               x-show="senderActionMessage && senderActionMessageKey === senderActionKey(source)"
+                                               x-text="senderActionMessage"></p>
+                                        </div>
+                                    </template>
                                     <template x-if="!source.recommendations || source.recommendations.length === 0">
                                         <span class="text-xs text-muted-foreground">No action</span>
                                     </template>
-                                    <template x-if="source.recommendations && source.recommendations.length > 0">
+                                    <template x-if="source.recommendations && source.recommendations.length > 0 && guidanceContext !== 'watch'">
                                         <div class="sending-source-recs-scroll space-y-2">
                                             <template x-for="recommendation in source.recommendations" :key="recommendation.type">
                                                 <div class="rounded-md border border-base-300 bg-base-100 p-2">
@@ -3082,7 +3122,7 @@
                                     </template>
                                     </div>
                                 </div>
-                                <details class="sending-source-intel mt-3 rounded-md border border-base-300 bg-[var(--dmarq-surface-section)] p-2 text-xs">
+                                <details x-show="guidanceContext === 'evidence' || guidanceDepth === 'expert'" class="sending-source-intel mt-3 rounded-md border border-base-300 bg-[var(--dmarq-surface-section)] p-2 text-xs">
                                     <summary class="cursor-pointer select-none text-xs font-semibold text-base-content">
                                         <span>Trust signals</span>
                                         <span class="ml-2 font-normal text-muted-foreground" x-text="sourceNetworkSummary(source)"></span>

@@ -198,6 +198,7 @@ def send_notification(
     title: str,
     body: str,
     force: bool = False,
+    bypass_rate_limit: bool = False,
 ) -> NotificationResult:
     """Send a notification through configured Apprise target URLs."""
     settings = _notification_settings(db)
@@ -210,7 +211,7 @@ def send_notification(
             message="Notifications are disabled.",
         )
 
-    rate_limit = None if force else _rate_limit_result(settings)
+    rate_limit = None if force or bypass_rate_limit else _rate_limit_result(settings)
     if rate_limit:
         return rate_limit
 

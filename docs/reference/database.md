@@ -33,6 +33,7 @@ workspace during migration.
 | report_retention_days | INTEGER | Aggregate DMARC report retention target |
 | forensic_retention_days | INTEGER | Forensic report retention target |
 | tls_report_retention_days | INTEGER | SMTP TLS report retention target |
+| delivery_event_retention_days | INTEGER | Privacy-minimized DSN/provider event retention target |
 | created_at | TIMESTAMP | When the workspace was created |
 | updated_at | TIMESTAMP | When the workspace was last updated |
 
@@ -418,6 +419,34 @@ forensic, and SMTP TLS reports.
 | last_checked | TIMESTAMP | Last polling attempt time |
 | created_at | TIMESTAMP | When the source was created |
 | updated_at | TIMESTAMP | When the source was last updated |
+
+### Delivery_Events
+
+The `delivery_events` table stores privacy-minimized recipient delivery
+evidence from RFC DSNs and authenticated provider events. It does not store
+message bodies or full recipient addresses.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
+| domain | VARCHAR | Correlated sender domain when available |
+| source_system | VARCHAR | IMAP/Gmail/M365/webhook/manual/provider source |
+| provider | VARCHAR | SMTP or provider identifier |
+| event_id | VARCHAR | Stable idempotency key within workspace/source/provider |
+| normalized_event | VARCHAR | accepted, delivered, deferred, bounced, blocked, dropped, or related normalized outcome |
+| status_code | VARCHAR | Enhanced SMTP status when reported |
+| diagnostic_text | TEXT | Bounded and sanitized diagnostic summary |
+| cause_family | VARCHAR | Deterministic normalized cause |
+| recipient_domain | VARCHAR | Recipient domain only |
+| recipient_hash | VARCHAR | Workspace-keyed recipient correlation hash |
+| message_id_hash | VARCHAR | Workspace-keyed message correlation hash |
+| occurred_at | TIMESTAMP | Provider or DSN event time |
+| retention_until | TIMESTAMP | Mandatory deletion boundary |
+| signal_json | TEXT | Versioned privacy-minimized mail signal |
+
+The unique workspace/source/provider/event key makes retries idempotent. Date,
+domain, and normalized-outcome indexes support bounded UI and assessment reads.
 
 ### DNS_Records
 

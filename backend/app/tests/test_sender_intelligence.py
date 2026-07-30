@@ -480,3 +480,48 @@ def test_build_source_intelligence_limits_baseline_to_analysis_window():
     )
 
     assert any(item["type"] == "volume_spike" for item in intelligence["anomalies"])
+
+
+def test_cloudflare_email_routing_gets_forwarding_specific_authorization_plan():
+    sender = identify_sender(
+        "104.30.10.131",
+        {
+            "dmarc_result": "fail",
+            "dmarc_fail_count": 1,
+            "spf_domains": ["cloudflare-email.net"],
+        },
+        hostname="ba-bdb.cloudflare-email.net",
+        domain="cklnet.com",
+    )
+
+    assert sender["id"] == "cloudflare-email-routing"
+    assert sender["category"] == "forwarding_service"
+    assert sender["authorization"]["classification"] == "expected_forwarding"
+    assert sender["authorization"]["primary_label"] == "Mark expected forwarding"
+    assert "relay IPs" in sender["authorization"]["warning"]
+    assert sender["authorization"]["verification"].startswith("confirm in a newer")
+    assert "aligned DKIM" in sender["authorization"]["verification"]
+    assert sender["authorization"]["next_action_label"] == "Open DKIM setup"
+    assert sender["authorization"]["next_action_href"].endswith("#mail-auth-wizard")
+
+
+def test_every_sender_gets_a_safe_authorization_decision():
+    known = identify_sender(
+        "203.0.113.75",
+        {"dkim_selectors": ["google"], "dmarc_result": "pass"},
+        hostname="mail-qv1-f75.google.com",
+        domain="example.com",
+    )
+    unknown = identify_sender(
+        "192.0.2.90",
+        {"dmarc_result": "fail", "dmarc_fail_count": 3},
+        hostname=None,
+        domain="example.com",
+    )
+
+    assert known["authorization"]["classification"] == "legitimate"
+    assert known["authorization"]["primary_label"] == "I use this sender"
+    assert known["authorization"]["next_action_label"] == "Open authentication setup"
+    assert unknown["authorization"]["classification"] == "legitimate"
+    assert unknown["authorization"]["secondary_classification"] == "unauthorized"
+    assert "does not change DNS" in unknown["authorization"]["summary"]

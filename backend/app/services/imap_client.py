@@ -8,7 +8,9 @@ from email.header import decode_header
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core.config import get_settings
+from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
+from app.services.dsn_parser import is_dsn_message
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
@@ -132,8 +134,13 @@ class IMAPClient:
     def _candidate_message_ids(mail: Any) -> set[bytes]:
         """Find likely aggregate reports across common provider subject formats."""
         message_ids: set[bytes] = set()
-        for subject in ("DMARC", "Report domain:", "Aggregate Report", "Report-ID:"):
-            status, data = mail.search(None, f'SUBJECT "{subject}"')
+        for criteria in (
+            'OR SUBJECT "DMARC" SUBJECT "Delivery Status Notification"',
+            'OR SUBJECT "Report domain:" SUBJECT "Undeliverable"',
+            'OR SUBJECT "Aggregate Report" SUBJECT "Returned mail"',
+            'OR SUBJECT "Report-ID:" SUBJECT "Mail delivery failed"',
+        ):
+            status, data = mail.search(None, criteria)
             if status == "OK" and data:
                 message_ids.update(data[0].split())
         return message_ids
@@ -246,6 +253,27 @@ class IMAPClient:
 
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
+
+            if is_dsn_message(msg) and self.db is not None:
+                result = ingest_dsn_email(
+                    self.db,
+                    raw_email,
+                    workspace_id=self.workspace_id,
+                    source_system="imap_dsn",
+                    source_event_id=message_id,
+                )
+                stats["delivery_events_found"] = stats.get("delivery_events_found", 0) + len(
+                    result["accepted"]
+                )
+                stats["duplicate_delivery_events"] = stats.get(
+                    "duplicate_delivery_events", 0
+                ) + len(result["duplicates"])
+                mail.store(email_id, "+FLAGS", "\\Seen")
+                if self.delete_emails and result["accepted"]:
+                    mail.store(email_id, "+FLAGS", "\\Deleted")
+                    stats["deleted"] = stats.get("deleted", 0) + 1
+                stats["processed"] += 1
+                return
 
             if ForensicParser.is_forensic_report(msg):
                 imported = self._process_forensic_email(

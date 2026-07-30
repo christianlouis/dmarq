@@ -1111,6 +1111,53 @@ def test_get_report_by_id_includes_record_review_guidance(
     )
 
 
+def test_get_report_by_id_restores_saved_sender_decision(
+    authed_client: TestClient,
+    db_session,
+):
+    """A saved one-click decision survives a report-page reload."""
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        {
+            "domain": "example.com",
+            "report_id": "sender-decision-report",
+            "org_name": "receiver.example",
+            "email": "noreply@example.com",
+            "begin_timestamp": 1782691200,
+            "end_timestamp": 1782777599,
+            "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+            "records": [
+                {
+                    "source_ip": "192.0.2.44",
+                    "count": 1,
+                    "disposition": "reject",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "header_from": "example.com",
+                }
+            ],
+            "summary": {"total_count": 1, "passed_count": 0, "failed_count": 1},
+        },
+        workspace_id=workspace.id,
+    )
+    saved = authed_client.put(
+        "/api/v1/workspaces/mail-health/sender-classifications",
+        json={
+            "domain": "example.com",
+            "source_ip": "192.0.2.44",
+            "classification": "legitimate",
+            "reason": "Confirmed sender",
+        },
+    )
+
+    response = authed_client.get("/api/v1/reports/sender-decision-report")
+
+    assert saved.status_code == 200
+    assert response.status_code == 200
+    assert response.json()["records"][0]["operator_classification"] == "legitimate"
+
+
 def test_get_report_by_id_includes_source_intelligence_and_reputation(
     authed_client: TestClient,
     db_session,

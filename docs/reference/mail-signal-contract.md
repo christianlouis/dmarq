@@ -40,9 +40,11 @@ classification.
 | `intake_health` | Persisted report-intake availability or failure |
 | `operator_reported_symptom` | A symptom entered by an operator, not independently verified |
 
-The last four mail-protocol families reserve a stable contract for later
-adapters. A family being defined does not imply that every connector currently
-produces it.
+The DSN family is produced by IMAP, Gmail, Microsoft 365, raw-email webhook,
+and manual DSN intake. The provider family is produced by the authenticated
+provider-neutral event endpoint. DNS posture, intake health, and
+operator-reported symptoms remain separate operational families; a family
+being defined does not imply that every connector produces it.
 
 ## Delivery certainty
 
@@ -87,6 +89,16 @@ One aggregate sender row produces two signals rather than one ambiguous
 A guided conclusion built from these observations is separately marked
 `inferred`. It must state what is known, what is inferred, what remains
 unknown, and what evidence would verify the next action.
+
+## Delivery event privacy
+
+RFC DSNs are parsed with bounded message size, MIME-part, header, and recipient
+limits. DMARQ retains normalized action, enhanced SMTP status, sanitized
+diagnostic text, recipient domain, reporting/remote MTA, event time, and keyed
+hashes for recipient and message/envelope identifiers. Original message bodies
+and full recipient addresses are discarded. Provider events accept the same
+minimal semantics and reject timestamps outside the bounded replay window.
+Workspace retention defaults to 30 days and is enforced by scheduled cleanup.
 
 ## Compatibility
 

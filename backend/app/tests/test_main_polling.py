@@ -249,6 +249,10 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
     with (
         patch("app.main._poll_all_enabled_sources", return_value=["source"]) as poll,
         patch("app.main._run_due_mail_source_backfills", return_value=0) as backfills,
+        patch(
+            "app.main._run_calm_watch_cycle",
+            return_value={"sent": [], "suppressed": [], "resolved": []},
+        ) as calm_watch,
         patch("app.main._send_due_summary_notifications") as summaries,
         patch("app.main._deliver_due_webhook_events") as webhooks,
     ):
@@ -256,6 +260,7 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
 
     poll.assert_called_once_with()
     backfills.assert_called_once_with()
+    calm_watch.assert_called_once_with()
     summaries.assert_called_once_with()
     webhooks.assert_called_once_with()
 

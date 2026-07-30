@@ -83,9 +83,9 @@ bounce, inbox placement, or read event.
 Assessments and source rows expose these boundaries through the versioned
 [`dmarq.mail_signal.v1` contract](../reference/mail-signal-contract.md).
 Observed authentication, receiver-reported disposition, DMARQ inference, and
-unknown delivery outcome remain separate facts. Later DSN or provider-event
-adapters can add stronger delivery evidence without reinterpreting historical
-aggregate reports.
+unknown delivery outcome remain separate facts. DSN and authenticated
+provider-event adapters add stronger per-recipient delivery evidence without
+reinterpreting historical aggregate reports.
 
 ## Intake choices
 
@@ -140,6 +140,20 @@ The latest decision affects future assessments but never changes historical
 DMARC reports. Expected forwarding produces a forwarding/DKIM review and never
 suggests adding an intermediary IP to SPF without sender-side evidence.
 
+The domain and report detail rows turn that audit decision into a bounded
+authorization workflow for every sender. **I use this sender** or **Mark
+expected forwarding** records intent only; it does not edit SPF, DKIM, or any
+provider account. DMARQ then shows the provider-specific authentication step,
+links to the provider guide when known, and keeps the item open until a newer
+aggregate report proves aligned SPF or DKIM. **This is not mine** records the
+opposite decision and keeps the source in the protected/monitor path.
+
+Forwarding services are treated separately because their relay normally
+changes the SMTP envelope and can break SPF. Their plan asks the operator to
+confirm the forwarding rule and preserve aligned DKIM on the original sender.
+DMARQ never suggests adding a shared forwarding relay range to the domain's SPF
+record.
+
 If intake is connected and the saved profile says a domain is low-volume, an
 empty current window is a watch state rather than an urgent failure. If the
 operator reports a bounce while aggregate reports show DMARC passes, DMARQ
@@ -149,7 +163,11 @@ or provider event instead of claiming that authentication proves delivery.
 The assessment deliberately says that aggregate DMARC reports record receiver
 authentication and policy evaluation. They do **not** prove whether an
 individual message was delivered, bounced, placed in spam, or read. Delivery
-claims require later DSN or provider-delivery evidence.
+claims require DSN or authenticated provider-delivery evidence. DMARQ imports
+RFC delivery-status notifications from configured IMAP, Gmail, Microsoft 365,
+and raw-email webhook sources and also accepts bounded manual DSN uploads.
+Provider integrations can submit the versioned provider-neutral event
+contract with a dedicated scoped API token.
 
 Read-only integrations receive the same structured assessment from
 `GET /api/v1/public/mail-health/assessment?days=30` or the MCP
@@ -157,16 +175,27 @@ Read-only integrations receive the same structured assessment from
 and audit decisions only; they perform no live DNS, network, reputation, or
 provider enrichment.
 
-## Next increments
+## Presentation contexts
 
-The initial view supports all three presentation contexts over the same
-read-only assessment:
+Dashboard, domain, and report views support all three presentation contexts
+over the same read-only assessment and evidence:
 
 - **Watch** keeps the conclusion and one next step prominent.
 - **Diagnose** adds the observed facts and verification condition.
 - **Evidence** links directly to the unchanged sender or report evidence.
 
 No context changes the underlying evidence, permissions, or DNS write safety.
+
+## Calm Watch
+
+Scheduled processing evaluates the persisted assessment for each active
+workspace and keeps a stable incident for the same interpreted condition. The
+default `actionable_only` posture interrupts the operator only for a new
+actionable incident, a material change in outcome/impact/urgency/certainty, or
+a retry after notification delivery failed. Unchanged findings and likely
+unauthorized use already rejected by policy remain available without repeated
+alerts. Created, changed, and resolved lifecycle events are also available to
+configured outbound webhooks.
 
 ## Presentation catalog
 

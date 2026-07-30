@@ -1,6 +1,7 @@
 """Microsoft Graph client for retrieving DMARC aggregate reports."""
 
 import base64
+import email
 import logging
 import time
 from datetime import datetime, timedelta
@@ -9,7 +10,9 @@ from urllib.parse import quote, urlencode
 
 import httpx
 
+from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
+from app.services.dsn_parser import is_dsn_message
 from app.services.mail_connector import (
     ConnectorImportContext,
     MailSourceConnector,
@@ -57,6 +60,13 @@ _DMARC_SENDER_TERMS = (
     "dmarc",
     "reports",
     "postmaster",
+)
+_DSN_SUBJECT_TERMS = (
+    "delivery status notification",
+    "undeliverable",
+    "returned mail",
+    "mail delivery failed",
+    "delivery has failed",
 )
 
 
@@ -456,6 +466,32 @@ class MicrosoftGraphClient(MailSourceConnector):
             raise MicrosoftGraphError(self._format_error(resp))
         return resp.json() if resp.content else {}
 
+    def _request_bytes(self, path: str) -> bytes:
+        """Fetch raw MIME content with the same bounded retry/auth behavior."""
+        url = f"{GRAPH_BASE_URL}{path}"
+        resp: Optional[httpx.Response] = None
+        for attempt in range(_MAX_GRAPH_RETRIES + 1):
+            resp = httpx.request("GET", url, headers=self._headers(), timeout=30)
+            if resp.status_code == 401:
+                if self.auth_mode == M365_AUTH_MODE_APPLICATION:
+                    self._acquire_application_access_token()
+                elif self.refresh_token:
+                    self._refresh_access_token()
+                else:
+                    break
+                resp = httpx.request("GET", url, headers=self._headers(), timeout=30)
+            if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_GRAPH_RETRIES:
+                self._sleep(self._retry_delay_seconds(resp, attempt))
+                continue
+            break
+        if resp is None or resp.status_code < 200 or resp.status_code >= 300:
+            raise MicrosoftGraphError(
+                self._format_error(resp)
+                if resp is not None
+                else "Microsoft Graph MIME request failed."
+            )
+        return bytes(resp.content)
+
     @staticmethod
     def _retry_delay_seconds(resp: httpx.Response, attempt: int) -> float:
         retry_after = resp.headers.get("Retry-After")
@@ -531,9 +567,11 @@ class MicrosoftGraphClient(MailSourceConnector):
 
     @staticmethod
     def _looks_like_dmarc_message(message: Dict[str, Any]) -> bool:
+        subject = str(message.get("subject") or "").lower()
+        if any(term in subject for term in _DSN_SUBJECT_TERMS):
+            return True
         if not message.get("hasAttachments"):
             return False
-        subject = str(message.get("subject") or "").lower()
         sender = (
             ((message.get("from") or {}).get("emailAddress") or {}).get("address") or ""
         ).lower()
@@ -587,6 +625,36 @@ class MicrosoftGraphClient(MailSourceConnector):
 
     def _process_message(self, message: Dict[str, Any], stats: Dict[str, Any]) -> int:
         message_id = str(message.get("id") or "")
+        subject = str(message.get("subject") or "").lower()
+        if any(term in subject for term in _DSN_SUBJECT_TERMS) and self.db is not None:
+            try:
+                mailbox_path = self._mailbox_path()
+                raw = self._request_bytes(
+                    f"{mailbox_path}/messages/{quote(message_id, safe='')}/$value"
+                )
+                if is_dsn_message(email.message_from_bytes(raw)):
+                    result = ingest_dsn_email(
+                        self.db,
+                        raw,
+                        workspace_id=self.workspace_id,
+                        source_system="m365_dsn",
+                        source_event_id=message_id,
+                    )
+                    stats["delivery_events_found"] = stats.get("delivery_events_found", 0) + len(
+                        result["accepted"]
+                    )
+                    stats["duplicate_delivery_events"] = stats.get(
+                        "duplicate_delivery_events", 0
+                    ) + len(result["duplicates"])
+                    return len(result["accepted"])
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.warning("Microsoft Graph: DSN import failed for %s: %s", message_id, exc)
+                stats["errors"].append(
+                    sanitize_connector_error(
+                        f"Failed to import delivery status {message_id}: {exc}"
+                    )
+                )
+                return -1
         try:
             attachments = self._list_attachments(message_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
