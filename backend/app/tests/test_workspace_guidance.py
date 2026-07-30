@@ -1134,3 +1134,84 @@ def test_diagnostic_plan_uses_latest_report_for_current_failure_action(
     assert payload["evidence"]["message_count"] == 75
     assert payload["evidence"]["failed_message_count"] == 0
     assert payload["current_action"]["id"] == "open_domain"
+
+
+def test_sender_classification_is_workspace_scoped_audited_and_replaceable(
+    authed_client: TestClient,
+    db_session,
+):
+    workspace = Workspace(slug="sender-decisions", name="Sender decisions")
+    other = Workspace(slug="sender-decisions-other", name="Other sender decisions")
+    db_session.add_all([workspace, other])
+    db_session.commit()
+    headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+    created = authed_client.put(
+        "/api/v1/workspaces/mail-health/sender-classifications",
+        headers=headers,
+        json={
+            "domain": "Example.COM",
+            "source_ip": "2001:0db8::1",
+            "classification": "expected_forwarding",
+            "reason": "Known mailing-list forwarder",
+        },
+    )
+    replaced = authed_client.put(
+        "/api/v1/workspaces/mail-health/sender-classifications",
+        headers=headers,
+        json={
+            "domain": "example.com",
+            "source_ip": "2001:db8::1",
+            "classification": "legitimate",
+            "reason": "Confirmed by the mail owner",
+        },
+    )
+    listed = authed_client.get(
+        "/api/v1/workspaces/mail-health/sender-classifications?domain=example.com",
+        headers=headers,
+    )
+    other_list = authed_client.get(
+        "/api/v1/workspaces/mail-health/sender-classifications",
+        headers={"X-DMARQ-Workspace-ID": str(other.id)},
+    )
+
+    assert created.status_code == 200
+    assert replaced.status_code == 200
+    assert listed.status_code == 200
+    assert listed.json()["classifications"] == [replaced.json()["classification"]]
+    assert listed.json()["classifications"][0]["source_ip"] == "2001:db8::1"
+    assert listed.json()["classifications"][0]["classification"] == "legitimate"
+    assert other_list.json()["classifications"] == []
+    assert (
+        db_session.query(WorkspaceAuditLog)
+        .filter(WorkspaceAuditLog.action == "mail_health.sender_classified")
+        .count()
+        == 2
+    )
+
+
+def test_sender_classification_rejects_invalid_scope_and_value(
+    authed_client: TestClient,
+):
+    for payload in (
+        {
+            "domain": "not a domain",
+            "source_ip": "192.0.2.1",
+            "classification": "legitimate",
+        },
+        {
+            "domain": "example.com",
+            "source_ip": "not-an-ip",
+            "classification": "legitimate",
+        },
+        {
+            "domain": "example.com",
+            "source_ip": "192.0.2.1",
+            "classification": "trusted_forever",
+        },
+    ):
+        response = authed_client.put(
+            "/api/v1/workspaces/mail-health/sender-classifications",
+            json=payload,
+        )
+        assert response.status_code == 422

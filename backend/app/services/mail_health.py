@@ -8,13 +8,17 @@ not proof that an individual message was delivered or bounced.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
+from functools import partial
 from typing import Any, Dict, Iterable
 
 from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
+from app.models.mail_source import MailSource
 from app.models.report import DomainSourceDailyProjection
 from app.models.workspace import Workspace
 from app.services.mail_signals import (
@@ -22,7 +26,11 @@ from app.services.mail_signals import (
     build_dmarc_source_signals,
     build_intake_window_signal,
 )
+from app.services.sender_classifications import latest_sender_classifications
 from app.services.sender_intelligence import identify_sender
+
+ASSESSMENT_SCHEMA_VERSION = "dmarq.mail_health_assessment.v2"
+ASSESSMENT_ALGORITHM_VERSION = "deterministic-2026-07"
 
 
 def _as_dict(value: object) -> Dict[str, Any]:
@@ -53,6 +61,33 @@ def _hostname(evidence: Dict[str, Any]) -> str | None:
         if value:
             return value
     return None
+
+
+def _confidence_band(confidence: str) -> str:
+    normalized = str(confidence or "").strip().lower()
+    if normalized in {"high", "medium", "low"}:
+        return normalized
+    return "low"
+
+
+def _impact_band(value: str) -> str:
+    return {
+        "likely_affected": "likely",
+        "likely_not_affected": "unlikely",
+        "possible": "possible",
+    }.get(value, "unknown")
+
+
+def _urgency_band(value: str) -> str:
+    return {
+        "urgent": "now",
+        "now": "now",
+        "timely": "soon",
+        "soon": "soon",
+        "monitor": "watch",
+        "watch": "watch",
+        "none": "none",
+    }.get(value, "watch")
 
 
 def _merge_source_rows(
@@ -159,6 +194,11 @@ def _assessment(
     conclusion_claim_level: str = "inferred",
     delivery_certainty: str = "inferred_only",
     derived_facts: list[str] | None = None,
+    workspace_id: int | None = None,
+    window_start: int | None = None,
+    window_end: int | None = None,
+    freshness: str = "current",
+    conclusion_key: str | None = None,
 ) -> Dict[str, Any]:
     derived_fact_set = set(derived_facts or [])
     observed_claims = [
@@ -177,25 +217,49 @@ def _assessment(
     unknown_claims = [
         {"claim_level": "unknown", "statement": statement} for statement in unknowns or []
     ]
+    assessment_scope = (
+        f"{workspace_id}:{domain or 'workspace'}:{outcome}:{ASSESSMENT_ALGORITHM_VERSION}"
+    )
+    assessment_id = hashlib.sha256(assessment_scope.encode("utf-8")).hexdigest()
     return {
+        "schema_version": ASSESSMENT_SCHEMA_VERSION,
+        "assessment_id": assessment_id,
+        "workspace_id": workspace_id,
         "outcome": outcome,
         "title": title,
         "summary": summary,
         "next_step": next_step,
         "href": href,
         "confidence": confidence,
+        "confidence_band": _confidence_band(confidence),
+        "confidence_reasons": reasons,
         "reasons": reasons,
         "evidence_scope": evidence_scope,
         "domain": domain,
         "intended_mail_impact": intended_mail_impact,
+        "intended_mail_impact_band": _impact_band(intended_mail_impact),
         "urgency": urgency,
+        "urgency_band": _urgency_band(urgency),
         "assessment_version": "v1",
+        "assessment_algorithm_version": ASSESSMENT_ALGORITHM_VERSION,
+        "evidence_window": {"start": window_start, "end": window_end},
+        "freshness": freshness,
+        "freshness_at": (
+            datetime.fromtimestamp(window_end, tz=timezone.utc).isoformat() if window_end else None
+        ),
+        "conclusion": {
+            "key": conclusion_key or f"mail_health.{outcome}",
+            "parameters": {"domain": domain} if domain else {},
+        },
         "known_facts": known_facts or [],
         "inferences": inferences or [],
         "unknowns": unknowns or [],
         "next_action": {
             "label": next_step,
             "href": href,
+            "action_type": "open_evidence",
+            "explanation": summary,
+            "prerequisites": [],
             "safety_boundary": "Review report-backed evidence before changing DNS or sender settings.",
         },
         "verification_condition": verification_condition,
@@ -210,6 +274,173 @@ def _assessment(
     }
 
 
+def _projection_rows(
+    db: Session,
+    *,
+    workspace_id: int,
+    start_ts: int,
+    end_ts: int,
+    ordered: bool = False,
+) -> list[tuple[Domain, DomainSourceDailyProjection]]:
+    """Read one bounded projection window without enrichment side effects."""
+    query = (
+        db.query(Domain, DomainSourceDailyProjection)
+        .join(DomainSourceDailyProjection, DomainSourceDailyProjection.domain_id == Domain.id)
+        .filter(
+            Domain.workspace_id == workspace_id,
+            DomainSourceDailyProjection.observed_at >= start_ts,
+            DomainSourceDailyProjection.observed_at < end_ts,
+        )
+    )
+    if ordered:
+        query = query.order_by(
+            Domain.name.asc(),
+            DomainSourceDailyProjection.source_ip.asc(),
+            DomainSourceDailyProjection.observed_at.asc(),
+            DomainSourceDailyProjection.id.asc(),
+        )
+    return query.all()
+
+
+def _workspace_mail_context(workspace: Workspace) -> Dict[str, Any]:
+    """Parse the persisted interview context and ignore malformed legacy values."""
+    try:
+        value = json.loads(workspace.guidance_mail_context or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _classify_failing_sources(
+    sources: Dict[tuple[str, str], Dict[str, Any]],
+    *,
+    previous_sources: Dict[tuple[str, str], Dict[str, Any]],
+    classifications: Dict[tuple[str, str], Dict[str, Any]],
+) -> tuple[
+    list[Dict[str, Any]],
+    list[Dict[str, Any]],
+    list[Dict[str, Any]],
+    list[Dict[str, Any]],
+]:
+    """Group failing sources using stored evidence and auditable operator decisions."""
+    known: list[Dict[str, Any]] = []
+    forwarding: list[Dict[str, Any]] = []
+    protected: list[Dict[str, Any]] = []
+    unknown: list[Dict[str, Any]] = []
+    for source in sources.values():
+        failed = _count(source["dmarc_fail_count"])
+        if not failed:
+            continue
+        operator_decision = classifications.get((source["domain"], source["source_ip"]))
+        operator_classification = (
+            str(operator_decision.get("classification") or "") if operator_decision else ""
+        )
+        source["operator_classification"] = operator_classification
+        source["operator_classification_evidence"] = operator_decision
+        previous = previous_sources.get((source["domain"], source["source_ip"]), {})
+        source["previous_pass_count"] = _count(previous.get("dmarc_pass_count"))
+        if operator_classification == "expected_forwarding":
+            forwarding.append(source)
+            continue
+        identity = identify_sender(
+            source["source_ip"],
+            source,
+            hostname=_hostname(source["source_evidence"]),
+            domain=source["domain"],
+            ptr_lookup_pending=bool(source["source_evidence"].get("ptr_retry_pending")),
+        )
+        source["identity"] = identity
+        if operator_classification == "legitimate" or (
+            identity.get("status") == "known"
+            and operator_classification not in {"unauthorized", "stale"}
+        ):
+            known.append(source)
+            continue
+        dispositions = source["disposition_counts"]
+        protected_count = _count(dispositions.get("reject")) + _count(
+            dispositions.get("quarantine")
+        )
+        (protected if protected_count >= failed else unknown).append(source)
+    return known, forwarding, protected, unknown
+
+
+def _no_source_assessment(
+    *,
+    workspace: Workspace,
+    start_ts: int,
+    end_ts: int,
+    low_volume_wait: bool,
+) -> Dict[str, Any]:
+    """Explain an empty window without turning report absence into an outage."""
+    no_evidence_fact = "No projected sender facts were found for the selected date window."
+    summary = "DMARQ has no aggregate authentication evidence in this period yet. "
+    summary += "Connect a report mailbox or upload a report to begin monitoring."
+    if low_volume_wait:
+        summary = (
+            "Report intake is connected and this domain is expected to send little mail. "
+            "No urgent failure is implied; wait for the next receiver report."
+        )
+    return _assessment(
+        workspace_id=workspace.id,
+        window_start=start_ts,
+        window_end=end_ts,
+        outcome="monitor" if low_volume_wait else "insufficient_evidence",
+        title="Waiting for DMARC report data",
+        summary=summary,
+        next_step="Keep report intake running" if low_volume_wait else "Connect a report mailbox",
+        href="/mail-sources",
+        confidence="Low",
+        reasons=[no_evidence_fact],
+        evidence_scope="No report-backed authentication evidence is available yet.",
+        intended_mail_impact="unknown",
+        urgency="monitor",
+        known_facts=[no_evidence_fact],
+        derived_facts=[no_evidence_fact],
+        inferences=["DMARQ cannot assess mail authentication health yet."],
+        unknowns=["How receivers evaluate mail from this domain."],
+        verification_condition="Ingest an aggregate DMARC report for this domain.",
+        watch_condition="DMARQ will reassess when a report is imported.",
+        supporting_signals=[
+            build_intake_window_signal(
+                workspace_id=workspace.id,
+                window_start=start_ts,
+                window_end=end_ts,
+                has_evidence=False,
+            )
+        ],
+        conclusion_claim_level="derived",
+        delivery_certainty="not_applicable",
+    )
+
+
+def _only_protected_failures(
+    protected: list[Dict[str, Any]], unknown: list[Dict[str, Any]]
+) -> bool:
+    return bool(protected) and not unknown
+
+
+def _contextual_assessment(
+    *,
+    workspace_id: int,
+    start_ts: int,
+    end_ts: int,
+    freshness: str,
+    **values: Any,
+) -> Dict[str, Any]:
+    """Apply shared scope and freshness rules to one deterministic conclusion."""
+    if freshness == "stale":
+        values["confidence"] = {"High": "Medium", "Medium": "Low"}.get(
+            str(values.get("confidence") or ""), values.get("confidence")
+        )
+    values.setdefault("freshness", freshness)
+    return _assessment(
+        workspace_id=workspace_id,
+        window_start=start_ts,
+        window_end=end_ts,
+        **values,
+    )
+
+
 def build_workspace_mail_health_assessment(
     db: Session,
     *,
@@ -218,91 +449,84 @@ def build_workspace_mail_health_assessment(
     end_ts: int,
 ) -> Dict[str, Any]:
     """Return one plain-language assessment from indexed aggregate-report facts."""
-    rows = (
-        db.query(Domain, DomainSourceDailyProjection)
-        .join(DomainSourceDailyProjection, DomainSourceDailyProjection.domain_id == Domain.id)
-        .filter(
-            Domain.workspace_id == workspace.id,
-            DomainSourceDailyProjection.observed_at >= start_ts,
-            DomainSourceDailyProjection.observed_at < end_ts,
-        )
-        .order_by(
-            Domain.name.asc(),
-            DomainSourceDailyProjection.source_ip.asc(),
-            DomainSourceDailyProjection.observed_at.asc(),
-            DomainSourceDailyProjection.id.asc(),
-        )
-        .all()
+
+    rows = _projection_rows(
+        db,
+        workspace_id=workspace.id,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        ordered=True,
     )
     sources = _merge_source_rows(rows)
+    newest_evidence_at = max(
+        (_count(source.get("window_end")) for source in sources.values()),
+        default=0,
+    )
+    freshness = (
+        "stale" if newest_evidence_at and end_ts - newest_evidence_at > 7 * 86_400 else "current"
+    )
+    window_seconds = max(1, end_ts - start_ts)
+    previous_rows = _projection_rows(
+        db,
+        workspace_id=workspace.id,
+        start_ts=start_ts - window_seconds,
+        end_ts=start_ts,
+    )
+    previous_sources = _merge_source_rows(previous_rows)
+    classifications = latest_sender_classifications(db, workspace=workspace)
+    mail_context = _workspace_mail_context(workspace)
+    enabled_source_count = (
+        db.query(MailSource)
+        .filter(MailSource.workspace_id == workspace.id, MailSource.enabled.is_(True))
+        .count()
+    )
     if not sources:
-        no_evidence_fact = "No projected sender facts were found for the selected date window."
-        return _assessment(
-            outcome="insufficient_evidence",
-            title="Waiting for DMARC report data",
-            summary=(
-                "DMARQ has no aggregate authentication evidence in this period yet. "
-                "Connect a report mailbox or upload a report to begin monitoring."
-            ),
-            next_step="Connect a report mailbox",
-            href="/mail-sources",
-            confidence="Not enough evidence",
-            reasons=["No projected sender facts were found for the selected date window."],
-            evidence_scope="No report-backed authentication evidence is available yet.",
-            intended_mail_impact="unknown",
-            urgency="monitor",
-            known_facts=[no_evidence_fact],
-            derived_facts=[no_evidence_fact],
-            inferences=["DMARQ cannot assess mail authentication health yet."],
-            unknowns=["How receivers evaluate mail from this domain."],
-            verification_condition="Ingest an aggregate DMARC report for this domain.",
-            watch_condition="DMARQ will reassess when a report is imported.",
-            supporting_signals=[
-                build_intake_window_signal(
-                    workspace_id=workspace.id,
-                    window_start=start_ts,
-                    window_end=end_ts,
-                    has_evidence=False,
-                )
-            ],
-            conclusion_claim_level="derived",
-            delivery_certainty="not_applicable",
+        return _no_source_assessment(
+            workspace=workspace,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            low_volume_wait=bool(enabled_source_count and mail_context.get("low_volume")),
         )
+    assessment = partial(
+        _contextual_assessment,
+        workspace_id=workspace.id,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        freshness=freshness,
+    )
 
-    known_failing: list[Dict[str, Any]] = []
-    unknown_protected: list[Dict[str, Any]] = []
-    unknown_failing: list[Dict[str, Any]] = []
-    for source in sources.values():
-        failed = _count(source["dmarc_fail_count"])
-        if not failed:
-            continue
-        hostname = _hostname(source["source_evidence"])
-        identity = identify_sender(
-            source["source_ip"],
-            source,
-            hostname=hostname,
-            domain=source["domain"],
-            ptr_lookup_pending=bool(source["source_evidence"].get("ptr_retry_pending")),
+    known_failing, forwarding_failing, unknown_protected, unknown_failing = (
+        _classify_failing_sources(
+            sources,
+            previous_sources=previous_sources,
+            classifications=classifications,
         )
-        source["identity"] = identity
-        if identity.get("status") == "known":
-            known_failing.append(source)
-            continue
-        dispositions = source["disposition_counts"]
-        if _count(dispositions.get("reject")) + _count(dispositions.get("quarantine")) >= failed:
-            unknown_protected.append(source)
-        else:
-            unknown_failing.append(source)
+    )
 
     if known_failing:
-        source = max(known_failing, key=lambda item: _count(item["dmarc_fail_count"]))
+        source = max(
+            known_failing,
+            key=lambda item: (
+                bool(item.get("previous_pass_count")),
+                _count(item["dmarc_fail_count"]),
+            ),
+        )
         identity = source["identity"]
         passed = _count(source["dmarc_pass_count"])
         changed = " It also passed authentication in this selected period." if passed else ""
+        operator_legitimate = source.get("operator_classification") == "legitimate"
         sender_match_fact = (
-            f"{identity.get('name') or 'A known sender'} matched a known sender profile."
+            "An operator classified this exact domain and source IP as legitimate."
+            if operator_legitimate
+            else f"{identity.get('name') or 'A known sender'} matched a known sender profile."
         )
-        return _assessment(
+        previous_passes = _count(source.get("previous_pass_count"))
+        regression_fact = (
+            f"The same source passed DMARC for {previous_passes} message(s) in the previous window."
+            if previous_passes
+            else None
+        )
+        return assessment(
             outcome="action_required",
             title=f"Check {identity.get('name') or 'a known sender'} authentication",
             summary=(
@@ -312,7 +536,7 @@ def build_workspace_mail_health_assessment(
             ),
             next_step="Review the sender evidence and authentication result",
             href=f"/domains/{source['domain']}#sending-sources",
-            confidence="High" if passed else "Medium",
+            confidence="High" if previous_passes or (passed and operator_legitimate) else "Medium",
             reasons=[
                 "The sender matches a known provider or owned infrastructure profile.",
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} DMARC authentication failure(s).",
@@ -326,6 +550,7 @@ def build_workspace_mail_health_assessment(
             urgency="timely",
             known_facts=[
                 sender_match_fact,
+                *([regression_fact] if regression_fact else []),
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
             derived_facts=[sender_match_fact],
@@ -335,12 +560,48 @@ def build_workspace_mail_health_assessment(
             supporting_signals=_source_signals(source),
         )
 
-    if unknown_protected and not unknown_failing:
+    if forwarding_failing:
+        source = max(forwarding_failing, key=lambda item: _count(item["dmarc_fail_count"]))
+        return assessment(
+            outcome="monitor",
+            title="Review an expected forwarding path",
+            summary=(
+                f"An operator marked {source['source_ip']} as expected forwarding for "
+                f"{source['domain']}. Forwarding can break SPF while DKIM still preserves alignment; "
+                "do not add the intermediary IP to SPF without sender-side evidence."
+            ),
+            next_step="Review forwarding and DKIM evidence",
+            href=f"/domains/{source['domain']}#sending-sources",
+            confidence="Medium",
+            reasons=[
+                "An operator classified this exact source as expected forwarding.",
+                "Aggregate DMARC evidence alone cannot identify the forwarding configuration.",
+            ],
+            evidence_scope="The assessment uses stored report and operator evidence only.",
+            domain=source["domain"],
+            intended_mail_impact="possible",
+            urgency="monitor",
+            known_facts=[
+                "The source has an auditable expected-forwarding classification.",
+                f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
+            ],
+            derived_facts=["The source has an auditable expected-forwarding classification."],
+            inferences=[
+                "SPF failure may be caused by forwarding rather than an unauthorized sender."
+            ],
+            unknowns=["Whether aligned DKIM survives the forwarding path for each message stream."],
+            verification_condition="Fresh reports or forwarding-system evidence isolate the aligned DKIM path.",
+            watch_condition="Escalate if aligned DKIM also regresses or intended mail is reported missing.",
+            supporting_signals=_source_signals(source),
+            conclusion_key="mail_health.expected_forwarding",
+        )
+
+    if _only_protected_failures(unknown_protected, unknown_failing):
         source = max(unknown_protected, key=lambda item: _count(item["dmarc_fail_count"]))
         unmatched_fact = (
             "The source did not match a known provider or owned-infrastructure profile."
         )
-        return _assessment(
+        return assessment(
             outcome="no_action_likely_unauthorized_use",
             title="Likely unauthorized use is being blocked",
             summary=(
@@ -350,7 +611,7 @@ def build_workspace_mail_health_assessment(
             ),
             next_step="Review source evidence",
             href=f"/domains/{source['domain']}#sending-sources",
-            confidence="Medium",
+            confidence="High" if mail_context.get("domain_sends_mail") is False else "Medium",
             reasons=[
                 "The source could not be matched to a known provider or owned infrastructure.",
                 "Receiver reports recorded quarantine or reject for all observed failures.",
@@ -381,7 +642,7 @@ def build_workspace_mail_health_assessment(
     if unknown_failing:
         source = max(unknown_failing, key=lambda item: _count(item["dmarc_fail_count"]))
         unmatched_fact = "The source did not match a known sender profile."
-        return _assessment(
+        return assessment(
             outcome="investigation_required",
             title="Identify an unrecognized sending source",
             summary=(
@@ -418,7 +679,7 @@ def build_workspace_mail_health_assessment(
             sources.values(),
             key=lambda item: _count(item["dmarc_pass_count"]) + _count(item["dmarc_fail_count"]),
         )
-        return _assessment(
+        return assessment(
             outcome="insufficient_evidence",
             title="Waiting for usable DMARC authentication evidence",
             summary=(
@@ -448,7 +709,39 @@ def build_workspace_mail_health_assessment(
         )
 
     source = max(sources.values(), key=lambda item: _count(item["dmarc_pass_count"]))
-    return _assessment(
+    if mail_context.get("bounce_available") and observed_passes:
+        return assessment(
+            outcome="insufficient_evidence",
+            title="DMARC passes do not explain the reported bounce",
+            summary=(
+                "Receivers reported successful DMARC authentication, but the operator also reported "
+                "a bounce. Use the SMTP response, DSN, or sending-provider event to diagnose delivery."
+            ),
+            next_step="Review the bounce or provider delivery event",
+            href=f"/domains/{source['domain']}#sending-sources",
+            confidence="High",
+            reasons=[
+                "Aggregate reports show DMARC authentication passes.",
+                "The workspace interview records that bounce evidence is available.",
+            ],
+            evidence_scope="Authentication success is not proof of delivery or inbox placement.",
+            domain=source["domain"],
+            intended_mail_impact="possible",
+            urgency="timely",
+            known_facts=[
+                "Aggregate reports contain successful DMARC authentication.",
+                "The operator reported that bounce evidence is available.",
+            ],
+            derived_facts=["The operator reported that bounce evidence is available."],
+            inferences=["The reported delivery problem requires evidence outside aggregate DMARC."],
+            unknowns=[
+                "The SMTP status and rejecting system are not present in aggregate DMARC data."
+            ],
+            verification_condition="Identify the SMTP status, receiver, timestamp, and affected sender.",
+            supporting_signals=_source_signals(source),
+            conclusion_key="mail_health.dmarc_pass_bounce_mismatch",
+        )
+    return assessment(
         outcome="healthy",
         title="Known senders are authenticating successfully",
         summary=(

@@ -122,10 +122,38 @@ delivery lookups.
   presented as likely unauthorized use with no immediate configuration change.
 - Missing report evidence directs the operator to report intake.
 
+The `dmarq.mail_health_assessment.v2` response also compares the immediately
+preceding bounded evidence window. A legitimate source that previously passed
+and now fails is prioritized ahead of a larger anonymous failure count. Its
+machine-readable contract contains a stable assessment ID, outcome, impact,
+urgency and confidence bands, freshness, known facts, inferences, unknowns,
+one safe next action, verification condition, and aggregate-safe evidence
+references. Localized prose is presentation data, not the stored source of
+truth.
+
+Operators can classify one exact domain/source-IP pair as `legitimate`,
+`unknown`, `unauthorized`, `expected_forwarding`, or `stale`. Each decision is
+append-only in the workspace audit trail with actor, time, reason, and scope.
+The latest decision affects future assessments but never changes historical
+DMARC reports. Expected forwarding produces a forwarding/DKIM review and never
+suggests adding an intermediary IP to SPF without sender-side evidence.
+
+If intake is connected and the saved profile says a domain is low-volume, an
+empty current window is a watch state rather than an urgent failure. If the
+operator reports a bounce while aggregate reports show DMARC passes, DMARQ
+returns insufficient delivery evidence and points to the SMTP response, DSN,
+or provider event instead of claiming that authentication proves delivery.
+
 The assessment deliberately says that aggregate DMARC reports record receiver
 authentication and policy evaluation. They do **not** prove whether an
 individual message was delivered, bounced, placed in spam, or read. Delivery
 claims require later DSN or provider-delivery evidence.
+
+Read-only integrations receive the same structured assessment from
+`GET /api/v1/public/mail-health/assessment?days=30` or the MCP
+`mail_health_assessment` tool. Normal reads query bounded persisted projections
+and audit decisions only; they perform no live DNS, network, reputation, or
+provider enrichment.
 
 ## Next increments
 

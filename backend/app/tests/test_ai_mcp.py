@@ -1182,6 +1182,13 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             auth_context=auth_context,
             workspace_id=None,
         )
+        assessment_result = await mcp_endpoint._call_read_only_tool(
+            "mail_health_assessment",
+            {"days": "30"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
         dns_lint_result = await mcp_endpoint._call_read_only_tool(
             "dns_lint",
             {"domain": DOMAIN, "refresh": True},
@@ -1235,6 +1242,8 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert listed["domains"][0]["domain"] == DOMAIN
     assert posture_result["grade"] == "A"
     assert source_result["sources"] == []
+    assert assessment_result["assessment"]["schema_version"] == ("dmarq.mail_health_assessment.v2")
+    assert assessment_result["assessment"]["supporting_signals"]
     assert dns_lint_result["status"] == "attention"
     assert dns_plan_result.read_only is True
     assert dns_plan_result.provider_write_available is False
@@ -1267,14 +1276,11 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
         == "read_only_blocked"
     )
     assert (
-        remediation_result.items[0].provider_repair_plan.apply_confirmation["confirm_phrase"]
-        == ""
+        remediation_result.items[0].provider_repair_plan.apply_confirmation["confirm_phrase"] == ""
     )
     assert (
         "public_read_only_response"
-        in remediation_result.items[0].provider_repair_plan.apply_confirmation[
-            "blocked_reasons"
-        ]
+        in remediation_result.items[0].provider_repair_plan.apply_confirmation["blocked_reasons"]
     )
     assert (
         "omits provider write endpoints"

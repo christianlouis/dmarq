@@ -1,6 +1,6 @@
 """Stable read-only public API endpoints."""
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -18,10 +18,32 @@ from app.services.api_tokens import (
     READ_TLS_SCOPE,
 )
 from app.services.export_catalog import build_export_catalog
+from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 from app.services.workspace_usage import build_workspace_usage_summary
 
 router = APIRouter()
+
+
+@router.get("/mail-health/assessment")
+async def public_mail_health_assessment(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_REPORTS_SCOPE)),
+):
+    """Return one sanitized, deterministic assessment from stored evidence."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    return {
+        "days": days,
+        "assessment": build_workspace_mail_health_assessment(
+            db,
+            workspace=workspace,
+            start_ts=int(start.timestamp()),
+            end_ts=int(end.timestamp()),
+        ),
+    }
 
 
 @router.get("/domains", response_model=domains.DomainSummaryResponse)

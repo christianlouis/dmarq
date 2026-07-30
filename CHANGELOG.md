@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mail-health interpretation now uses a deterministic, versioned assessment
+  contract with stable outcome, impact, urgency and confidence bands, explicit
+  facts/inferences/unknowns, evidence windows, one safe next action, and
+  sanitized signal references. It compares the previous bounded report window
+  to prioritize a regressing legitimate sender, treats expected forwarding and
+  quiet low-volume domains without unsafe SPF advice, and directs reported
+  bounces with DMARC passes to DSN/SMTP/provider evidence. Exact domain/source
+  classifications are workspace-scoped, append-only audit decisions that
+  affect future assessments without rewriting report history. The same
+  assessment is available through the read-only public API and MCP tool.
 - Guided assessments, domain mailflow diagnoses, and sending-source responses
   now expose a versioned protocol-aware mail-signal contract. DMARC
   authentication and receiver-reported policy actions remain separate from

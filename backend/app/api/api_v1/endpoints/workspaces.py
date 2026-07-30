@@ -50,6 +50,11 @@ from app.services.report_intake_recommendation import (
     build_report_intake_recommendation,
 )
 from app.services.route53_dns import get_route53_dns_credentials
+from app.services.sender_classifications import (
+    SENDER_CLASSIFICATIONS,
+    latest_sender_classifications,
+    record_sender_classification,
+)
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
@@ -121,6 +126,15 @@ class IncidentActionUpdate(BaseModel):
     action: str
     note: Optional[str] = None
     snoozed_until: Optional[datetime] = None
+
+
+class SenderClassificationUpdate(BaseModel):
+    """One exact, auditable domain/source interpretation from an operator."""
+
+    domain: str
+    source_ip: str
+    classification: str
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 def _guidance_payload(workspace: Workspace, user: Optional[User] = None) -> Dict[str, Any]:
@@ -1077,6 +1091,61 @@ async def get_mail_health_incidents(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     return {"incidents": list_mail_health_incidents(db, workspace=workspace, limit=limit)}
+
+
+@router.get("/mail-health/sender-classifications")
+async def get_sender_classifications(
+    domain: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """List the latest classification without exposing superseded audit internals."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    rows = latest_sender_classifications(db, workspace=workspace, domain=domain)
+    return {
+        "classifications": list(rows.values()),
+        "allowed_classifications": sorted(SENDER_CLASSIFICATIONS),
+    }
+
+
+@router.put("/mail-health/sender-classifications")
+async def update_sender_classification(
+    request: Request,
+    payload: SenderClassificationUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Append a sender decision that affects future assessments, never report history."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_WRITE,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        classification = record_sender_classification(
+            db,
+            workspace=workspace,
+            domain=payload.domain,
+            source_ip=payload.source_ip,
+            classification=payload.classification,
+            reason=payload.reason,
+            auth_context=_auth,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return {"classification": classification}
 
 
 @router.post("/mail-health/incidents/evaluate")
