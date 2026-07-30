@@ -11,7 +11,6 @@ from sqlalchemy.pool import StaticPool
 
 import app.models.alert  # noqa: F401  # pylint: disable=unused-import
 import app.models.api_token  # noqa: F401  # pylint: disable=unused-import
-import app.models.delivery_event  # noqa: F401  # pylint: disable=unused-import
 import app.models.dns_cache  # noqa: F401  # pylint: disable=unused-import
 import app.models.dns_posture_snapshot  # noqa: F401  # pylint: disable=unused-import
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
@@ -34,6 +33,7 @@ from app.services.source_network import clear_source_network_cache
 
 import_module("app.models.organization")
 import_module("app.models.health_score_snapshot")
+import_module("app.models.delivery_event")
 
 
 @pytest.fixture()
