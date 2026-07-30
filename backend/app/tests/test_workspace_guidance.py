@@ -18,6 +18,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
+from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -160,6 +161,58 @@ def test_report_intake_recommendation_uses_persisted_source_and_import_state(
         "webhook_configured": True,
     }
     assert "configured-not-returned" not in response.text
+
+
+def test_report_intake_recommendation_scopes_reports_and_base_url_to_selected_domain(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = Workspace(
+        slug="selected-intake-domain",
+        name="Selected intake domain",
+        guidance_installation_goals='["continuous_monitoring"]',
+        guidance_mail_context='{"domains":["selected.example"]}',
+    )
+    selected_domain = Domain(name="selected.example", workspace=workspace)
+    other_domain = Domain(name="other.example", workspace=workspace)
+    other_report = DMARCReport(
+        domain=other_domain,
+        report_id="other-domain-report",
+        org_name="Receiver",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_400,
+    )
+    db_session.add_all(
+        [
+            workspace,
+            selected_domain,
+            other_domain,
+            other_report,
+            Setting(key="general.base_url", value="https://saved.dmarq.example"),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.workspaces.get_settings",
+        lambda: SimpleNamespace(
+            GUIDED_MAIL_HEALTH_UI_ENABLED=True,
+            PUBLIC_BASE_URL=None,
+            WEBHOOK_SECRET="configured-not-returned",
+            default_locale="en",
+        ),
+    )
+
+    response = authed_client.get(
+        "/api/v1/workspaces/guidance/report-intake-recommendation",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["first_report"]["report_count"] == 0
+    assert payload["primary_action"]["href"] != f"/reports/{other_report.id}"
+    assert payload["public_endpoint"]["https_ready"] is True
 
 
 @contextmanager

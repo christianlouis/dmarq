@@ -18,6 +18,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
+from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
@@ -520,29 +521,27 @@ def _report_intake_evidence(
         latest_import = (
             db.query(MailSourceImport)
             .filter(MailSourceImport.mail_source_id.in_(source_ids))
+            .filter(MailSourceImport.finished_at.isnot(None))
             .order_by(
                 MailSourceImport.finished_at.desc(),
                 MailSourceImport.id.desc(),
             )
             .first()
         )
+    domains = (
+        db.query(Domain).filter(Domain.workspace_id == workspace.id).order_by(Domain.id.asc()).all()
+    )
+    selected_domain = _selected_diagnostic_domain(domains, profile)
     settings = get_settings()
     report_query = (
         db.query(DMARCReport)
         .join(Domain, Domain.id == DMARCReport.domain_id)
         .filter(Domain.workspace_id == workspace.id)
     )
-    report_count = (
-        db.query(func.count(DMARCReport.id))
-        .join(Domain, Domain.id == DMARCReport.domain_id)
-        .filter(Domain.workspace_id == workspace.id)
-        .scalar()
-    )
+    if selected_domain:
+        report_query = report_query.filter(DMARCReport.domain_id == selected_domain.id)
+    report_count = report_query.count()
     latest_report = report_query.order_by(DMARCReport.id.desc()).first()
-    domains = (
-        db.query(Domain).filter(Domain.workspace_id == workspace.id).order_by(Domain.id.asc()).all()
-    )
-    selected_domain = _selected_diagnostic_domain(domains, profile)
     dns_evidence = _stored_dns_evidence(db, selected_domain)
     return ReportIntakeEvidence(
         source_methods=tuple(str(source.method or "").upper() for source in sources),
@@ -576,7 +575,14 @@ def _report_intake_evidence(
             int(latest_import.duplicate_reports or 0) if latest_import else 0
         ),
         latest_import_errors=int(latest_import.error_count or 0) if latest_import else 0,
-        public_base_url=getattr(settings, "PUBLIC_BASE_URL", None),
+        public_base_url=(
+            getattr(settings, "PUBLIC_BASE_URL", None)
+            or (
+                db.query(Setting.value)
+                .filter(Setting.key == "general.base_url")
+                .scalar()
+            )
+        ),
         webhook_configured=bool(getattr(settings, "WEBHOOK_SECRET", None)),
     )
 
