@@ -31,6 +31,14 @@ function workspaceOnboarding(options = {}) {
         diagnosticPlan: null,
         diagnosticPlanLoading: false,
         diagnosticPlanError: '',
+        intakeRecommendation: null,
+        intakeRecommendationLoading: false,
+        intakeRecommendationError: '',
+        intakePreference: 'not_sure',
+        intakeSetupEffort: 'balanced',
+        intakeContinuousMonitoring: false,
+        intakeLocalBridgeAvailable: false,
+        savingIntakePreference: false,
         interviewDomain: '',
         interviewControlsDns: '',
         interviewDomainSendsMail: '',
@@ -192,6 +200,52 @@ function workspaceOnboarding(options = {}) {
             return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.editingGuidance && (
                 this.guidanceInterviewCompleted || this.hasExistingSetup
             ) && (this.diagnosticPlanLoading || Boolean(this.diagnosticPlanError));
+        },
+        get showIntakeRecommendation() {
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.editingGuidance && (
+                this.guidanceInterviewCompleted || this.hasExistingSetup
+            ) && Boolean(this.intakeRecommendation);
+        },
+        get showIntakeRecommendationStatus() {
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.editingGuidance && (
+                this.guidanceInterviewCompleted || this.hasExistingSetup
+            ) && (this.intakeRecommendationLoading || Boolean(this.intakeRecommendationError));
+        },
+        get recommendedIntake() {
+            return this.intakeRecommendation?.recommended || {};
+        },
+        get intakePrimaryAction() {
+            return this.intakeRecommendation?.primary_action || {
+                label: this.recommendedIntake.action_label,
+                href: this.recommendedIntake.href,
+            };
+        },
+        get intakeAlternatives() {
+            return Array.isArray(this.intakeRecommendation?.alternatives)
+                ? this.intakeRecommendation.alternatives
+                : [];
+        },
+        get firstReportStatus() {
+            return this.intakeRecommendation?.first_report || {};
+        },
+        get intakeVerification() {
+            return Array.isArray(this.intakeRecommendation?.verification)
+                ? this.intakeRecommendation.verification
+                : [];
+        },
+        get intakeJourney() {
+            return Array.isArray(this.intakeRecommendation?.journey)
+                ? this.intakeRecommendation.journey
+                : [];
+        },
+        get firstReportStatusClass() {
+            return {
+                working: 'border-[#bce8d0] bg-[#f1fbf5] text-[#17633a]',
+                duplicate: 'border-[#c9e4ea] bg-[#f1fafb] text-[#17606a]',
+                rejected: 'border-[#f0c5bb] bg-[#fff5f2] text-[#8a2d0d]',
+                waiting: 'border-[#ead8a7] bg-[#fffaf0] text-[#77561b]',
+                setup_required: 'border-[#d9e7e7] bg-[#f7fbfb] text-[#292542]',
+            }[this.firstReportStatus.state] || 'border-[#d9e7e7] bg-[#f7fbfb] text-[#292542]';
         },
         get sovereigntyDescription() {
             const descriptions = {
@@ -467,7 +521,13 @@ function workspaceOnboarding(options = {}) {
                 this.interviewLowVolume = Boolean(this.mailContext.low_volume);
                 this.interviewRecipientProvider = this.mailContext.symptom_recipient_provider || '';
                 this.interviewFirstObserved = this.mailContext.symptom_first_observed || '';
-                await this.loadDiagnosticPlan();
+                this.intakePreference = this.mailContext.report_intake_preference || 'not_sure';
+                this.intakeSetupEffort = this.mailContext.setup_effort || 'balanced';
+                this.intakeContinuousMonitoring = typeof this.mailContext.continuous_monitoring === 'boolean'
+                    ? this.mailContext.continuous_monitoring
+                    : this.installationGoals.includes('continuous_monitoring');
+                this.intakeLocalBridgeAvailable = Boolean(this.mailContext.local_bridge_available);
+                await Promise.all([this.loadDiagnosticPlan(), this.loadIntakeRecommendation()]);
             } catch (_) {
                 // The setup path remains usable when optional guidance is unavailable.
             }
@@ -560,6 +620,10 @@ function workspaceOnboarding(options = {}) {
             } else delete context.symptom_recipient_provider;
             if (this.interviewFirstObserved) context.symptom_first_observed = this.interviewFirstObserved;
             else delete context.symptom_first_observed;
+            context.report_intake_preference = this.intakePreference || 'not_sure';
+            context.setup_effort = this.intakeSetupEffort || 'balanced';
+            context.continuous_monitoring = Boolean(this.intakeContinuousMonitoring);
+            context.local_bridge_available = Boolean(this.intakeLocalBridgeAvailable);
             return context;
         },
         async saveWorkspaceGuidanceProfile(throwOnFailure, completed) {
@@ -623,7 +687,7 @@ function workspaceOnboarding(options = {}) {
                 await this.saveWorkspaceGuidanceProfile(true, true);
                 this.editingGuidance = false;
                 this.goalSaved = true;
-                await this.loadDiagnosticPlan();
+                await Promise.all([this.loadDiagnosticPlan(), this.loadIntakeRecommendation()]);
             } catch (error) {
                 this.goalError = error.message || 'Your diagnostic plan could not be saved.';
             } finally {
@@ -644,6 +708,39 @@ function workspaceOnboarding(options = {}) {
                 this.diagnosticPlanError = error.message || 'Your next step could not be loaded.';
             } finally {
                 this.diagnosticPlanLoading = false;
+            }
+        },
+        async loadIntakeRecommendation() {
+            if (!this.guidedMailHealthUiAvailable || !this.singleUserMode) return;
+            this.intakeRecommendationLoading = true;
+            this.intakeRecommendationError = '';
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/report-intake-recommendation');
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Your report-intake recommendation could not be loaded.');
+                this.intakeRecommendation = data;
+                const preferences = data.preferences || {};
+                this.intakePreference = preferences.selected_option || this.intakePreference;
+                this.intakeSetupEffort = preferences.setup_effort || this.intakeSetupEffort;
+                this.intakeContinuousMonitoring = Boolean(preferences.continuous_monitoring);
+                this.intakeLocalBridgeAvailable = Boolean(preferences.local_bridge_available);
+            } catch (error) {
+                this.intakeRecommendationError = error.message || 'Your report-intake recommendation could not be loaded.';
+            } finally {
+                this.intakeRecommendationLoading = false;
+            }
+        },
+        async saveIntakePreferences() {
+            if (this.savingIntakePreference || !this.selectedGoal) return;
+            this.savingIntakePreference = true;
+            this.intakeRecommendationError = '';
+            try {
+                await this.saveWorkspaceGuidanceProfile(true, this.guidanceInterviewCompleted);
+                await this.loadIntakeRecommendation();
+            } catch (error) {
+                this.intakeRecommendationError = error.message || 'Your intake preferences could not be saved.';
+            } finally {
+                this.savingIntakePreference = false;
             }
         },
         draftFields() {

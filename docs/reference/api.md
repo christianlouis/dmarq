@@ -360,6 +360,7 @@ presentation separate from workspace-owned facts and never accept secrets.
 | `GET /workspaces/guidance/workspace-profile` | Read shared goals, report-data preference, notification posture, non-secret mail context, and schema versions |
 | `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access; resumable drafts are quiet and completing the interview creates a sanitized audit event |
 | `GET /workspaces/guidance/diagnostic-plan` | With reports-read access, build one localized next step from persisted workspace evidence without provider, DNS, or mailbox I/O |
+| `GET /workspaces/guidance/report-intake-recommendation` | With reports-read access, rank supported intake paths and return localized data-flow, availability, first-report, and verification evidence without returning credentials or performing provider I/O |
 
 The workspace profile accepts ordered values from the documented goal and
 sovereignty enums. The first installation goal is the primary goal used by the

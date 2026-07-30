@@ -16,6 +16,7 @@ from app.core.security import require_admin_auth
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -42,6 +43,10 @@ from app.services.mail_health_incidents import (
     list_mail_health_incidents,
     record_mail_health_assessment,
     update_incident_operator_state,
+)
+from app.services.report_intake_recommendation import (
+    ReportIntakeEvidence,
+    build_report_intake_recommendation,
 )
 from app.services.route53_dns import get_route53_dns_credentials
 from app.services.workspace_access import (
@@ -224,6 +229,8 @@ def _validated_mail_context_bools(value: Dict[str, Any]) -> Dict[str, bool]:
         "controls_dns",
         "bounce_available",
         "low_volume",
+        "continuous_monitoring",
+        "local_bridge_available",
     ):
         validated = _validated_optional_bool(value, key)
         if validated is not None:
@@ -246,6 +253,8 @@ def _validated_mail_context(value: Dict[str, Any]) -> Dict[str, Any]:
         "symptom_recipient_provider",
         "symptom_first_observed",
         "interview_step",
+        "continuous_monitoring",
+        "local_bridge_available",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -489,6 +498,86 @@ def _diagnostic_evidence(
         ),
         dns_provider_connected=_dns_provider_connected(db, profile),
         latest_report_id=latest_report_id,
+    )
+
+
+def _report_intake_evidence(
+    db: Session,
+    *,
+    workspace: Workspace,
+    profile: Dict[str, Any],
+) -> ReportIntakeEvidence:
+    """Build a secret-free intake read model from stored workspace state."""
+    sources = (
+        db.query(MailSource)
+        .filter(MailSource.workspace_id == workspace.id)
+        .order_by(MailSource.id.asc())
+        .all()
+    )
+    source_ids = [source.id for source in sources]
+    latest_import = None
+    if source_ids:
+        latest_import = (
+            db.query(MailSourceImport)
+            .filter(MailSourceImport.mail_source_id.in_(source_ids))
+            .order_by(
+                MailSourceImport.finished_at.desc(),
+                MailSourceImport.id.desc(),
+            )
+            .first()
+        )
+    settings = get_settings()
+    report_query = (
+        db.query(DMARCReport)
+        .join(Domain, Domain.id == DMARCReport.domain_id)
+        .filter(Domain.workspace_id == workspace.id)
+    )
+    report_count = (
+        db.query(func.count(DMARCReport.id))
+        .join(Domain, Domain.id == DMARCReport.domain_id)
+        .filter(Domain.workspace_id == workspace.id)
+        .scalar()
+    )
+    latest_report = report_query.order_by(DMARCReport.id.desc()).first()
+    domains = (
+        db.query(Domain).filter(Domain.workspace_id == workspace.id).order_by(Domain.id.asc()).all()
+    )
+    selected_domain = _selected_diagnostic_domain(domains, profile)
+    dns_evidence = _stored_dns_evidence(db, selected_domain)
+    return ReportIntakeEvidence(
+        source_methods=tuple(str(source.method or "").upper() for source in sources),
+        source_labels=tuple(
+            " ".join(
+                part
+                for part in (
+                    str(source.name or ""),
+                    str(source.server or ""),
+                    str(source.gmail_email or ""),
+                    str(source.m365_email or ""),
+                )
+                if part
+            )
+            for source in sources
+        ),
+        enabled_source_count=sum(1 for source in sources if source.enabled),
+        checked_source_count=sum(
+            1 for source in sources if source.enabled and source.last_checked is not None
+        ),
+        total_report_count=int(report_count or 0),
+        latest_report_id=(latest_report.id if latest_report else None),
+        domain_name=(selected_domain.name if selected_domain else None),
+        report_destination_configured=bool(
+            selected_domain and selected_domain.dmarc_report_mailbox
+        ),
+        dmarc_reporting_configured=bool(dns_evidence.get("dmarc_rua_count")),
+        latest_import_status=(str(latest_import.status) if latest_import else None),
+        latest_import_reports_found=int(latest_import.reports_found or 0) if latest_import else 0,
+        latest_import_duplicates=(
+            int(latest_import.duplicate_reports or 0) if latest_import else 0
+        ),
+        latest_import_errors=int(latest_import.error_count or 0) if latest_import else 0,
+        public_base_url=getattr(settings, "PUBLIC_BASE_URL", None),
+        webhook_configured=bool(getattr(settings, "WEBHOOK_SECRET", None)),
     )
 
 
@@ -921,6 +1010,31 @@ async def get_guidance_diagnostic_plan(
     plan["interview_completed"] = profile["interview_completed"]
     plan["interview_step"] = int(profile["mail_context"].get("interview_step") or 1)
     return plan
+
+
+@router.get("/guidance/report-intake-recommendation")
+async def get_report_intake_recommendation(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return a deterministic intake choice from stored state and safe preferences."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    profile = _guidance_payload(workspace, _auth_user(db, _auth))
+    locale = resolve_request_locale(
+        request, default=getattr(get_settings(), "default_locale", "en")
+    )
+    return build_report_intake_recommendation(
+        profile,
+        _report_intake_evidence(db, workspace=workspace, profile=profile),
+        locale=locale,
+    )
 
 
 @router.put("/guidance/notification-posture")

@@ -317,6 +317,182 @@
         </details>
     </section>
 
+    <section x-show="showIntakeRecommendationStatus"
+             class="rounded-lg border border-[#d9e7e7] bg-white p-5 shadow-sm"
+             aria-live="polite">
+        <div x-show="intakeRecommendationLoading" class="flex items-center gap-3" role="status">
+            <span class="loading loading-spinner loading-sm text-[#2f9da6]"></span>
+            <span class="text-sm font-medium text-[#5f5c78]" x-text="translate('Comparing report-intake options...')"></span>
+        </div>
+        <div x-show="!intakeRecommendationLoading && intakeRecommendationError" role="alert"
+             class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="font-semibold text-[#8a2d0d]" x-text="translate('Your report-intake recommendation could not be loaded')"></p>
+                <p class="mt-1 text-sm text-[#5f5c78]" x-text="intakeRecommendationError"></p>
+            </div>
+            <button type="button" class="btn btn-primary" @click="loadIntakeRecommendation" x-text="translate('Try again')"></button>
+        </div>
+    </section>
+
+    <section id="report-intake-options"
+             x-show="showIntakeRecommendation"
+             class="scroll-mt-28 rounded-lg border border-[#d9e7e7] bg-white p-5 shadow-sm"
+             aria-labelledby="report-intake-heading">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <p class="text-sm font-semibold uppercase tracking-wide text-[#247982]" x-text="translate('Recommended report intake')"></p>
+                <h2 id="report-intake-heading" class="mt-1 text-xl font-semibold text-[#07071f]" x-text="recommendedIntake.title"></h2>
+                <p class="mt-2 max-w-3xl text-sm leading-6 text-[#5f5c78]" x-text="recommendedIntake.summary"></p>
+                <p class="mt-2 max-w-3xl text-sm leading-6 text-[#292542]" x-text="recommendedIntake.reason"></p>
+                <div class="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                    <span class="rounded border border-[#d9e7e7] bg-[#f7fbfb] px-2 py-1"
+                          x-text="`${translate('Complexity')}: ${recommendedIntake.complexity}`"></span>
+                    <span class="rounded border border-[#d9e7e7] bg-[#f7fbfb] px-2 py-1"
+                          x-text="`${translate('Confidence')}: ${recommendedIntake.confidence}`"></span>
+                    <span x-show="recommendedIntake.already_configured"
+                          class="rounded border border-[#bce8d0] bg-[#f1fbf5] px-2 py-1 text-[#17633a]"
+                          x-text="translate('Already configured')"></span>
+                </div>
+            </div>
+            <a class="btn btn-primary shrink-0" :href="intakePrimaryAction.href" x-text="intakePrimaryAction.label"></a>
+        </div>
+
+        <ol class="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" :aria-label="translate('Report data flow')">
+            <template x-for="(stage, index) in recommendedIntake.flow || []" :key="`${recommendedIntake.id}-${index}`">
+                <li class="flex min-h-16 items-center gap-3 rounded-md border border-[#d9e7e7] bg-[#f7fbfb] p-3 text-sm">
+                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#272a5f] font-semibold text-white" x-text="index + 1"></span>
+                    <span x-text="stage"></span>
+                </li>
+            </template>
+        </ol>
+
+        <div class="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
+            <div :class="firstReportStatusClass" class="rounded-md border p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide" x-text="translate('First-report status')"></p>
+                <p class="mt-1 font-semibold" x-text="firstReportStatus.headline"></p>
+                <p class="mt-1 text-sm leading-6" x-text="firstReportStatus.description"></p>
+                <div class="mt-3 flex flex-wrap gap-3 text-xs">
+                    <span x-text="`${translate('Accepted')}: ${firstReportStatus.latest_import?.accepted || 0}`"></span>
+                    <span x-text="`${translate('Duplicates')}: ${firstReportStatus.latest_import?.duplicates || 0}`"></span>
+                    <span x-text="`${translate('Rejected')}: ${firstReportStatus.latest_import?.rejected || 0}`"></span>
+                </div>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#6c687b]" x-text="translate('Verification')"></p>
+                <ul class="mt-2 space-y-2">
+                    <template x-for="item in intakeVerification" :key="item.id">
+                        <li class="flex items-start gap-2 text-sm leading-5 text-[#292542]">
+                            <input type="checkbox" class="checkbox checkbox-sm mt-0.5" :checked="item.complete" disabled>
+                            <span x-text="item.label"></span>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </div>
+
+        <details class="mt-5 rounded-md border border-[#e6e3e1] bg-[#fcfcfd] p-4">
+            <summary class="cursor-pointer font-semibold text-[#292542]" x-text="translate('Data path and requirements')"></summary>
+            <dl class="mt-3 grid gap-4 text-sm leading-6 md:grid-cols-2">
+                <div><dt class="font-semibold" x-text="translate('Who processes reports')"></dt><dd class="text-[#5f5c78]" x-text="(recommendedIntake.processors || []).join(', ')"></dd></div>
+                <div><dt class="font-semibold" x-text="translate('Public exposure')"></dt><dd class="text-[#5f5c78]" x-text="recommendedIntake.public_exposure"></dd></div>
+                <div><dt class="font-semibold" x-text="translate('Credentials and scopes')"></dt><dd class="text-[#5f5c78]" x-text="recommendedIntake.credentials"></dd></div>
+                <div><dt class="font-semibold" x-text="translate('How to test it')"></dt><dd class="text-[#5f5c78]" x-text="recommendedIntake.test_method"></dd></div>
+                <div x-show="recommendedIntake.modes?.length" class="md:col-span-2">
+                    <dt class="font-semibold" x-text="translate('Connection and authorization modes')"></dt>
+                    <dd class="mt-1 text-[#5f5c78]">
+                        <ul class="space-y-1">
+                            <template x-for="mode in recommendedIntake.modes || []" :key="mode.id">
+                                <li><strong class="text-[#292542]" x-text="mode.label"></strong><span x-text="`: ${mode.boundary}`"></span></li>
+                            </template>
+                        </ul>
+                    </dd>
+                </div>
+            </dl>
+            <p class="mt-4 rounded-md border border-[#ead8a7] bg-[#fffaf0] p-3 text-sm leading-6 text-[#5f5c78]"
+               x-text="translate('This chooser covers aggregate reports. Failure or forensic reports can contain message-specific metadata and need a separate privacy decision before collection.')"></p>
+        </details>
+
+        <details class="mt-3 rounded-md border border-[#e6e3e1] bg-[#fcfcfd] p-4">
+            <summary class="cursor-pointer font-semibold text-[#292542]" x-text="translate('Complete first-report journey')"></summary>
+            <ol class="mt-4 space-y-3">
+                <template x-for="step in intakeJourney" :key="step.id">
+                    <li class="flex items-start gap-3">
+                        <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                              :class="step.complete ? 'bg-[#e7f6f2] text-[#176d58]' : 'bg-[#f1f0ef] text-[#5f5c78]'"
+                              x-text="step.complete ? 'OK' : step.position"></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <p class="font-semibold text-[#292542]" x-text="step.title"></p>
+                                <a class="text-sm font-semibold text-[#247982] hover:underline"
+                                   :href="step.href"
+                                   x-text="step.complete ? translate('Review') : translate('Continue')"></a>
+                            </div>
+                            <p class="mt-1 text-sm leading-5 text-[#5f5c78]" x-text="step.description"></p>
+                        </div>
+                    </li>
+                </template>
+            </ol>
+        </details>
+
+        <details class="mt-3 rounded-md border border-[#e6e3e1] bg-[#fcfcfd] p-4">
+            <summary class="cursor-pointer font-semibold text-[#292542]" x-text="translate('Adjust recommendation')"></summary>
+            <div class="mt-4 grid gap-4 md:grid-cols-2">
+                <label class="form-control">
+                    <span class="label-text font-medium" x-text="translate('Preferred path')"></span>
+                    <select class="select select-bordered mt-1" x-model="intakePreference" @change="saveIntakePreferences">
+                        <option value="not_sure" x-text="translate('Let DMARQ recommend')"></option>
+                        <option value="manual_upload" x-text="translate('Manual upload')"></option>
+                        <option value="local_imap" x-text="translate('Local or self-hosted IMAP')"></option>
+                        <option value="proton_bridge" x-text="translate('Proton Mail Bridge')"></option>
+                        <option value="gmail">Gmail OAuth</option>
+                        <option value="m365">Microsoft 365 Graph</option>
+                        <option value="cloudflare_worker">Cloudflare Email Worker</option>
+                        <option value="aws_gateway">AWS SES / Lambda</option>
+                        <option value="webhook" x-text="translate('Generic raw-email webhook')"></option>
+                    </select>
+                </label>
+                <label class="form-control">
+                    <span class="label-text font-medium" x-text="translate('Setup effort')"></span>
+                    <select class="select select-bordered mt-1" x-model="intakeSetupEffort" @change="saveIntakePreferences">
+                        <option value="simplest" x-text="translate('Simplest')"></option>
+                        <option value="balanced" x-text="translate('Balanced')"></option>
+                        <option value="maximum_control" x-text="translate('Maximum control')"></option>
+                    </select>
+                </label>
+                <label class="flex items-start gap-3 rounded-md border border-[#d9e7e7] bg-white p-3">
+                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeContinuousMonitoring" @change="saveIntakePreferences">
+                    <span><strong class="block" x-text="translate('Continuous monitoring')"></strong><span class="mt-1 block text-xs text-[#5f5c78]" x-text="translate('Keep importing reports without manual uploads.')"></span></span>
+                </label>
+                <label class="flex items-start gap-3 rounded-md border border-[#d9e7e7] bg-white p-3">
+                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeLocalBridgeAvailable" @change="saveIntakePreferences">
+                    <span><strong class="block" x-text="translate('Local bridge available')"></strong><span class="mt-1 block text-xs text-[#5f5c78]" x-text="translate('A service such as Proton Mail Bridge can run continuously near DMARQ.')"></span></span>
+                </label>
+            </div>
+            <p x-show="savingIntakePreference" class="mt-3 text-sm text-[#5f5c78]" x-text="translate('Updating recommendation...')"></p>
+        </details>
+
+        <details class="mt-3 rounded-md border border-[#e6e3e1] bg-[#fcfcfd] p-4">
+            <summary class="cursor-pointer font-semibold text-[#292542]" x-text="translate('Compare alternatives')"></summary>
+            <div class="mt-3 divide-y divide-[#e6e3e1]">
+                <template x-for="option in intakeAlternatives" :key="option.id">
+                    <article class="py-4 first:pt-1 last:pb-1">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="font-semibold text-[#120d36]" x-text="option.title"></h3>
+                                    <span x-show="!option.available" class="rounded bg-[#fff1ed] px-2 py-0.5 text-xs font-medium text-[#8a2d0d]" x-text="translate('Unavailable now')"></span>
+                                </div>
+                                <p class="mt-1 text-sm leading-6 text-[#5f5c78]" x-text="option.tradeoff"></p>
+                                <p x-show="option.availability_reason" class="mt-1 text-xs text-[#8a2d0d]" x-text="option.availability_reason"></p>
+                            </div>
+                            <a x-show="option.available" class="btn btn-outline btn-sm shrink-0" :href="option.href" x-text="option.action_label"></a>
+                        </div>
+                    </article>
+                </template>
+            </div>
+        </details>
+    </section>
+
     <section x-show="showSetupStatus"
              class="rounded-lg bg-white p-6 shadow-sm"
              aria-labelledby="current-setup-heading">

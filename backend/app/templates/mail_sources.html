@@ -315,15 +315,15 @@
 
                     <!-- Name -->
                     <div>
-                        <label class="label"><span class="label-text font-medium">Name <span class="text-error">*</span></span></label>
-                        <input type="text" x-model="form.name" placeholder="e.g. DMARC Reports Inbox"
+                        <label for="mail-source-name" class="label"><span class="label-text font-medium">Name <span class="text-error">*</span></span></label>
+                        <input id="mail-source-name" type="text" x-model="form.name" placeholder="e.g. DMARC Reports Inbox"
                             class="input input-bordered w-full" required />
                     </div>
 
                     <!-- Method -->
                     <div>
-                        <label class="label"><span class="label-text font-medium">Method</span></label>
-                        <select x-model="form.method" class="select select-bordered w-full">
+                        <label for="mail-source-method" class="label"><span class="label-text font-medium">Method</span></label>
+                        <select id="mail-source-method" x-model="form.method" class="select select-bordered w-full">
                             <option value="IMAP">IMAP</option>
                             <option value="POP3">POP3 (coming soon)</option>
                             <option value="GMAIL_API">Gmail API (OAuth2)</option>
@@ -335,13 +335,13 @@
                     <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
                         <div class="grid grid-cols-3 gap-3">
                             <div class="col-span-2">
-                                <label class="label"><span class="label-text font-medium">Server <span class="text-error">*</span></span></label>
-                                <input type="text" x-model="form.server" placeholder="imap.example.com"
+                                <label for="mail-source-server" class="label"><span class="label-text font-medium">Server <span class="text-error">*</span></span></label>
+                                <input id="mail-source-server" type="text" x-model="form.server" placeholder="imap.example.com"
                                     class="input input-bordered w-full" />
                             </div>
                             <div>
-                                <label class="label"><span class="label-text font-medium">Port</span></label>
-                                <input type="number" x-model.number="form.port" class="input input-bordered w-full" />
+                                <label for="mail-source-port" class="label"><span class="label-text font-medium">Port</span></label>
+                                <input id="mail-source-port" type="number" x-model.number="form.port" class="input input-bordered w-full" />
                             </div>
                         </div>
                     </template>
@@ -349,8 +349,8 @@
                     <!-- Username -->
                     <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
                         <div>
-                            <label class="label"><span class="label-text font-medium">Username <span class="text-error">*</span></span></label>
-                            <input type="text" x-model="form.username" placeholder="dmarc@example.com"
+                            <label for="mail-source-username" class="label"><span class="label-text font-medium">Username <span class="text-error">*</span></span></label>
+                            <input id="mail-source-username" type="text" x-model="form.username" placeholder="dmarc@example.com"
                                 autocomplete="username"
                                 class="input input-bordered w-full" />
                         </div>
@@ -359,12 +359,12 @@
                     <!-- Password -->
                     <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
                         <div>
-                            <label class="label">
+                            <label for="mail-source-password" class="label">
                                 <span class="label-text font-medium">Password <span class="text-error" x-show="!editingId">*</span></span>
                                 <span class="label-text-alt text-muted-foreground" x-show="editingId" data-stored-secret-preserved>Leave blank to keep the saved password</span>
                             </label>
                             <div class="relative">
-                                <input :type="showPassword ? 'text' : 'password'" x-model="form.password"
+                                <input id="mail-source-password" :type="showPassword ? 'text' : 'password'" x-model="form.password"
                                     :required="!editingId"
                                     :placeholder="editingId ? 'Saved password remains unchanged' : 'App password or mailbox password'"
                                     autocomplete="new-password"
@@ -401,8 +401,8 @@
                     <!-- Folder -->
                     <template x-if="form.method === 'IMAP'">
                         <div>
-                            <label class="label"><span class="label-text font-medium">Folder</span></label>
-                            <input type="text" x-model="form.folder" placeholder="INBOX"
+                            <label for="mail-source-folder" class="label"><span class="label-text font-medium">Folder</span></label>
+                            <input id="mail-source-folder" type="text" x-model="form.folder" placeholder="INBOX"
                                 class="input input-bordered w-full" />
                         </div>
                     </template>

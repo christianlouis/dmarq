@@ -82,13 +82,26 @@ bounce, inbox placement, or read event.
 
 ## Intake choices
 
-The setup assistant keeps the direct IMAP path available, and exposes the
-other supported routes in the same place: Gmail OAuth, Microsoft 365 Graph,
-manual XML/ZIP/GZIP upload, and an inbound webhook such as a Cloudflare Email
-Worker. The choices describe their operational boundary before collecting
-credentials: OAuth or application permissions for hosted mail, no mailbox
-credential for upload, and reachable HTTPS plus a webhook secret for forwarded
-mail.
+The setup assistant returns a versioned
+`dmarq.report_intake_recommendation.v1` result with one primary path and
+progressively disclosed alternatives. It ranks manual XML/ZIP/GZIP upload,
+local IMAP, Proton Mail Bridge, Gmail OAuth, Microsoft 365 Graph, Cloudflare
+Email Routing and Worker, AWS SES/Lambda, and a generic authenticated raw-email
+webhook from saved operator preferences and persisted source/import state.
+
+Each option explains its data flow, processors, credential boundary, public
+exposure, dependencies, failure modes, trade-off, and one verification method
+before collecting credentials. Hosted webhook paths are not selectable as the
+recommendation until the instance has public HTTPS; Bridge is not recommended
+until its local availability is confirmed. Existing working sources rank ahead
+of unnecessary migrations.
+
+The visible first-report status distinguishes an accepted report, a safe
+duplicate, rejected content, a configured source still waiting for receiver
+reports, and a setup that still needs a source. Generating the recommendation
+does not contact a provider, reveal a secret, deploy infrastructure, or change
+DNS. The complete comparison and security contract is documented in
+[Report intake options](../reference/report-intake-options.md).
 
 ## What the first guided assessment can say
 
