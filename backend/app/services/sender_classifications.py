@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
-from app.services.workspace_audit import audit_log_to_dict, record_workspace_audit_log
+from app.services.workspace_audit import record_workspace_audit_log
 from app.utils.domain_validator import normalize_domain_name, validate_domain
 
 SENDER_CLASSIFICATIONS = {
@@ -50,6 +50,21 @@ def _details(row: WorkspaceAuditLog) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _classification_projection(
+    row: WorkspaceAuditLog, *, details: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Return the decision fields needed by report readers, without audit internals."""
+    values = details if details is not None else _details(row)
+    return {
+        "domain": str(values.get("domain") or ""),
+        "source_ip": str(values.get("source_ip") or ""),
+        "classification": str(values.get("classification") or ""),
+        "reason": str(values.get("reason") or "") or None,
+        "scope": "exact_domain_source",
+        "classified_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
 def latest_sender_classifications(
     db: Session,
     *,
@@ -73,14 +88,7 @@ def latest_sender_classifications(
         classification = str(details.get("classification") or "")
         if not all(key) or classification not in SENDER_CLASSIFICATIONS or key in result:
             continue
-        result[key] = {
-            **audit_log_to_dict(row),
-            "domain": key[0],
-            "source_ip": key[1],
-            "classification": classification,
-            "reason": str(details.get("reason") or "") or None,
-            "scope": "exact_domain_source",
-        }
+        result[key] = _classification_projection(row, details=details)
     return result
 
 
@@ -122,11 +130,4 @@ def record_sender_classification(
         request=request,
         commit=True,
     )
-    return {
-        **audit_log_to_dict(row),
-        "domain": normalized_domain,
-        "source_ip": normalized_ip,
-        "classification": normalized_classification,
-        "reason": normalized_reason,
-        "scope": "exact_domain_source",
-    }
+    return _classification_projection(row)

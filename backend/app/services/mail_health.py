@@ -715,42 +715,6 @@ def build_workspace_mail_health_assessment(
             supporting_signals=_source_signals(source),
         )
 
-    if forwarding_failing:
-        source = max(forwarding_failing, key=lambda item: _count(item["dmarc_fail_count"]))
-        return assessment(
-            outcome="monitor",
-            title="Review an expected forwarding path",
-            summary=(
-                f"An operator marked {source['source_ip']} as expected forwarding for "
-                f"{source['domain']}. Forwarding can break SPF while DKIM still preserves alignment; "
-                "do not add the intermediary IP to SPF without sender-side evidence."
-            ),
-            next_step="Review forwarding and DKIM evidence",
-            href=f"/domains/{source['domain']}#sending-sources",
-            confidence="Medium",
-            reasons=[
-                "An operator classified this exact source as expected forwarding.",
-                "Aggregate DMARC evidence alone cannot identify the forwarding configuration.",
-            ],
-            evidence_scope="The assessment uses stored report and operator evidence only.",
-            domain=source["domain"],
-            intended_mail_impact="possible",
-            urgency="monitor",
-            known_facts=[
-                "The source has an auditable expected-forwarding classification.",
-                f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
-            ],
-            derived_facts=["The source has an auditable expected-forwarding classification."],
-            inferences=[
-                "SPF failure may be caused by forwarding rather than an unauthorized sender."
-            ],
-            unknowns=["Whether aligned DKIM survives the forwarding path for each message stream."],
-            verification_condition="Fresh reports or forwarding-system evidence isolate the aligned DKIM path.",
-            watch_condition="Escalate if aligned DKIM also regresses or intended mail is reported missing.",
-            supporting_signals=_source_signals(source),
-            conclusion_key="mail_health.expected_forwarding",
-        )
-
     unauthorized_source = _priority_unauthorized_source(
         confirmed_unauthorized, unknown_protected, unknown_failing
     )
@@ -790,6 +754,42 @@ def build_workspace_mail_health_assessment(
             unknowns=["Whether the source is an approved sender and its final delivery outcome."],
             verification_condition="Classify the source or collect fresh report evidence that identifies its owner.",
             supporting_signals=_source_signals(source),
+        )
+
+    if forwarding_failing:
+        source = max(forwarding_failing, key=lambda item: _count(item["dmarc_fail_count"]))
+        return assessment(
+            outcome="monitor",
+            title="Review an expected forwarding path",
+            summary=(
+                f"An operator marked {source['source_ip']} as expected forwarding for "
+                f"{source['domain']}. Forwarding can break SPF while DKIM still preserves alignment; "
+                "do not add the intermediary IP to SPF without sender-side evidence."
+            ),
+            next_step="Review forwarding and DKIM evidence",
+            href=f"/domains/{source['domain']}#sending-sources",
+            confidence="Medium",
+            reasons=[
+                "An operator classified this exact source as expected forwarding.",
+                "Aggregate DMARC evidence alone cannot identify the forwarding configuration.",
+            ],
+            evidence_scope="The assessment uses stored report and operator evidence only.",
+            domain=source["domain"],
+            intended_mail_impact="possible",
+            urgency="monitor",
+            known_facts=[
+                "The source has an auditable expected-forwarding classification.",
+                f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
+            ],
+            derived_facts=["The source has an auditable expected-forwarding classification."],
+            inferences=[
+                "SPF failure may be caused by forwarding rather than an unauthorized sender."
+            ],
+            unknowns=["Whether aligned DKIM survives the forwarding path for each message stream."],
+            verification_condition="Fresh reports or forwarding-system evidence isolate the aligned DKIM path.",
+            watch_condition="Escalate if aligned DKIM also regresses or intended mail is reported missing.",
+            supporting_signals=_source_signals(source),
+            conclusion_key="mail_health.expected_forwarding",
         )
 
     observed_passes = sum(_count(source["dmarc_pass_count"]) for source in sources.values())

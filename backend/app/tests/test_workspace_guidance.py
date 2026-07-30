@@ -1181,6 +1181,14 @@ def test_sender_classification_is_workspace_scoped_audited_and_replaceable(
     assert listed.json()["classifications"] == [replaced.json()["classification"]]
     assert listed.json()["classifications"][0]["source_ip"] == "2001:db8::1"
     assert listed.json()["classifications"][0]["classification"] == "legitimate"
+    assert set(listed.json()["classifications"][0]) == {
+        "domain",
+        "source_ip",
+        "classification",
+        "reason",
+        "scope",
+        "classified_at",
+    }
     assert other_list.json()["classifications"] == []
     assert (
         db_session.query(WorkspaceAuditLog)

@@ -196,6 +196,30 @@ def test_all_signals_can_notify_a_protected_unknown_source(db_session):
     assert result["notification_reason"] == "created"
 
 
+def test_low_volume_waiting_state_is_not_persisted_or_notified(db_session):
+    workspace = Workspace(
+        slug="calm-low-volume", name="Calm low volume", notification_posture="all_signals"
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    waiting = _assessment("monitor", domain=None)
+    waiting["supporting_signals"] = [
+        {
+            "family": "intake_health",
+            "outcome": "no_report_evidence_in_window",
+        }
+    ]
+
+    result = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=waiting,
+    )
+
+    assert result == {"incident": None, "notification_reason": None, "resolved": []}
+    assert db_session.query(MailHealthIncident).count() == 0
+
+
 def test_new_outcome_resolves_the_previous_incident_for_one_domain(db_session):
     workspace = Workspace(slug="calm-supersede", name="Calm Supersede")
     db_session.add(workspace)

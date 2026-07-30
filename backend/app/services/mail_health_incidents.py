@@ -134,8 +134,11 @@ def _resolve_active_incidents(
         MailHealthIncident.workspace_id == workspace.id,
         MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
     )
-    if domain:
-        query = query.filter(MailHealthIncident.domain == domain)
+    query = query.filter(
+        MailHealthIncident.domain == domain
+        if domain is not None
+        else MailHealthIncident.domain.is_(None)
+    )
     resolved = query.all()
     for row in resolved:
         row.status = "resolved"
@@ -247,7 +250,17 @@ def record_mail_health_assessment(
     outcome = str(assessment.get("outcome") or "insufficient_evidence")
     domain = assessment.get("domain")
 
-    if outcome in {"healthy", "insufficient_evidence"}:
+    waiting_for_report_data = (
+        outcome == "monitor"
+        and domain is None
+        and any(
+            signal.get("family") == "intake_health"
+            and signal.get("outcome") == "no_report_evidence_in_window"
+            for signal in assessment.get("supporting_signals") or []
+        )
+    )
+
+    if outcome in {"healthy", "insufficient_evidence"} or waiting_for_report_data:
         resolved = _resolve_active_incidents(
             db,
             workspace=workspace,

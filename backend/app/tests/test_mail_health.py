@@ -356,6 +356,43 @@ def test_expected_forwarding_never_recommends_adding_intermediary_to_spf(db_sess
     assert "SPF" not in result["next_action"]["label"]
 
 
+def test_expected_forwarding_does_not_hide_an_unrecognized_unprotected_failure(db_session):
+    workspace = Workspace(slug="guided-forwarding-mixed", name="Guided forwarding mixed")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add_all(
+        [
+            _projection(
+                domain.id,
+                ip="198.51.100.45",
+                failed=20,
+                disposition_counts={"none": 20},
+            ),
+            _projection(
+                domain.id,
+                ip="198.51.100.47",
+                failed=2,
+                disposition_counts={"none": 2},
+            ),
+        ]
+    )
+    record_sender_classification(
+        db_session,
+        workspace=workspace,
+        domain="example.test",
+        source_ip="198.51.100.45",
+        classification="expected_forwarding",
+        reason="Known list forwarder",
+        auth_context={"auth_type": "disabled"},
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "investigation_required"
+    assert result["supporting_signals"][0]["payload"]["source_ip"] == "198.51.100.47"
+
+
 def test_explicit_unauthorized_source_does_not_request_classification_again(db_session):
     workspace = Workspace(slug="guided-unauthorized", name="Guided unauthorized")
     domain = Domain(name="example.test", workspace=workspace)
