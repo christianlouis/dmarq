@@ -26,6 +26,18 @@ function workspaceOnboarding(options = {}) {
         savingGoal: false,
         goalSaved: false,
         goalError: '',
+        interviewStep: 1,
+        editingGuidance: false,
+        diagnosticPlan: null,
+        diagnosticPlanLoading: false,
+        diagnosticPlanError: '',
+        interviewDomain: '',
+        interviewControlsDns: '',
+        interviewDomainSendsMail: '',
+        interviewBounceAvailable: false,
+        interviewLowVolume: false,
+        interviewRecipientProvider: '',
+        interviewFirstObserved: '',
         mailHealthGoals: [
             {id: 'delivery_problem', label: 'Messages are being rejected or bounced', description: 'I need to understand what may be affecting mail I send.'},
             {id: 'spam_or_inconsistent', label: 'Mail is landing in spam or behaving inconsistently', description: 'I want to check authentication and likely delivery risks.'},
@@ -52,6 +64,21 @@ function workspaceOnboarding(options = {}) {
             audit_or_compliance: 'curious',
             learn_or_explore: 'curious',
             other: 'curious',
+        },
+        translate(message, replacements = {}) {
+            return typeof window.dmarqT === 'function'
+                ? window.dmarqT(message, replacements)
+                : Object.entries(replacements).reduce(
+                    (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
+                    message
+                );
+        },
+        get translatedMailHealthGoals() {
+            return this.mailHealthGoals.map(goal => ({
+                ...goal,
+                label: this.translate(goal.label),
+                description: this.translate(goal.description),
+            }));
         },
         setupState: {
             domains: 0,
@@ -87,63 +114,84 @@ function workspaceOnboarding(options = {}) {
         },
         get showSetupForm() {
             if (this.multiWorkspaceUiEnabled || this.configuring) return true;
+            if (this.showGoalInterview) return false;
             return this.setupStateLoaded &&
                 !this.setupStateLoading &&
                 !this.setupStateError &&
                 !this.hasExistingSetup;
         },
         get showGoalInterview() {
-            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.guidanceInterviewCompleted;
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && (
+                this.editingGuidance || (!this.guidanceInterviewCompleted && !this.hasExistingSetup)
+            );
         },
         get showGoalRecommendation() {
-            return this.singleUserMode && this.guidedMailHealthUiAvailable && this.guidanceInterviewCompleted && Boolean(this.selectedGoal);
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.editingGuidance && (
+                this.guidanceInterviewCompleted || this.hasExistingSetup
+            ) && Boolean(this.diagnosticPlan);
         },
         get goalRecommendation() {
-            const recommendations = {
-                delivery_problem: {
-                    title: 'Start by connecting the report mailbox',
-                    description: 'DMARQ can compare authentication outcomes from receiving providers once aggregate reports arrive. Then it can distinguish known senders that need attention from unrelated sources.',
-                    evidenceNote: 'Aggregate DMARC reports show authentication and receiver policy outcomes. They do not by themselves prove that an individual message bounced, reached an inbox, or landed in spam.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                spam_or_inconsistent: {
-                    title: 'Start by connecting the report mailbox',
-                    description: 'Collect aggregate reports first, then review whether the services that send for your domain authenticate consistently.',
-                    evidenceNote: 'DMARC evidence can identify authentication risks. Inbox placement and individual delivery need separate provider or bounce evidence.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                reports_confusing: {
-                    title: 'Bring in one report before changing DNS',
-                    description: 'Connect the mailbox that receives DMARC reports or upload a report. DMARQ will turn the aggregate evidence into a prioritized explanation.',
-                    evidenceNote: 'A report is evidence about a receiver’s authentication evaluation, not a complete record of every individual delivery.',
-                    action: 'Choose import method',
-                    href: '/mail-sources',
-                },
-                suspected_abuse: {
-                    title: 'Collect reports before changing your policy',
-                    description: 'First identify your intended senders and the sources receivers already reject. That avoids weakening legitimate delivery while investigating possible abuse.',
-                    evidenceNote: 'DMARQ will show which sources are known, which are unknown, and what receivers reported. It will not claim that an unknown source is malicious without enough evidence.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                preventive_monitoring: {
-                    title: 'Set up report intake for ongoing monitoring',
-                    description: 'Connect a report mailbox, then add the domains whose mail you want DMARQ to watch.',
-                    evidenceNote: 'The guided view will surface changes that are likely actionable while retaining the full technical evidence below.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                curious: {
-                    title: 'Start with one domain and one report source',
-                    description: 'Use a small, reversible setup first. Once reports arrive, DMARQ can show the observed senders and DNS posture for that domain.',
-                    evidenceNote: 'Technical details remain available when you want them; the default view will focus on the next useful question.',
-                    action: 'Add a domain',
-                    href: '/domains',
-                },
+            const currentAction = this.diagnosticPlan?.current_action;
+            return {
+                title: currentAction?.title || '',
+                description: currentAction?.description || '',
+                evidenceNote: currentAction?.why || '',
+                verification: currentAction?.verification || '',
+                action: currentAction?.label || '',
+                href: currentAction?.href || '/onboarding',
             };
-            return recommendations[this.selectedGoal] || recommendations.curious;
+        },
+        get interviewProgress() {
+            return this.translate('Step {step} of 4', {step: this.interviewStep});
+        },
+        get interviewStepTitle() {
+            return this.translate({
+                1: 'What brought you to DMARQ?',
+                2: 'Which domain is affected?',
+                3: 'What do you already know about the mail flow?',
+                4: 'How should DMARQ guide you?',
+            }[this.interviewStep] || 'What brought you to DMARQ?');
+        },
+        get interviewStepDescription() {
+            return this.translate({
+                1: 'Choose the problem that should determine the first next step.',
+                2: 'You can skip anything you do not know. DMARQ will keep it visible as an unknown.',
+                3: 'These answers help separate intended mail, likely abuse, and missing delivery evidence.',
+                4: 'Choose the explanation depth and data-path preference. Technical evidence stays available.',
+            }[this.interviewStep] || '');
+        },
+        get interviewCanContinue() {
+            if (this.interviewStep === 1) return Boolean(this.selectedGoal);
+            return true;
+        },
+        get guidanceEditLabel() {
+            return this.translate(
+                this.guidanceInterviewCompleted ? 'Change answers' : 'Resume setup questions'
+            );
+        },
+        get interviewShowsBounceQuestion() {
+            return this.selectedGoal === 'delivery_problem';
+        },
+        get diagnosticKnownFacts() {
+            return Array.isArray(this.diagnosticPlan?.known_facts) ? this.diagnosticPlan.known_facts : [];
+        },
+        get diagnosticUnknowns() {
+            return Array.isArray(this.diagnosticPlan?.unknowns) ? this.diagnosticPlan.unknowns : [];
+        },
+        get diagnosticInferences() {
+            return Array.isArray(this.diagnosticPlan?.inferences) ? this.diagnosticPlan.inferences : [];
+        },
+        get diagnosticBlockers() {
+            const blockers = this.diagnosticPlan?.current_action?.blocked_by;
+            return Array.isArray(blockers) ? blockers : [];
+        },
+        get diagnosticLaterSteps() {
+            return Array.isArray(this.diagnosticPlan?.later_steps) ? this.diagnosticPlan.later_steps : [];
+        },
+        get showDiagnosticPlanStatus() {
+            return this.singleUserMode && this.guidedMailHealthUiAvailable && !this.editingGuidance && (
+                this.guidanceInterviewCompleted || this.hasExistingSetup
+            ) && (this.diagnosticPlanLoading || Boolean(this.diagnosticPlanError));
         },
         get sovereigntyDescription() {
             const descriptions = {
@@ -333,6 +381,11 @@ function workspaceOnboarding(options = {}) {
                 if (reconfigureButton && root.contains(reconfigureButton)) {
                     this.configuring = true;
                 }
+                const guidanceEditButton = event.target.closest('[data-guidance-edit]');
+                if (guidanceEditButton && root.contains(guidanceEditButton)) {
+                    this.editingGuidance = true;
+                    if (this.guidanceInterviewCompleted) this.interviewStep = 1;
+                }
             });
         },
         async loadSetupState() {
@@ -400,6 +453,21 @@ function workspaceOnboarding(options = {}) {
                 this.mailContext = data.mail_context && typeof data.mail_context === 'object'
                     ? data.mail_context
                     : {};
+                this.interviewStep = Number(this.mailContext.interview_step || 1);
+                this.interviewDomain = Array.isArray(this.mailContext.domains)
+                    ? String(this.mailContext.domains[0] || '')
+                    : '';
+                this.interviewControlsDns = typeof this.mailContext.controls_dns === 'boolean'
+                    ? String(this.mailContext.controls_dns)
+                    : '';
+                this.interviewDomainSendsMail = typeof this.mailContext.domain_sends_mail === 'boolean'
+                    ? String(this.mailContext.domain_sends_mail)
+                    : '';
+                this.interviewBounceAvailable = Boolean(this.mailContext.bounce_available);
+                this.interviewLowVolume = Boolean(this.mailContext.low_volume);
+                this.interviewRecipientProvider = this.mailContext.symptom_recipient_provider || '';
+                this.interviewFirstObserved = this.mailContext.symptom_first_observed || '';
+                await this.loadDiagnosticPlan();
             } catch (_) {
                 // The setup path remains usable when optional guidance is unavailable.
             }
@@ -412,29 +480,40 @@ function workspaceOnboarding(options = {}) {
             const profileGoal = primaryGoal || this.guidanceGoalIds[legacyGoal] || legacyGoal;
             return this.guidanceUiGoals[profileGoal] || '';
         },
+        isSecondaryGoalSelected(goal) {
+            return this.installationGoals.slice(1).some(
+                profileGoal => this.guidanceUiGoals[profileGoal] === goal
+            );
+        },
+        async toggleSecondaryGoal(goal) {
+            if (this.savingGoal || !this.selectedGoal) return;
+            const profileGoal = this.guidanceGoalIds[goal];
+            if (!profileGoal) return;
+            const primaryGoal = this.installationGoals[0] || this.guidanceGoalIds[this.selectedGoal];
+            const secondaryGoals = this.installationGoals.slice(1).filter(item => item !== profileGoal);
+            if (!this.isSecondaryGoalSelected(goal)) secondaryGoals.push(profileGoal);
+            this.installationGoals = [primaryGoal, ...secondaryGoals];
+            await this.saveWorkspaceGuidanceProfile(false, false);
+        },
         async saveGoal(goal) {
             if (this.savingGoal) return;
             this.savingGoal = true;
             this.goalError = '';
             this.goalSaved = false;
             try {
-                const preferenceResponse = await fetch('/api/v1/workspaces/guidance/preferences', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        depth: this.guidanceDepth,
-                        context: 'watch',
-                        teaching_hints_enabled: this.guidanceDepth === 'guided',
-                    }),
-                });
-                const preference = await preferenceResponse.json().catch(() => ({}));
-                if (!preferenceResponse.ok) {
-                    throw new Error(preference.detail || 'Your explanation preference could not be saved.');
-                }
+                const preference = await this.savePersonalGuidancePreference();
+                const previousGoals = [...this.installationGoals];
+                const preserveSpecialistGoal = this.selectedGoal === goal && previousGoals.length > 0;
                 this.selectedGoal = goal;
-                this.installationGoals = [this.guidanceGoalIds[goal]];
+                if (!preserveSpecialistGoal) {
+                    const primaryGoal = this.guidanceGoalIds[goal];
+                    this.installationGoals = [
+                        primaryGoal,
+                        ...previousGoals.filter(item => this.guidanceUiGoals[item] !== goal),
+                    ];
+                }
                 this.guidanceDepth = preference.depth || this.guidanceDepth;
-                await this.saveWorkspaceGuidanceProfile(true);
+                await this.saveWorkspaceGuidanceProfile(true, false);
                 this.goalSaved = true;
             } catch (error) {
                 this.goalError = error.message || 'Your setup goal could not be saved.';
@@ -442,7 +521,50 @@ function workspaceOnboarding(options = {}) {
                 this.savingGoal = false;
             }
         },
-        async saveWorkspaceGuidanceProfile(throwOnFailure = false) {
+        async savePersonalGuidancePreference() {
+            const preferenceResponse = await fetch('/api/v1/workspaces/guidance/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    depth: this.guidanceDepth,
+                    context: 'watch',
+                    teaching_hints_enabled: this.guidanceDepth === 'guided',
+                }),
+            });
+            const preference = await preferenceResponse.json().catch(() => ({}));
+            if (!preferenceResponse.ok) {
+                throw new Error(preference.detail || 'Your explanation preference could not be saved.');
+            }
+            this.guidanceDepth = preference.depth || this.guidanceDepth;
+            return preference;
+        },
+        async continueGoalInterview() {
+            if (!this.selectedGoal) return;
+            await this.advanceInterview(2);
+        },
+        interviewMailContext() {
+            const context = {...this.mailContext};
+            context.interview_step = this.interviewStep;
+            if (this.interviewDomain.trim()) context.domains = [this.normalizeDomain(this.interviewDomain)];
+            else delete context.domains;
+            if (['true', 'false'].includes(this.interviewControlsDns)) {
+                context.controls_dns = this.interviewControlsDns === 'true';
+            } else delete context.controls_dns;
+            if (['true', 'false'].includes(this.interviewDomainSendsMail)) {
+                context.domain_sends_mail = this.interviewDomainSendsMail === 'true';
+            } else delete context.domain_sends_mail;
+            context.bounce_available = Boolean(this.interviewBounceAvailable);
+            context.low_volume = Boolean(this.interviewLowVolume);
+            if (this.interviewRecipientProvider.trim()) {
+                context.symptom_recipient_provider = this.interviewRecipientProvider.trim();
+            } else delete context.symptom_recipient_provider;
+            if (this.interviewFirstObserved) context.symptom_first_observed = this.interviewFirstObserved;
+            else delete context.symptom_first_observed;
+            return context;
+        },
+        async saveWorkspaceGuidanceProfile(throwOnFailure, completed) {
+            throwOnFailure = throwOnFailure === true;
+            if (typeof completed !== 'boolean') completed = this.guidanceInterviewCompleted;
             if (!this.selectedGoal) return;
             const installationGoals = this.installationGoals.filter(goal => Boolean(this.guidanceUiGoals[goal]));
             if (!installationGoals.length) {
@@ -458,14 +580,17 @@ function workspaceOnboarding(options = {}) {
                         installation_goals: installationGoals,
                         sovereignty_preference: this.sovereigntyPreference,
                         notification_posture: this.notificationPosture,
-                        mail_context: this.mailContext,
+                        mail_context: this.interviewMailContext(),
                         interview_version: 1,
-                        interview_completed: true,
+                        interview_completed: completed,
                     }),
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.detail || 'Your setup preferences could not be saved.');
                 this.guidanceInterviewCompleted = Boolean(data.interview_completed);
+                this.mailContext = data.mail_context && typeof data.mail_context === 'object'
+                    ? data.mail_context
+                    : this.interviewMailContext();
                 this.installationGoals = Array.isArray(data.installation_goals)
                     ? data.installation_goals.filter(goal => Boolean(this.guidanceUiGoals[goal]))
                     : installationGoals;
@@ -473,6 +598,52 @@ function workspaceOnboarding(options = {}) {
             } catch (error) {
                 this.goalError = error.message || 'Your setup preferences could not be saved.';
                 if (throwOnFailure) throw error;
+            }
+        },
+        async advanceInterview(nextStep) {
+            if (this.savingGoal) return;
+            this.savingGoal = true;
+            this.goalError = '';
+            try {
+                this.interviewStep = Math.min(4, Math.max(1, Number(nextStep) || 1));
+                await this.saveWorkspaceGuidanceProfile(true, false);
+            } catch (error) {
+                this.goalError = error.message || 'Your setup progress could not be saved.';
+            } finally {
+                this.savingGoal = false;
+            }
+        },
+        async finishInterview() {
+            if (this.savingGoal || !this.selectedGoal) return;
+            this.savingGoal = true;
+            this.goalError = '';
+            try {
+                this.interviewStep = 4;
+                await this.savePersonalGuidancePreference();
+                await this.saveWorkspaceGuidanceProfile(true, true);
+                this.editingGuidance = false;
+                this.goalSaved = true;
+                await this.loadDiagnosticPlan();
+            } catch (error) {
+                this.goalError = error.message || 'Your diagnostic plan could not be saved.';
+            } finally {
+                this.savingGoal = false;
+            }
+        },
+        async loadDiagnosticPlan() {
+            if (!this.guidedMailHealthUiAvailable || !this.singleUserMode) return;
+            this.diagnosticPlanLoading = true;
+            this.diagnosticPlanError = '';
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/diagnostic-plan');
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Your next step could not be loaded.');
+                this.diagnosticPlan = data;
+                if (!this.interviewDomain && data.domain) this.interviewDomain = data.domain;
+            } catch (error) {
+                this.diagnosticPlanError = error.message || 'Your next step could not be loaded.';
+            } finally {
+                this.diagnosticPlanLoading = false;
             }
         },
         draftFields() {
