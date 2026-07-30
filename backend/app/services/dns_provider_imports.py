@@ -17,6 +17,7 @@ from app.services.dns_provider_writes import normalize_provider_id
 from app.services.hetzner_dns import discover_hetzner_zones, import_hetzner_domains
 from app.services.linode_dns import discover_linode_domains, import_linode_domains
 from app.services.route53_dns import discover_route53_zones, import_route53_domains
+from app.services.ovh_dns import discover_ovh_zones, import_ovh_domains
 
 
 @dataclass
@@ -87,6 +88,8 @@ async def preview_dns_provider_import(
         zones = await discover_linode_domains(db, workspace_id=workspace_id)
     elif provider_id == "akamai-edgedns":
         zones = await discover_akamai_edgedns_zones(db, workspace_id=workspace_id)
+    elif provider_id == "ovh":
+        zones = await discover_ovh_zones(db, workspace_id=workspace_id)
     else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
@@ -156,6 +159,12 @@ async def import_dns_provider_domains(
         )
     elif provider_id == "akamai-edgedns":
         result = await import_akamai_edgedns_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    elif provider_id == "ovh":
+        result = await import_ovh_domains(
             db,
             requested_domains=requested_domains,
             workspace_id=workspace_id,

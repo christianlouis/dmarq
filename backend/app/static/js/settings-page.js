@@ -47,6 +47,10 @@ function settingsApp() {
             connected_at: null,
         },
         cfZones: [],
+        dnsBaseline: { domain: '', zone_text: '', ttl_hours: 24 },
+        dnsBaselinePreview: null,
+        dnsBaselines: [],
+        dnsBaselineBusy: false,
         showCfToken: false,
         loadingMailServiceDomains: false,
         importingMailServiceDomains: false,
@@ -114,6 +118,15 @@ function settingsApp() {
                 } else if (button.matches('[data-settings-import-dns-zones]')) {
                     event.preventDefault();
                     this.importDNSProviderZones();
+                } else if (button.matches('[data-settings-preview-dns-baseline]')) {
+                    event.preventDefault();
+                    this.previewDNSBaseline();
+                } else if (button.matches('[data-settings-save-dns-baseline]')) {
+                    event.preventDefault();
+                    this.saveDNSBaseline();
+                } else if (button.matches('[data-settings-remove-dns-baseline]')) {
+                    event.preventDefault();
+                    this.removeDNSBaseline(button.dataset.baselineId);
                 } else if (button.matches('[data-settings-toggle-postmark-token]')) {
                     event.preventDefault();
                     this.showPostmarkToken = !this.showPostmarkToken;
@@ -227,6 +240,7 @@ function settingsApp() {
                 await this.loadWebhookDeliveries(false);
                 await this.loadCloudflareOAuthStatus(false);
                 await this.loadDNSProviders(false);
+                await this.loadDNSBaselines(false);
                 await this.loadAIProviderProfiles(false);
                 await this.loadAccountReadiness(false);
             } catch (err) {
@@ -991,6 +1005,66 @@ function settingsApp() {
             } finally {
                 this.importingCfZones = false;
             }
+        },
+
+        async loadDNSBaselines(showMessage = false) {
+            try {
+                const res = await fetch('/api/v1/domains/dns/baseline', { headers: this.workspaceHeaders() });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(this.providerErrorDetail(data, res.statusText));
+                this.dnsBaselines = data.baselines || [];
+                if (showMessage) this.showFlash('Imported DNS evidence refreshed.', true);
+            } catch (err) {
+                if (showMessage) this.showFlash('DNS baseline list failed: ' + err.message, false);
+            }
+        },
+
+        async previewDNSBaseline() {
+            this.dnsBaselineBusy = true;
+            this.dnsBaselinePreview = null;
+            try {
+                const res = await fetch('/api/v1/domains/dns/baseline/preview', {
+                    method: 'POST', headers: this.workspaceHeaders(), body: JSON.stringify(this.dnsBaseline),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(this.providerErrorDetail(data, res.statusText));
+                this.dnsBaselinePreview = data;
+                this.showFlash(`Parsed ${data.record_count} records; ${data.mismatch_count} public-DNS differences need review.`, true);
+            } catch (err) {
+                this.showFlash('DNS baseline preview failed: ' + err.message, false);
+            } finally {
+                this.dnsBaselineBusy = false;
+            }
+        },
+
+        async saveDNSBaseline() {
+            this.dnsBaselineBusy = true;
+            try {
+                const res = await fetch('/api/v1/domains/dns/baseline', {
+                    method: 'POST', headers: this.workspaceHeaders(), body: JSON.stringify(this.dnsBaseline),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(this.providerErrorDetail(data, res.statusText));
+                await this.loadDNSBaselines(false);
+                this.showFlash('DNS baseline saved as expiring comparison evidence.', true);
+            } catch (err) {
+                this.showFlash('DNS baseline import failed: ' + err.message, false);
+            } finally {
+                this.dnsBaselineBusy = false;
+            }
+        },
+
+        async removeDNSBaseline(id) {
+            const res = await fetch(`/api/v1/domains/dns/baseline/${encodeURIComponent(id)}`, {
+                method: 'DELETE', headers: this.workspaceHeaders(),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                this.showFlash('DNS baseline removal failed: ' + this.providerErrorDetail(data, res.statusText), false);
+                return;
+            }
+            await this.loadDNSBaselines(false);
+            this.showFlash('Imported DNS evidence removed.', true);
         },
 
         async discoverMailServiceDomains() {

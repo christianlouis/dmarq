@@ -21,6 +21,9 @@ Store these values in a 1Password Environment for each deployment target:
 | `CLOUDFLARE_OAUTH_CLIENT_SECRET` | Secret | Optional Cloudflare OAuth connector secret for one-click zone import and ownership verification. |
 | `HETZNER_DNS_API_TOKEN` | Secret | Optional read-only Hetzner DNS zone import token. |
 | `HETZNER_API_TOKEN` | Secret | Optional fallback Hetzner DNS token name for deployments that already inject generic Hetzner credentials. |
+| `OVH_APPLICATION_KEY` | Secret | Optional OVHcloud application key for read-only zone discovery/export. |
+| `OVH_APPLICATION_SECRET` | Secret | Optional OVHcloud application secret; inject from 1Password or the deployment secret manager. |
+| `OVH_CONSUMER_KEY` | Secret | Optional OVHcloud consumer key limited to zone list/export GET operations. |
 | `LINODE_API_TOKEN` | Secret | Optional read-only Linode DNS domain import token. |
 | `LINODE_TOKEN` | Secret | Optional fallback Linode token name for deployments that already inject generic Linode credentials. |
 

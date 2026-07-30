@@ -50,7 +50,7 @@ class Route53DNSCredentials:
 
 
 class Route53DNSClient:
-    """Small read-only client for Route 53 hosted-zone discovery."""
+    """Small Route 53 client for discovery and reviewed record changes."""
 
     def __init__(self, *, route53_client: Any, account_name: str = "Amazon Route 53") -> None:
         self.route53_client = route53_client
@@ -85,6 +85,103 @@ class Route53DNSClient:
     async def list_zones(self) -> List[Dict[str, Any]]:
         """Return Route 53 hosted zones visible to the configured AWS credentials."""
         return await asyncio.to_thread(self._list_zones_sync)
+
+    def _list_records_sync(self, zone_id: str) -> List[Dict[str, Any]]:
+        try:
+            paginator = self.route53_client.get_paginator("list_resource_record_sets")
+            records: List[Dict[str, Any]] = []
+            for page in paginator.paginate(HostedZoneId=zone_id):
+                records.extend(page.get("ResourceRecordSets") or [])
+            return records
+        except (BotoCoreError, ClientError, NoCredentialsError) as exc:
+            raise LookupError(f"Route 53 record listing failed: {exc}") from exc
+
+    async def list_records(
+        self,
+        zone_id: str,
+        *,
+        record_name: Optional[str] = None,
+        record_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return normalized simple records from one hosted zone."""
+        record_sets = await asyncio.to_thread(self._list_records_sync, zone_id)
+        expected_name = _normalize_domain_name(record_name or "")
+        expected_type = str(record_type or "").upper()
+        normalized: List[Dict[str, Any]] = []
+        for record_set in record_sets:
+            name = _normalize_domain_name(str(record_set.get("Name") or ""))
+            rtype = str(record_set.get("Type") or "").upper()
+            if expected_name and name != expected_name:
+                continue
+            if expected_type and rtype != expected_type:
+                continue
+            for index, value in enumerate(record_set.get("ResourceRecords") or []):
+                content = str(value.get("Value") or "")
+                if rtype == "TXT" and content.startswith('"') and content.endswith('"'):
+                    content = content[1:-1].replace('" "', "").replace('\\"', '"')
+                normalized.append(
+                    {
+                        "id": f"{name}:{rtype}:{index}",
+                        "name": name,
+                        "type": rtype,
+                        "content": content.rstrip(".") if rtype == "CNAME" else content,
+                        "ttl": record_set.get("TTL"),
+                    }
+                )
+        return normalized
+
+    def _upsert_record_sync(
+        self, zone_id: str, name: str, record_type: str, content: str, ttl: int
+    ) -> Dict[str, Any]:
+        value = content
+        if record_type == "TXT":
+            escaped = content.replace('"', '\\"')
+            value = " ".join(
+                f'"{escaped[start:start + 255]}"' for start in range(0, len(escaped), 255)
+            )
+        try:
+            return self.route53_client.change_resource_record_sets(
+                HostedZoneId=zone_id,
+                ChangeBatch={
+                    "Comment": "Human-approved DMARQ DNS repair",
+                    "Changes": [
+                        {
+                            "Action": "UPSERT",
+                            "ResourceRecordSet": {
+                                "Name": name,
+                                "Type": record_type,
+                                "TTL": ttl,
+                                "ResourceRecords": [{"Value": value}],
+                            },
+                        }
+                    ],
+                },
+            )
+        except (BotoCoreError, ClientError, NoCredentialsError) as exc:
+            raise LookupError(f"Route 53 record change failed: {exc}") from exc
+
+    async def upsert_record(
+        self, zone_id: str, *, name: str, record_type: str, content: str, ttl: int
+    ) -> Dict[str, Any]:
+        """Create or replace one reviewed simple record set."""
+        return await asyncio.to_thread(
+            self._upsert_record_sync, zone_id, name, record_type, content, ttl
+        )
+
+    async def zone_for_domain(self, domain: str) -> Dict[str, str]:
+        """Resolve the longest matching public hosted zone for a domain."""
+        name = _normalize_domain_name(domain)
+        candidates = []
+        for zone in await self.list_zones():
+            zone_name = self._zone_name(zone)
+            if self._zone_status(zone) == "public" and (
+                name == zone_name or name.endswith(f".{zone_name}")
+            ):
+                candidates.append((len(zone_name), self._zone_id(zone), zone_name))
+        if not candidates:
+            raise LookupError(f"Route 53 has no public hosted zone for {name}")
+        _, zone_id, zone_name = max(candidates)
+        return {"id": zone_id, "name": zone_name}
 
 
 def get_route53_dns_credentials() -> Route53DNSCredentials:

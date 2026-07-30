@@ -554,6 +554,39 @@
                             </table>
                         </div>
                     </template>
+                    <details class="rounded-md border border-border bg-base-100">
+                        <summary class="cursor-pointer px-4 py-3 text-sm font-semibold">Compare a zone export without provider credentials</summary>
+                        <div class="space-y-3 border-t border-border p-4">
+                            <p class="text-sm text-muted-foreground">Paste BIND-style zone data for a temporary comparison. Imported evidence stays separate from public DNS and never changes health scores.</p>
+                            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+                                <input class="input input-bordered w-full" x-model="dnsBaseline.domain" placeholder="example.com" aria-label="Zone baseline domain" />
+                                <select class="select select-bordered" x-model.number="dnsBaseline.ttl_hours" aria-label="Evidence lifetime">
+                                    <option :value="24">24 hours</option>
+                                    <option :value="72">3 days</option>
+                                    <option :value="168">7 days</option>
+                                </select>
+                            </div>
+                            <textarea class="textarea textarea-bordered min-h-40 w-full font-mono text-xs" x-model="dnsBaseline.zone_text" placeholder="$TTL 3600&#10;@ IN SOA ..." aria-label="BIND zone export"></textarea>
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <button type="button" class="btn btn-outline btn-sm" :disabled="dnsBaselineBusy || !dnsBaseline.domain || !dnsBaseline.zone_text" data-settings-preview-dns-baseline>Preview comparison</button>
+                                <button type="button" class="btn btn-default btn-sm" :disabled="dnsBaselineBusy || !dnsBaselinePreview" data-settings-save-dns-baseline>Save expiring evidence</button>
+                            </div>
+                            <div class="rounded-md bg-base-200 p-3 text-sm" x-show="dnsBaselinePreview">
+                                <span class="font-semibold" x-text="dnsBaselinePreview ? dnsBaselinePreview.record_count + ' records parsed' : ''"></span>
+                                <span x-text="dnsBaselinePreview ? ' · ' + dnsBaselinePreview.mismatch_count + ' public-DNS differences' : ''"></span>
+                            </div>
+                            <template x-for="baseline in dnsBaselines" :key="baseline.id">
+                                <div class="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <span class="font-semibold" x-text="baseline.domain"></span>
+                                        <span class="text-muted-foreground" x-text="' · ' + baseline.record_count + ' records · expires ' + new Date(baseline.expires_at).toLocaleString()"></span>
+                                        <span class="badge badge-sm ml-2" :class="baseline.removed || baseline.expired ? 'badge-ghost' : 'badge-outline'" x-text="baseline.removed ? 'removed' : (baseline.expired ? 'expired' : 'comparison only')"></span>
+                                    </div>
+                                    <button type="button" class="btn btn-ghost btn-sm" x-show="!baseline.removed" :data-baseline-id="baseline.id" data-settings-remove-dns-baseline>Remove</button>
+                                </div>
+                            </template>
+                        </div>
+                    </details>
                 </div>
                 {{ save_footer("Save token or OAuth profile changes before discovering provider zones.", "Save Cloudflare Settings") }}
             </form>

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- DNS provider operations now use native, credential-consistent Route 53 and
+  Hetzner record reads for human-approved TXT/CNAME preview, apply, and
+  provider readback. OVHcloud adds strictly read-only zone discovery/export.
+  Operators can also paste a BIND-style zone export as expiring comparison
+  evidence; imported values remain visibly separate from public DNS and never
+  alter health scores.
 - Guided mail-health presentation now comes from one versioned English/German
   catalog instead of template-specific wording. Watch, Diagnose, and Evidence
   combine with guided, standard, or expert detail over the same immutable

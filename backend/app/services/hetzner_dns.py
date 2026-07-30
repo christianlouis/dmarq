@@ -31,7 +31,7 @@ class HetznerDNSCredentials:
 
 
 class HetznerDNSClient:
-    """Small read-only client for Hetzner Console DNS zone discovery."""
+    """Small client for Hetzner Console DNS discovery and reviewed changes."""
 
     def __init__(
         self,
@@ -67,6 +67,18 @@ class HetznerDNSClient:
         except ValueError as exc:
             raise LookupError(f"Hetzner DNS API returned invalid JSON for {path}") from exc
 
+    async def _api_post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.api_base}{path}"
+        try:
+            async with httpx.AsyncClient(timeout=HETZNER_DNS_API_TIMEOUT) as client:
+                response = await client.post(url, json=payload, headers=self._headers())
+                response.raise_for_status()
+                return response.json()
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
+            raise LookupError(f"Hetzner DNS API request failed for {path}: {exc}") from exc
+        except ValueError as exc:
+            raise LookupError(f"Hetzner DNS API returned invalid JSON for {path}") from exc
+
     async def list_zones(self) -> List[Dict[str, Any]]:
         """Return DNS zones visible to the configured Hetzner token."""
         zones: List[Dict[str, Any]] = []
@@ -88,6 +100,89 @@ class HetznerDNSClient:
                 break
             page += 1
         return zones
+
+    async def zone_for_domain(self, domain: str) -> Dict[str, str]:
+        """Resolve the longest matching zone for a domain."""
+        name = _normalize_domain_name(domain)
+        candidates = []
+        for zone in await self.list_zones():
+            zone_name = _normalize_domain_name(str(zone.get("name") or ""))
+            if zone_name and (name == zone_name or name.endswith(f".{zone_name}")):
+                candidates.append((len(zone_name), str(zone.get("id") or ""), zone_name))
+        if not candidates:
+            raise LookupError(f"Hetzner DNS has no zone for {name}")
+        _, zone_id, zone_name = max(candidates)
+        return {"id": zone_id, "name": zone_name}
+
+    @staticmethod
+    def _relative_name(name: str, zone_name: str) -> str:
+        normalized = _normalize_domain_name(name)
+        if normalized == zone_name:
+            return "@"
+        suffix = f".{zone_name}"
+        if not normalized.endswith(suffix):
+            raise LookupError(f"Record {normalized} is outside Hetzner zone {zone_name}")
+        return normalized[: -len(suffix)]
+
+    async def list_records(
+        self,
+        zone_id: str,
+        zone_name: str,
+        *,
+        record_name: Optional[str] = None,
+        record_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return normalized records from the Hetzner rrsets API."""
+        params: Dict[str, Any] = {}
+        if record_name:
+            params["name"] = self._relative_name(record_name, zone_name)
+        if record_type:
+            params["type"] = record_type.upper()
+        data = await self._api_get(f"/zones/{zone_id}/rrsets", params=params)
+        records: List[Dict[str, Any]] = []
+        for rrset in data.get("rrsets") or []:
+            relative = str(rrset.get("name") or "@")
+            full_name = zone_name if relative == "@" else f"{relative}.{zone_name}"
+            rtype = str(rrset.get("type") or "").upper()
+            for item in rrset.get("records") or []:
+                content = str(item.get("value") or "")
+                if rtype == "TXT":
+                    content = content.removeprefix('"').removesuffix('"').replace('" "', "")
+                records.append(
+                    {
+                        "id": None,
+                        "name": full_name,
+                        "type": rtype,
+                        "content": content.rstrip(".") if rtype == "CNAME" else content,
+                        "ttl": rrset.get("ttl"),
+                    }
+                )
+        return records
+
+    async def upsert_record(
+        self,
+        zone_id: str,
+        zone_name: str,
+        *,
+        name: str,
+        record_type: str,
+        content: str,
+        ttl: int,
+        exists: bool,
+    ) -> Dict[str, Any]:
+        """Create or replace one reviewed Hetzner record set."""
+        relative = self._relative_name(name, zone_name)
+        value = content
+        if record_type == "TXT":
+            escaped = content.replace('"', '\\"')
+            value = " ".join(
+                f'"{escaped[start:start + 255]}"' for start in range(0, len(escaped), 255)
+            )
+        action = "set_records" if exists else "add_records"
+        return await self._api_post(
+            f"/zones/{zone_id}/rrsets/{relative}/{record_type}/actions/{action}",
+            {"ttl": ttl, "records": [{"value": value}]},
+        )
 
 
 def get_hetzner_dns_credentials() -> HetznerDNSCredentials:

@@ -1825,8 +1825,8 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert "Configure read-only provider credentials" in providers["cloudflare"]["connection_hint"]
     assert providers["hetzner"]["import_available"] is True
     assert providers["hetzner"]["zone_import_status"] == "ready"
-    assert providers["hetzner"]["record_read_status"] == "planned"
-    assert providers["hetzner"]["record_write_status"] == "lexicon_available"
+    assert providers["hetzner"]["record_write_status"] == "ready"
+    assert providers["hetzner"]["record_read_status"] == "ready"
     assert "api_token" in providers["hetzner"]["auth_models"]
     assert providers["route53"]["import_available"] is True
     assert providers["route53"]["zone_import_status"] == "ready"
@@ -2980,7 +2980,7 @@ def test_dns_provider_capabilities_report_available_lexicon_runtime():
 
     assert providers["cloudflare"]["status"] == "ready"
     assert providers["route53"]["status"] == "ready"
-    assert providers["route53"]["mode"] == "lexicon"
+    assert providers["route53"]["mode"] == "native"
     assert providers["route53"]["name"] == "Amazon Route 53"
     assert providers["digitalocean"]["name"] == "DigitalOcean DNS"
 
@@ -2991,6 +2991,7 @@ def test_dns_write_provider_registry_normalizes_supported_provider_ids():
 
     assert cloudflare_provider.provider_id == "cloudflare"
     assert route53_provider.provider_id == "route53"
+    assert route53_provider.__class__.__name__ == "NativeManagedDNSWriteProvider"
 
 
 def test_dns_write_provider_registry_rejects_unknown_provider():
