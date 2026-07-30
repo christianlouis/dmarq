@@ -46,6 +46,20 @@ class TestDashboardStatistics:
         data = response.json()
         assert data["assessment"]["outcome"] == "insufficient_evidence"
         assert data["assessment"]["claim_type"] == "aggregate_dmarc_authentication"
+        assert data["assessment"]["presentation"]["locale"] == "en"
+        assert data["guidance_profile"]["context"] in {"watch", "diagnose", "evidence"}
+
+    def test_mail_health_summary_localizes_primary_guidance_without_changing_facts(
+        self, authed_client: TestClient
+    ):
+        english = authed_client.get("/api/v1/stats/mail-health/summary?lang=en").json()
+        german = authed_client.get("/api/v1/stats/mail-health/summary?lang=de").json()
+
+        assert english["assessment"]["assessment_id"] == german["assessment"]["assessment_id"]
+        assert german["assessment"]["presentation"]["locale"] == "de"
+        assert german["assessment"]["presentation"]["headline"] == (
+            "Weitere Nachweise erforderlich"
+        )
 
     def test_dashboard_response_contains_api_version(self, authed_client: TestClient):
         response = authed_client.get("/api/v1/stats/dashboard")

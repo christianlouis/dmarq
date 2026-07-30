@@ -2,16 +2,20 @@ from datetime import date, datetime, time, timedelta, timezone
 from math import ceil
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
+from app.core.localization import resolve_request_locale
 from app.core.security import require_admin_auth
 from app.services.demo_data import build_demo_dashboard_statistics
+from app.services.guidance_profile import resolve_guidance_profile
 from app.services.mail_health import build_workspace_mail_health_assessment
+from app.services.mail_health_guidance import render_mail_health_guidance
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
+    _auth_user,
     parse_selected_workspace_id,
     resolve_authorized_workspace,
 )
@@ -177,6 +181,7 @@ def resolve_dashboard_date_range(
 
 @router.get("/mail-health/summary")
 async def get_mail_health_summary(
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -202,7 +207,19 @@ async def get_mail_health_summary(
         start_ts=int(datetime.fromisoformat(date_range["start_at"]).timestamp()),
         end_ts=int(datetime.fromisoformat(date_range["end_at"]).timestamp()),
     )
-    return {"date_range": date_range, "assessment": assessment}
+    settings = get_settings()
+    profile = resolve_guidance_profile(
+        workspace,
+        _auth_user(db, _auth),
+        available=bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED),
+    )
+    assessment["presentation"] = render_mail_health_guidance(
+        assessment,
+        locale=resolve_request_locale(request, default=settings.default_locale),
+        depth=profile["depth"],
+        context=profile["context"],
+    )
+    return {"date_range": date_range, "assessment": assessment, "guidance_profile": profile}
 
 
 @router.get("/dashboard")

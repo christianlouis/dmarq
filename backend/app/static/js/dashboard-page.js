@@ -229,15 +229,15 @@ function dashboardApp() {
         },
 
         get guidedMailHealthTitle() {
-            return this.guidedMailHealth?.title || 'Checking mail health';
+            return this.guidedMailHealth?.presentation?.headline || this.guidedMailHealth?.title || this.t('Checking mail health');
         },
 
         get guidedMailHealthSummary() {
-            return this.guidedMailHealth?.summary || '';
+            return this.guidedMailHealth?.presentation?.conclusion || this.guidedMailHealth?.summary || '';
         },
 
         get guidedMailHealthNextStep() {
-            return this.guidedMailHealth?.next_step || 'Review reports';
+            return this.guidedMailHealth?.presentation?.next_action_label || this.guidedMailHealth?.next_step || this.t('Review reports');
         },
 
         get guidedMailHealthHref() {
@@ -245,10 +245,11 @@ function dashboardApp() {
         },
 
         get guidedMailHealthConfidence() {
-            return this.guidedMailHealth?.confidence || 'Not enough evidence';
+            return this.guidedMailHealth?.presentation?.confidence_label || this.guidedMailHealth?.confidence || this.t('Not enough evidence');
         },
 
         get guidedMailHealthImpact() {
+            if (this.guidedMailHealth?.presentation?.impact_label) return this.guidedMailHealth.presentation.impact_label;
             const impact = this.guidedMailHealth?.intended_mail_impact;
             return {
                 likely_affected: 'Your intended mail may be affected',
@@ -258,6 +259,7 @@ function dashboardApp() {
         },
 
         get guidedMailHealthUrgency() {
+            if (this.guidedMailHealth?.presentation?.urgency_label) return this.guidedMailHealth.presentation.urgency_label;
             const urgency = this.guidedMailHealth?.urgency;
             return {
                 timely: 'Action recommended soon',
@@ -289,11 +291,29 @@ function dashboardApp() {
         },
 
         get guidedMailHealthVerification() {
-            return this.guidedMailHealth?.verification_condition || '';
+            return this.guidedMailHealthPresentation?.verification_text
+                || this.guidedMailHealth?.verification_condition
+                || '';
         },
 
         get guidedMailHealthEvidenceScope() {
             return this.guidedMailHealth?.evidence_scope || '';
+        },
+
+        get guidedMailHealthPresentation() {
+            return this.guidedMailHealth?.presentation || {};
+        },
+
+        get guidedMailHealthWhy() {
+            return this.guidedMailHealthPresentation.why_it_matters || '';
+        },
+
+        get guidedMailHealthNoAction() {
+            return this.guidedMailHealthPresentation.no_action_explanation || this.guidedMailHealth?.no_action_reason || '';
+        },
+
+        get guidedMailHealthEvidenceLabel() {
+            return this.guidedMailHealthPresentation.evidence_disclosure_label || this.t('Show technical evidence');
         },
 
         get showDashboardNextAction() {
@@ -828,6 +848,9 @@ function dashboardApp() {
                 if (!response.ok) throw new Error('Could not load the guided mail-health assessment.');
                 const data = await response.json();
                 this.guidedMailHealth = data.assessment || null;
+                const profile = data.guidance_profile || {};
+                this.guidanceDepth = profile.depth || this.guidanceDepth;
+                this.guidanceContext = profile.context || this.guidanceContext;
             } catch (error) {
                 console.error('Could not load guided mail health:', error);
                 this.guidedMailHealth = null;
