@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     DMARQ_ROUTE53_PROFILE: Optional[str] = None
     DMARQ_ROUTE53_ROLE_ARN: Optional[str] = None
     DMARQ_ROUTE53_EXTERNAL_ID: Optional[str] = None
+    OVH_API_BASE: str = "https://eu.api.ovh.com/v1"
+    OVH_APPLICATION_KEY: Optional[str] = None
+    OVH_APPLICATION_SECRET: Optional[str] = None
+    OVH_CONSUMER_KEY: Optional[str] = None
     AKAMAI_EDGERC_PATH: Optional[str] = None
     AKAMAI_EDGERC_SECTION: str = "default"
     AKAMAI_HOST: Optional[str] = None

@@ -17,10 +17,12 @@ from app.services.cloudflare_dns import (
     get_zone_for_domain,
     sync_dns_record_changes,
 )
+from app.services.hetzner_dns import build_hetzner_dns_client, get_hetzner_dns_credentials
+from app.services.route53_dns import build_route53_dns_client, get_route53_dns_credentials
 
 SUPPORTED_AUTOMATED_RECORD_TYPES = {"TXT", "CNAME"}
 SUPPORTED_AUTOMATED_OPERATIONS = {"create", "update"}
-NATIVE_PROVIDERS = {"cloudflare"}
+NATIVE_PROVIDERS = {"cloudflare", "hetzner", "route53"}
 LEXICON_PROVIDERS = {
     "aliyun",
     "azure",
@@ -35,7 +37,6 @@ LEXICON_PROVIDERS = {
     "ionos",
     "linode",
     "namecheap",
-    "ovh",
     "powerdns",
     "route53",
     "vultr",
@@ -55,7 +56,6 @@ PROVIDER_DISPLAY_NAMES = {
     "ionos": "IONOS",
     "linode": "Linode DNS",
     "namecheap": "Namecheap",
-    "ovh": "OVHcloud",
     "powerdns": "PowerDNS",
     "route53": "Amazon Route 53",
     "vultr": "Vultr DNS",
@@ -209,10 +209,28 @@ def provider_capabilities() -> List[Dict[str, Any]]:
             "operations": sorted(SUPPORTED_AUTOMATED_OPERATIONS),
             "credentials": "DMARQ Cloudflare settings or environment",
             "status": "ready",
-        }
+        },
+        {
+            "id": "route53",
+            "name": PROVIDER_DISPLAY_NAMES["route53"],
+            "mode": "native",
+            "record_types": sorted(SUPPORTED_AUTOMATED_RECORD_TYPES),
+            "operations": sorted(SUPPORTED_AUTOMATED_OPERATIONS),
+            "credentials": "boto3 AWS credential chain or assumed IAM role",
+            "status": "ready",
+        },
+        {
+            "id": "hetzner",
+            "name": PROVIDER_DISPLAY_NAMES["hetzner"],
+            "mode": "native",
+            "record_types": sorted(SUPPORTED_AUTOMATED_RECORD_TYPES),
+            "operations": sorted(SUPPORTED_AUTOMATED_OPERATIONS),
+            "credentials": "HETZNER_DNS_API_TOKEN",
+            "status": "ready",
+        },
     ]
     lexicon_available = lexicon_runtime_available()
-    for provider_id in sorted(LEXICON_PROVIDERS):
+    for provider_id in sorted(LEXICON_PROVIDERS - NATIVE_PROVIDERS):
         capabilities.append(
             {
                 "id": provider_id,
@@ -654,6 +672,158 @@ class CloudflareDNSWriteProvider:
         )
 
 
+class NativeManagedDNSWriteProvider:
+    """Native read/write adapter for Route 53 and Hetzner DNS."""
+
+    def __init__(self, provider_id: str) -> None:
+        self.provider_id = provider_id
+
+    async def _zone_and_records(
+        self, domain: str, record_name: str
+    ) -> tuple[Dict[str, str], List[Dict[str, Any]], Any]:
+        if self.provider_id == "route53":
+            client = build_route53_dns_client()
+            zone = await client.zone_for_domain(domain)
+            records = await client.list_records(zone["id"], record_name=record_name)
+            return zone, records, client
+        client = build_hetzner_dns_client()
+        zone = await client.zone_for_domain(domain)
+        records = await client.list_records(zone["id"], zone["name"], record_name=record_name)
+        return zone, records, client
+
+    async def prepare_mutation(
+        self,
+        db: Session,  # pylint: disable=unused-argument
+        *,
+        domain: str,
+        plan: Dict[str, Any],
+        value_override: Optional[str],
+        ttl: int,
+    ) -> DNSWriteMutation:
+        _validate_plan_for_automation(plan)
+        value = _plan_value(plan, value_override)
+        record_type = str(plan["record_type"]).upper()
+        record_name = str(plan["name"])
+        zone, owner_records, _ = await self._zone_and_records(domain, record_name)
+        replacement = _is_record_type_replacement(plan)
+        matches = (
+            owner_records
+            if replacement
+            else [record for record in owner_records if record.get("type") == record_type]
+        )
+        current_values = [str(record.get("content") or "") for record in matches]
+        owner_types = {str(record.get("type") or "").upper() for record in owner_records}
+        conflicting_types = sorted(
+            {
+                str(record.get("type") or "").upper()
+                for record in owner_records
+                if str(record.get("type") or "").upper() != record_type
+            }
+        )
+        cname_conflict = (record_type == "CNAME" and bool(conflicting_types)) or (
+            record_type != "CNAME" and "CNAME" in owner_types
+        )
+        blocked_reason = _baseline_block_reason(plan=plan, records=matches)
+        if not replacement and cname_conflict:
+            blocked_reason = (
+                "A conflicting CNAME record exists at this owner name "
+                f"({', '.join(conflicting_types)}); use an explicit reviewed record-type migration"
+            )
+        elif not blocked_reason and replacement:
+            blocked_reason = (
+                f"Provider '{self.provider_id}' requires record-type replacements to be "
+                "completed manually; DMARQ will not create a conflicting record."
+            )
+        elif not blocked_reason and len(matches) > 1:
+            blocked_reason = (
+                "Multiple provider records match this name/type; merge them manually first"
+            )
+        operation = (
+            "noop"
+            if not blocked_reason and current_values == [value]
+            else ("update" if matches else "create")
+        )
+        effective_ttl = max(ttl, 60) if self.provider_id == "hetzner" else ttl
+        return DNSWriteMutation(
+            operation=operation,
+            record_type=record_type,
+            name=record_name,
+            content=value,
+            ttl=effective_ttl,
+            provider=self.provider_id,
+            zone_id=zone["id"],
+            zone_name=zone["name"],
+            record_id=str(matches[0].get("id") or "") if len(matches) == 1 else None,
+            current_values=current_values,
+            current_record_type=(
+                str(matches[0].get("type") or "").upper() if matches else _current_record_type(plan)
+            ),
+            effective_value=plan.get("effective_value"),
+            blocked_reason=blocked_reason,
+        )
+
+    async def apply_mutation(
+        self,
+        db: Session,  # pylint: disable=unused-argument
+        *,
+        domain: str,
+        mutation: DNSWriteMutation,
+    ) -> DNSWriteResult:
+        if not mutation.applicable:
+            raise DNSProviderWriteError(mutation.blocked_reason or "DNS mutation is blocked")
+        if mutation.operation == "noop":
+            return DNSWriteResult(
+                provider=self.provider_id,
+                dry_run=False,
+                applied=False,
+                mutation=mutation,
+                provider_result={"status": "unchanged"},
+                verification=_noop_verification(mutation),
+            )
+        if not mutation.zone_id or not mutation.zone_name:
+            raise DNSProviderWriteError("Provider zone could not be resolved")
+        if self.provider_id == "route53":
+            client = build_route53_dns_client()
+            provider_result = await client.upsert_record(
+                mutation.zone_id,
+                name=mutation.name,
+                record_type=mutation.record_type,
+                content=mutation.content,
+                ttl=mutation.ttl,
+            )
+            records = await client.list_records(
+                mutation.zone_id,
+                record_name=mutation.name,
+                record_type=mutation.record_type,
+            )
+        else:
+            client = build_hetzner_dns_client()
+            provider_result = await client.upsert_record(
+                mutation.zone_id,
+                mutation.zone_name,
+                name=mutation.name,
+                record_type=mutation.record_type,
+                content=mutation.content,
+                ttl=mutation.ttl,
+                exists=mutation.operation == "update",
+            )
+            records = await client.list_records(
+                mutation.zone_id,
+                mutation.zone_name,
+                record_name=mutation.name,
+                record_type=mutation.record_type,
+            )
+        verification = _verification_from_records(mutation=mutation, records=records)
+        return DNSWriteResult(
+            provider=self.provider_id,
+            dry_run=False,
+            applied=True,
+            mutation=mutation,
+            provider_result=provider_result,
+            verification=verification,
+        )
+
+
 class LexiconDNSWriteProvider:
     """DNS write provider backed by dns-lexicon for API-backed providers."""
 
@@ -851,8 +1021,15 @@ class LexiconDNSWriteProvider:
 def build_dns_write_provider(provider_id: str) -> DNSWriteProvider:
     """Return the configured DNS write provider implementation."""
     normalized = normalize_provider_id(provider_id)
-    if normalized in NATIVE_PROVIDERS:
+    if normalized == "cloudflare":
         return CloudflareDNSWriteProvider()
+    native_credentials_configured = (
+        normalized == "route53" and get_route53_dns_credentials().configured
+    ) or (normalized == "hetzner" and get_hetzner_dns_credentials().configured)
+    if normalized in {"route53", "hetzner"} and (
+        native_credentials_configured or not lexicon_provider_environment_configured(normalized)
+    ):
+        return NativeManagedDNSWriteProvider(normalized)
     if normalized in LEXICON_PROVIDERS:
         return LexiconDNSWriteProvider(normalized)
     raise DNSProviderWriteError(f"Unsupported DNS provider: {provider_id}")

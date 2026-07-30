@@ -165,10 +165,16 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 | Provider | Zone import | Configuration |
 |----------|-------------|---------------|
 | Cloudflare | Ready | OAuth client with `zone.read`/`dns.read` for import, `radar.read` for Radar enrichment, and `dns.write` only for full repair; or `CLOUDFLARE_API_TOKEN` with matching permissions |
-| Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
-| Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
+| Amazon Route 53 | Ready, approved writes | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID`; add `ListResourceRecordSets` and narrowly scoped `ChangeResourceRecordSets` only for repair |
+| Hetzner DNS | Ready, approved writes | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN`; write scope is only used after preview and final confirmation |
+| OVHcloud | Read-only | `OVH_APPLICATION_KEY`, `OVH_APPLICATION_SECRET`, and `OVH_CONSUMER_KEY` limited to zone list/export GET operations |
 | Linode DNS | Ready | `LINODE_API_TOKEN` or `LINODE_TOKEN` with Domains read-only access |
 | Akamai Edge DNS/FastDNS | Ready | EdgeGrid DNS credentials via `.edgerc` or `AKAMAI_*` variables, separate from Akamai EAA login |
+
+Without provider credentials, **Settings -> Domains and DNS** accepts a BIND
+zone export for a 24-hour to 7-day comparison baseline. The import is parsed
+locally, stores no provider secret, can be removed, and is never substituted
+for public resolver evidence or included in a health score.
 
 Cloudflare OAuth clients must explicitly allow every scope DMARQ can request.
 Configure the Cloudflare OAuth application with the profile you want operators

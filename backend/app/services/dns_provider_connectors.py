@@ -63,10 +63,10 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         tier=1,
         auth_models=["iam_role_external_id", "aws_profile", "environment_credentials"],
         zone_import_status="ready",
-        record_read_status="planned",
-        record_write_status="lexicon_available",
+        record_read_status="ready",
+        record_write_status="ready",
         dry_run_supported=True,
-        verification_supported=False,
+        verification_supported=True,
         rollback_supported=True,
         minimum_permissions=[
             "route53:ListHostedZones",
@@ -107,10 +107,10 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         tier=1,
         auth_models=["api_token", "lexicon_environment"],
         zone_import_status="ready",
-        record_read_status="planned",
-        record_write_status="lexicon_available",
+        record_read_status="ready",
+        record_write_status="ready",
         dry_run_supported=True,
-        verification_supported=False,
+        verification_supported=True,
         rollback_supported=True,
         minimum_permissions=[
             "DNS zone read access",
@@ -121,6 +121,24 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
             "keep write credentials separate until you explicitly enable approved repair actions."
         ),
         docs_url="https://docs.hetzner.cloud/reference/cloud#dns",
+    ),
+    DNSProviderConnector(
+        id="ovh",
+        name="OVHcloud",
+        tier=1,
+        auth_models=["application_key_consumer_key"],
+        zone_import_status="ready",
+        record_read_status="ready",
+        record_write_status="planned",
+        dry_run_supported=False,
+        verification_supported=True,
+        rollback_supported=False,
+        minimum_permissions=["GET /domain/zone", "GET /domain/zone/{zoneName}/export"],
+        setup_hint=(
+            "Create an OVHcloud consumer key with read-only zone-list and zone-export access. "
+            "DMARQ does not request OVH write permissions in this connector."
+        ),
+        docs_url="https://api.eu.ovhcloud.com/console/?section=%2Fdomain&branch=v1",
     ),
     DNSProviderConnector(
         id="linode",

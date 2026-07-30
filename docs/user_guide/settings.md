@@ -191,8 +191,8 @@ DNS records, detect missing or malformed DMARC/SPF/DKIM entries, record DNS
 additions, modifications, or removals over time, and apply explicitly approved
 TXT/CNAME remediation plans.
 
-The DNS-zone import workflow is provider-shaped. Cloudflare, Route 53, Hetzner
-DNS, Linode DNS, and Akamai Edge DNS/FastDNS can import zones or domains before
+The DNS-zone import workflow is provider-shaped. Cloudflare, Route 53, Hetzner,
+OVHcloud, Linode DNS, and Akamai Edge DNS/FastDNS can import zones or domains before
 reports arrive. Hetzner import uses a read-only Hetzner Console API token from
 `HETZNER_DNS_API_TOKEN` (or the fallback `HETZNER_API_TOKEN`). Linode import
 uses `LINODE_API_TOKEN` (or `LINODE_TOKEN`). Akamai import uses EdgeGrid
@@ -203,6 +203,12 @@ credentials from `AKAMAI_EDGERC_PATH` plus optional `AKAMAI_EDGERC_SECTION`
 DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change
 is recorded in the workspace audit log.
+
+Route 53 and Hetzner use their native read APIs to show the current record in
+the preview, reject provider drift between preview and confirmation, apply one
+TXT/CNAME create or update, and read the result back. OVHcloud is read-only.
+The adjacent zone-export foldout accepts BIND data as expiring comparison
+evidence and clearly keeps it separate from public DNS and scoring.
 
 ### Mail Service Sender Imports
 

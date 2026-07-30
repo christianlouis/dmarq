@@ -24,6 +24,7 @@ from app.core.database import SessionLocal, get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.dns_cache import DNSCache
+from app.models.dns_zone_baseline import DNSZoneBaseline
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
@@ -84,6 +85,11 @@ from app.services.dns_resolver import (
     extract_dmarc_policy,
     get_default_provider,
 )
+from app.services.dns_zone_baselines import (
+    baseline_payload,
+    preview_zone_baseline,
+    save_zone_baseline,
+)
 from app.services.health_score import build_health_summary, score_domain_health
 from app.services.health_score_snapshots import (
     aggregate_workspace_health_points,
@@ -114,6 +120,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.ovh_dns import get_ovh_dns_credentials
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
@@ -849,6 +856,8 @@ def _provider_credentials_configured(db: Session, provider_id: Optional[str]) ->
                 get_hetzner_dns_credentials().configured
                 or lexicon_provider_environment_configured(normalized)
             )
+        if normalized == "ovh":
+            return get_ovh_dns_credentials().configured
         if normalized == "linode":
             return (
                 get_linode_dns_credentials().configured
@@ -1831,6 +1840,14 @@ class DNSProviderImportResponse(BaseModel):
     existing: List[str]
     skipped: List[str]
     total_discovered: int
+
+
+class DNSZoneBaselineRequest(BaseModel):
+    """BIND-style zone evidence supplied without provider credentials."""
+
+    domain: str = Field(min_length=1, max_length=253)
+    zone_text: str = Field(min_length=1, max_length=1_000_000)
+    ttl_hours: int = Field(default=24, ge=1, le=168)
 
 
 class RequiredDNSRecordResponse(BaseModel):
@@ -5932,6 +5949,101 @@ async def import_dns_provider_domain_zones(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.post("/dns/baseline/preview")
+async def preview_imported_dns_zone_baseline(
+    payload: DNSZoneBaselineRequest,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Parse and compare a zone export without persisting or trusting it as public DNS."""
+    _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await preview_zone_baseline(payload.domain, payload.zone_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/dns/baseline")
+async def import_dns_zone_baseline(
+    payload: DNSZoneBaselineRequest,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Persist expiring local comparison evidence; it never replaces public DNS evidence."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        item = await save_zone_baseline(
+            db,
+            workspace_id=workspace.id,
+            domain=payload.domain,
+            zone_text=payload.zone_text,
+            ttl_hours=payload.ttl_hours,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return baseline_payload(item)
+
+
+@router.get("/dns/baseline")
+def list_dns_zone_baselines(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """List active and historical imported baselines for this workspace."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    rows = (
+        db.query(DNSZoneBaseline)
+        .filter(DNSZoneBaseline.workspace_id == workspace.id)
+        .order_by(DNSZoneBaseline.imported_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {"baselines": [baseline_payload(item) for item in rows]}
+
+
+@router.delete("/dns/baseline/{baseline_id}")
+def remove_dns_zone_baseline(
+    baseline_id: int,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Remove imported comparison evidence without changing provider or public DNS."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    item = (
+        db.query(DNSZoneBaseline)
+        .filter(
+            DNSZoneBaseline.id == baseline_id,
+            DNSZoneBaseline.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DNS baseline not found")
+    item.removed_at = datetime.utcnow()
+    db.commit()
+    return {"removed": True, "id": baseline_id}
 
 
 @router.get("/mail-services/import/providers")

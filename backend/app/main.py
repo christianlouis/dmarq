@@ -17,6 +17,7 @@ import app.models.alert  # noqa: F401 – ensure AlertHistory table is registere
 import app.models.api_token  # noqa: F401 – ensure APIToken table is registered
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
 import app.models.dns_posture_snapshot  # noqa: F401 – ensure DNS posture tables are registered
+import app.models.dns_zone_baseline  # noqa: F401 – ensure imported DNS evidence table is registered
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered
 import app.models.organization  # noqa: F401 – ensure commercial account tables are registered
