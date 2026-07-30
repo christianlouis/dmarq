@@ -380,6 +380,10 @@ def test_operator_legitimate_sender_with_previous_passes_is_prioritized_as_regre
     assert "operator classified" in " ".join(result["confidence_reasons"]).lower()
     assert "known provider" not in " ".join(result["confidence_reasons"]).lower()
     assert result["supporting_signals"][0]["payload"]["source_ip"] == "198.51.100.44"
+    classification_claim = next(
+        claim for claim in result["claims"] if "operator classified" in claim["statement"].lower()
+    )
+    assert classification_claim["claim_level"] == "operator_reported"
 
 
 def test_expected_forwarding_never_recommends_adding_intermediary_to_spf(db_session):
@@ -635,6 +639,46 @@ def test_stale_report_evidence_limits_confidence(db_session):
     assert {signal["freshness"] for signal in result["supporting_signals"]} == {"stale"}
 
 
+def test_selected_stale_source_is_not_masked_by_unrelated_fresh_evidence(db_session):
+    workspace = Workspace(slug="guided-selected-stale", name="Guided selected stale")
+    stale_domain = Domain(name="stale.test", workspace=workspace)
+    fresh_domain = Domain(name="fresh.test", workspace=workspace)
+    db_session.add_all([workspace, stale_domain, fresh_domain])
+    db_session.flush()
+    stale = int(datetime(2026, 7, 10, tzinfo=timezone.utc).timestamp())
+    fresh = int(datetime(2026, 7, 29, tzinfo=timezone.utc).timestamp())
+    db_session.add_all(
+        [
+            _projection(
+                stale_domain.id,
+                ip="203.0.113.26",
+                failed=4,
+                hostname="mta1.mtasv.net",
+                observed_at=stale,
+                first_seen=stale,
+                last_seen=stale,
+            ),
+            _projection(
+                fresh_domain.id,
+                ip="203.0.113.27",
+                passed=100,
+                observed_at=fresh,
+                first_seen=fresh,
+                last_seen=fresh,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "action_required"
+    assert result["domain"] == "stale.test"
+    assert result["freshness"] == "stale"
+    assert result["freshness_at"] == datetime.fromtimestamp(stale, tz=timezone.utc).isoformat()
+    assert {signal["freshness"] for signal in result["supporting_signals"]} == {"stale"}
+
+
 def test_assessment_id_identifies_the_exact_evidence_window(db_session):
     workspace = Workspace(slug="guided-assessment-id", name="Guided assessment ID")
     domain = Domain(name="example.test", workspace=workspace)
@@ -658,3 +702,24 @@ def test_assessment_id_identifies_the_exact_evidence_window(db_session):
 
     assert first["assessment_id"] == repeated["assessment_id"]
     assert first["assessment_id"] != shifted["assessment_id"]
+
+
+def test_assessment_id_changes_when_existing_projection_evidence_changes(db_session):
+    workspace = Workspace(slug="guided-assessment-revision", name="Guided revision")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    projection = _projection(domain.id, ip="203.0.113.26", passed=12)
+    db_session.add(projection)
+    db_session.commit()
+
+    first = _assessment(db_session, workspace)
+    projection.dmarc_pass_count = 13
+    projection.message_count = 13
+    db_session.commit()
+    revised = _assessment(db_session, workspace)
+
+    assert (
+        first["supporting_signals"][0]["signal_id"] == revised["supporting_signals"][0]["signal_id"]
+    )
+    assert first["assessment_id"] != revised["assessment_id"]

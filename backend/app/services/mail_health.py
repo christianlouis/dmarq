@@ -163,6 +163,14 @@ def _assessment(
         {"claim_level": "unknown", "statement": statement} for statement in unknowns or []
     ]
     resolved_conclusion_key = conclusion_key or f"mail_health.{outcome}"
+    evidence_digest = hashlib.sha256(
+        json.dumps(
+            supporting_signals or [],
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
     assessment_scope = json.dumps(
         {
             "workspace_id": workspace_id,
@@ -176,6 +184,7 @@ def _assessment(
                 for signal in supporting_signals or []
                 if signal.get("signal_id")
             ),
+            "evidence_digest": evidence_digest,
             "algorithm_version": ASSESSMENT_ALGORITHM_VERSION,
         },
         sort_keys=True,
@@ -545,6 +554,14 @@ def _contextual_assessment(
     **values: Any,
 ) -> Dict[str, Any]:
     """Apply shared scope and freshness rules to one deterministic conclusion."""
+    selected_signals = values.get("supporting_signals") or []
+    selected_evidence_at = max(
+        (_count(signal.get("window_end")) for signal in selected_signals),
+        default=0,
+    )
+    if selected_evidence_at:
+        freshness_at = selected_evidence_at
+        freshness = "stale" if end_ts - selected_evidence_at > 7 * 86_400 else "current"
     if freshness == "stale":
         values["confidence"] = {"High": "Medium", "Medium": "Low"}.get(
             str(values.get("confidence") or ""), values.get("confidence")
@@ -692,14 +709,18 @@ def build_workspace_mail_health_assessment(
         end_ts=end_ts,
     )
     newest_evidence_at = max(
-        (_count(source.get("window_end")) for source in sources.values()),
-        default=0,
+        (_count(source.get("window_end")) for source in sources.values()), default=0
     )
     freshness = (
         "stale" if newest_evidence_at and end_ts - newest_evidence_at > 7 * 86_400 else "current"
     )
     for source in sources.values():
-        source["freshness"] = freshness
+        source_evidence_at = _count(source.get("window_end"))
+        source["freshness"] = (
+            "stale"
+            if source_evidence_at and end_ts - source_evidence_at > 7 * 86_400
+            else "current"
+        )
     window_seconds = max(1, end_ts - start_ts)
     previous_sources = _previous_pass_counts(
         db,
@@ -796,7 +817,8 @@ def build_workspace_mail_health_assessment(
                 *([regression_fact] if regression_fact else []),
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
-            derived_facts=[sender_match_fact],
+            derived_facts=[] if operator_legitimate else [sender_match_fact],
+            operator_reported_facts=[sender_match_fact] if operator_legitimate else [],
             inferences=["This sender may affect mail you intend to send."],
             unknowns=["Whether each affected message was delivered, bounced, or read."],
             verification_condition="Fresh reports show the sender authenticating without DMARC failures.",
