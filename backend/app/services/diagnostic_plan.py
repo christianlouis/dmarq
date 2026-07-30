@@ -340,7 +340,7 @@ def _select_current_action(
         current = _action(locale, "add_domain", action_id="add_domain", href="/domains")
         return current, "setup_required", "/domains"
     domain_href = f"/domains/{quote(domain, safe='')}"
-    if goal == "investigate_bounces" and context.get("bounce_available"):
+    if goal in {"investigate_bounces", "troubleshoot_delivery"} and context.get("bounce_available"):
         current = _action(
             locale,
             "bounce",

@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.api.api_v1.endpoints.workspaces import (
+    _selected_diagnostic_domain,
+    _stored_report_evidence,
+)
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -18,6 +22,69 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services.mail_health_incidents import record_mail_health_assessment
 from app.services.workspace_access import ROLE_ANALYST
+
+
+def test_requested_unmonitored_diagnostic_domain_does_not_fall_back_to_another_domain():
+    known = SimpleNamespace(name="known.example")
+
+    selected = _selected_diagnostic_domain(
+        [known], {"mail_context": {"domains": ["requested.example"]}}
+    )
+
+    assert selected is None
+
+
+def test_diagnostic_failures_use_the_latest_report_not_lifetime_history(db_session):
+    workspace = Workspace(slug="fresh-diagnostic", name="Fresh diagnostic")
+    domain = Domain(name="fresh.example", workspace=workspace)
+    old_report = DMARCReport(
+        domain=domain,
+        report_id="old-failure",
+        org_name="Receiver",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_400,
+    )
+    fresh_report = DMARCReport(
+        domain=domain,
+        report_id="fresh-pass",
+        org_name="Receiver",
+        begin_date=1_700_086_401,
+        end_date=1_700_172_800,
+    )
+    db_session.add_all(
+        [
+            workspace,
+            domain,
+            old_report,
+            fresh_report,
+            ReportRecord(
+                report=old_report,
+                source_ip="192.0.2.10",
+                count=4,
+                disposition="none",
+                dkim="fail",
+                spf="fail",
+                header_from=domain.name,
+            ),
+            ReportRecord(
+                report=fresh_report,
+                source_ip="192.0.2.11",
+                count=4,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                header_from=domain.name,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    report_count, message_count, failed_message_count, latest_report_id = _stored_report_evidence(
+        db_session, domain
+    )
+
+    assert (report_count, message_count, failed_message_count) == (2, 8, 0)
+    assert latest_report_id == fresh_report.id
 
 
 @contextmanager

@@ -124,6 +124,15 @@ def test_no_domain_starts_with_a_non_mutating_domain_action():
     assert "does not change DNS" in plan["current_action"]["why"]
 
 
+def test_delivery_problem_uses_bounce_evidence_when_the_interview_has_it():
+    plan = build_diagnostic_plan(
+        _profile("troubleshoot_delivery", bounce_available=True),
+        DiagnosticEvidence(domain_names=("bounce.example",), selected_domain="bounce.example"),
+    )
+
+    assert plan["current_action"]["id"] == "review_bounce_evidence"
+
+
 def test_low_volume_waiting_is_explained_without_claiming_intake_is_broken():
     plan = build_diagnostic_plan(
         _profile("continuous_monitoring", low_volume=True),

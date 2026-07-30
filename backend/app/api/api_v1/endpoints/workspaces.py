@@ -288,10 +288,10 @@ def _validated_mail_context(value: Dict[str, Any]) -> Dict[str, Any]:
 def _selected_diagnostic_domain(domains: List[Domain], profile: Dict[str, Any]) -> Optional[Domain]:
     requested = profile.get("mail_context", {}).get("domains", [])
     domains_by_name = {domain.name: domain for domain in domains}
-    return next(
-        (domains_by_name[name] for name in requested if name in domains_by_name),
-        domains[0] if domains else None,
-    )
+    if requested:
+        # Never combine a requested but unmonitored domain with another domain's evidence.
+        return next((domains_by_name[name] for name in requested if name in domains_by_name), None)
+    return domains[0] if domains else None
 
 
 def _destination_count(value: object) -> int:
@@ -354,6 +354,12 @@ def _stored_report_evidence(
 ) -> tuple[int, int, int, Optional[int]]:
     if selected is None:
         return 0, 0, 0, None
+    latest = (
+        db.query(DMARCReport.id)
+        .filter(DMARCReport.domain_id == selected.id)
+        .order_by(DMARCReport.end_date.desc(), DMARCReport.id.desc())
+        .first()
+    )
     total_messages = func.coalesce(func.sum(ReportRecord.count), 0)
     passed_messages = func.coalesce(
         func.sum(
@@ -374,18 +380,20 @@ def _stored_report_evidence(
         .filter(DMARCReport.domain_id == selected.id)
         .one()
     )
-    message_count = int(aggregate[1] or 0)
-    failed_message_count = max(0, message_count - int(aggregate[2] or 0))
-    latest = (
-        db.query(DMARCReport.id)
-        .filter(DMARCReport.domain_id == selected.id)
-        .order_by(DMARCReport.end_date.desc(), DMARCReport.id.desc())
-        .first()
-    )
+    latest_failure_count = 0
+    if latest:
+        latest_messages, latest_passed = (
+            db.query(total_messages, passed_messages)
+            .select_from(DMARCReport)
+            .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.id == latest[0])
+            .one()
+        )
+        latest_failure_count = max(0, int(latest_messages or 0) - int(latest_passed or 0))
     return (
         int(aggregate[0] or 0),
-        message_count,
-        failed_message_count,
+        int(aggregate[1] or 0),
+        latest_failure_count,
         int(latest[0]) if latest else None,
     )
 

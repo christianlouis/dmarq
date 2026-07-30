@@ -545,19 +545,7 @@ function workspaceOnboarding(options = {}) {
             this.goalError = '';
             this.goalSaved = false;
             try {
-                const preferenceResponse = await fetch('/api/v1/workspaces/guidance/preferences', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        depth: this.guidanceDepth,
-                        context: 'watch',
-                        teaching_hints_enabled: this.guidanceDepth === 'guided',
-                    }),
-                });
-                const preference = await preferenceResponse.json().catch(() => ({}));
-                if (!preferenceResponse.ok) {
-                    throw new Error(preference.detail || 'Your explanation preference could not be saved.');
-                }
+                const preference = await this.savePersonalGuidancePreference();
                 const previousGoals = [...this.installationGoals];
                 const preserveSpecialistGoal = this.selectedGoal === goal && previousGoals.length > 0;
                 this.selectedGoal = goal;
@@ -576,6 +564,22 @@ function workspaceOnboarding(options = {}) {
             } finally {
                 this.savingGoal = false;
             }
+        },
+        async savePersonalGuidancePreference() {
+            const preferenceResponse = await fetch('/api/v1/workspaces/guidance/preferences', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    depth: this.guidanceDepth,
+                    context: 'watch',
+                    teaching_hints_enabled: this.guidanceDepth === 'guided',
+                }),
+            });
+            const preference = await preferenceResponse.json().catch(() => ({}));
+            if (!preferenceResponse.ok) {
+                throw new Error(preference.detail || 'Your explanation preference could not be saved.');
+            }
+            return preference;
         },
         async continueGoalInterview() {
             if (!this.selectedGoal) return;
@@ -656,6 +660,8 @@ function workspaceOnboarding(options = {}) {
             this.goalError = '';
             try {
                 this.interviewStep = 4;
+                const preference = await this.savePersonalGuidancePreference();
+                this.guidanceDepth = preference.depth || this.guidanceDepth;
                 await this.saveWorkspaceGuidanceProfile(true, true);
                 this.editingGuidance = false;
                 this.goalSaved = true;
