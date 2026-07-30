@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import DomainSourceDailyProjection
 from app.models.workspace import Workspace
+from app.services.mail_signals import (
+    MAIL_SIGNAL_SCHEMA_VERSION,
+    build_dmarc_source_signals,
+    build_intake_window_signal,
+)
 from app.services.sender_intelligence import identify_sender
 
 
@@ -50,7 +55,9 @@ def _hostname(evidence: Dict[str, Any]) -> str | None:
     return None
 
 
-def _merge_source_rows(rows: Iterable[tuple[Domain, DomainSourceDailyProjection]]) -> Dict[str, Any]:
+def _merge_source_rows(
+    rows: Iterable[tuple[Domain, DomainSourceDailyProjection]],
+) -> Dict[str, Any]:
     sources: Dict[tuple[str, str], Dict[str, Any]] = {}
     for domain, row in rows:
         key = (domain.name, str(row.source_ip))
@@ -59,15 +66,57 @@ def _merge_source_rows(rows: Iterable[tuple[Domain, DomainSourceDailyProjection]
             {
                 "domain": domain.name,
                 "source_ip": str(row.source_ip),
+                "spf_pass_count": 0,
+                "spf_fail_count": 0,
+                "dkim_pass_count": 0,
+                "dkim_fail_count": 0,
                 "dmarc_pass_count": 0,
                 "dmarc_fail_count": 0,
                 "disposition_counts": defaultdict(int),
                 "source_evidence": {},
                 "captured_at": "",
+                "workspace_id": domain.workspace_id,
+                "window_start": None,
+                "window_end": None,
+                "evidence_refs": [],
+                "report_generators": [],
+                "header_from_domains": [],
+                "envelope_from_domains": [],
+                "spf_domains": [],
+                "dkim_domains": [],
+                "dkim_selectors": [],
             },
         )
+        source["spf_pass_count"] += _count(row.spf_pass_count)
+        source["spf_fail_count"] += _count(row.spf_fail_count)
+        source["dkim_pass_count"] += _count(row.dkim_pass_count)
+        source["dkim_fail_count"] += _count(row.dkim_fail_count)
         source["dmarc_pass_count"] += _count(row.dmarc_pass_count)
         source["dmarc_fail_count"] += _count(row.dmarc_fail_count)
+        source["window_start"] = (
+            row.first_seen or row.observed_at
+            if source["window_start"] is None
+            else min(source["window_start"], row.first_seen or row.observed_at)
+        )
+        source["window_end"] = (
+            row.last_seen or row.observed_at
+            if source["window_end"] is None
+            else max(source["window_end"], row.last_seen or row.observed_at)
+        )
+        source["evidence_refs"].append(f"domain_source_daily_projection:{row.id}")
+        metadata = _as_dict(row.metadata_json)
+        for field in (
+            "report_generators",
+            "header_from_domains",
+            "envelope_from_domains",
+            "spf_domains",
+            "dkim_domains",
+            "dkim_selectors",
+        ):
+            for value in metadata.get(field) or []:
+                normalized = str(value).strip()
+                if normalized and normalized not in source[field]:
+                    source[field].append(normalized)
         for disposition, count in _as_dict(row.disposition_counts).items():
             source["disposition_counts"][str(disposition).lower()] += _count(count)
         evidence = _as_dict(row.source_evidence)
@@ -76,6 +125,15 @@ def _merge_source_rows(rows: Iterable[tuple[Domain, DomainSourceDailyProjection]
             source["source_evidence"] = evidence
             source["captured_at"] = captured_at
     return sources
+
+
+def _source_signals(source: Dict[str, Any]) -> list[Dict[str, Any]]:
+    return build_dmarc_source_signals(
+        source,
+        workspace_id=source.get("workspace_id"),
+        domain=str(source.get("domain") or ""),
+        evidence_refs=source.get("evidence_refs") or (),
+    )
 
 
 def _assessment(
@@ -97,7 +155,28 @@ def _assessment(
     verification_condition: str = "Review fresh report evidence before changing mail or DNS settings.",
     no_action_reason: str | None = None,
     watch_condition: str | None = None,
+    supporting_signals: list[Dict[str, Any]] | None = None,
+    conclusion_claim_level: str = "inferred",
+    delivery_certainty: str = "inferred_only",
+    derived_facts: list[str] | None = None,
 ) -> Dict[str, Any]:
+    derived_fact_set = set(derived_facts or [])
+    observed_claims = [
+        {"claim_level": "observed", "statement": statement}
+        for statement in known_facts or []
+        if statement not in derived_fact_set
+    ]
+    derived_claims = [
+        {"claim_level": "derived", "statement": statement}
+        for statement in known_facts or []
+        if statement in derived_fact_set
+    ]
+    inferred_claims = [
+        {"claim_level": "inferred", "statement": statement} for statement in inferences or []
+    ]
+    unknown_claims = [
+        {"claim_level": "unknown", "statement": statement} for statement in unknowns or []
+    ]
     return {
         "outcome": outcome,
         "title": title,
@@ -123,6 +202,11 @@ def _assessment(
         "no_action_reason": no_action_reason,
         "watch_condition": watch_condition,
         "claim_type": "aggregate_dmarc_authentication",
+        "claim_level": conclusion_claim_level,
+        "delivery_certainty": delivery_certainty,
+        "signal_schema_version": MAIL_SIGNAL_SCHEMA_VERSION,
+        "supporting_signals": supporting_signals or [],
+        "claims": observed_claims + derived_claims + inferred_claims + unknown_claims,
     }
 
 
@@ -152,6 +236,7 @@ def build_workspace_mail_health_assessment(
     )
     sources = _merge_source_rows(rows)
     if not sources:
+        no_evidence_fact = "No projected sender facts were found for the selected date window."
         return _assessment(
             outcome="insufficient_evidence",
             title="Waiting for DMARC report data",
@@ -166,11 +251,22 @@ def build_workspace_mail_health_assessment(
             evidence_scope="No report-backed authentication evidence is available yet.",
             intended_mail_impact="unknown",
             urgency="monitor",
-            known_facts=["No projected sender facts were found for the selected date window."],
+            known_facts=[no_evidence_fact],
+            derived_facts=[no_evidence_fact],
             inferences=["DMARQ cannot assess mail authentication health yet."],
             unknowns=["How receivers evaluate mail from this domain."],
             verification_condition="Ingest an aggregate DMARC report for this domain.",
             watch_condition="DMARQ will reassess when a report is imported.",
+            supporting_signals=[
+                build_intake_window_signal(
+                    workspace_id=workspace.id,
+                    window_start=start_ts,
+                    window_end=end_ts,
+                    has_evidence=False,
+                )
+            ],
+            conclusion_claim_level="derived",
+            delivery_certainty="not_applicable",
         )
 
     known_failing: list[Dict[str, Any]] = []
@@ -203,6 +299,9 @@ def build_workspace_mail_health_assessment(
         identity = source["identity"]
         passed = _count(source["dmarc_pass_count"])
         changed = " It also passed authentication in this selected period." if passed else ""
+        sender_match_fact = (
+            f"{identity.get('name') or 'A known sender'} matched a known sender profile."
+        )
         return _assessment(
             outcome="action_required",
             title=f"Check {identity.get('name') or 'a known sender'} authentication",
@@ -226,16 +325,21 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="likely_affected",
             urgency="timely",
             known_facts=[
-                f"{identity.get('name') or 'A known sender'} matched a known sender profile.",
+                sender_match_fact,
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
+            derived_facts=[sender_match_fact],
             inferences=["This sender may affect mail you intend to send."],
             unknowns=["Whether each affected message was delivered, bounced, or read."],
             verification_condition="Fresh reports show the sender authenticating without DMARC failures.",
+            supporting_signals=_source_signals(source),
         )
 
     if unknown_protected and not unknown_failing:
         source = max(unknown_protected, key=lambda item: _count(item["dmarc_fail_count"]))
+        unmatched_fact = (
+            "The source did not match a known provider or owned-infrastructure profile."
+        )
         return _assessment(
             outcome="no_action_likely_unauthorized_use",
             title="Likely unauthorized use is being blocked",
@@ -258,18 +362,25 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="likely_not_affected",
             urgency="none",
             known_facts=[
-                "The source did not match a known provider or owned-infrastructure profile.",
+                unmatched_fact,
                 "Receiver reports recorded protective quarantine or reject handling for all observed failures.",
             ],
-            inferences=["This is likely unauthorized use rather than a fault in your known sending setup."],
-            unknowns=["Who operated the unrecognized source and the final outcome of individual messages."],
+            derived_facts=[unmatched_fact],
+            inferences=[
+                "This is likely unauthorized use rather than a fault in your known sending setup."
+            ],
+            unknowns=[
+                "Who operated the unrecognized source and the final outcome of individual messages."
+            ],
             verification_condition="Known senders remain healthy and no new evidence links this source to your mail estate.",
             no_action_reason="Receivers already reported protective handling and no known sender failures were found.",
             watch_condition="DMARQ will surface a new action if the pattern changes or a known sender fails.",
+            supporting_signals=_source_signals(source),
         )
 
     if unknown_failing:
         source = max(unknown_failing, key=lambda item: _count(item["dmarc_fail_count"]))
+        unmatched_fact = "The source did not match a known sender profile."
         return _assessment(
             outcome="investigation_required",
             title="Identify an unrecognized sending source",
@@ -291,16 +402,22 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="unknown",
             urgency="timely",
             known_facts=[
-                "The source did not match a known sender profile.",
+                unmatched_fact,
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
+            derived_facts=[unmatched_fact],
             inferences=["DMARQ cannot yet tell whether this source belongs to your mail estate."],
             unknowns=["Whether the source is an approved sender and its final delivery outcome."],
             verification_condition="Classify the source or collect fresh report evidence that identifies its owner.",
+            supporting_signals=_source_signals(source),
         )
 
     observed_passes = sum(_count(source["dmarc_pass_count"]) for source in sources.values())
     if not observed_passes:
+        source = max(
+            sources.values(),
+            key=lambda item: _count(item["dmarc_pass_count"]) + _count(item["dmarc_fail_count"]),
+        )
         return _assessment(
             outcome="insufficient_evidence",
             title="Waiting for usable DMARC authentication evidence",
@@ -318,13 +435,19 @@ def build_workspace_mail_health_assessment(
             evidence_scope="Sender activity alone is not enough to assess mail authentication health.",
             intended_mail_impact="unknown",
             urgency="monitor",
-            known_facts=["Projected sender records contain no successful or failed DMARC authentication counts."],
+            known_facts=[
+                "Projected sender records contain no successful or failed DMARC authentication counts."
+            ],
             inferences=["Sender activity by itself is not enough to assess mail health."],
             unknowns=["Whether receivers accept or reject mail from these sources."],
             verification_condition="A later report includes successful or failed DMARC authentication results.",
             watch_condition="DMARQ will reassess when usable authentication evidence arrives.",
+            supporting_signals=_source_signals(source),
+            conclusion_claim_level="derived",
+            delivery_certainty="not_applicable",
         )
 
+    source = max(sources.values(), key=lambda item: _count(item["dmarc_pass_count"]))
     return _assessment(
         outcome="healthy",
         title="Known senders are authenticating successfully",
@@ -334,16 +457,21 @@ def build_workspace_mail_health_assessment(
         next_step="Keep report intake running",
         href="/reports",
         confidence="High",
-        reasons=["Projected sender facts contain successful DMARC authentication and no failure counts."],
+        reasons=[
+            "Projected sender facts contain successful DMARC authentication and no failure counts."
+        ],
         evidence_scope=(
             "Aggregate DMARC reports show authentication results, not a guarantee of inbox placement or delivery."
         ),
         intended_mail_impact="likely_not_affected",
         urgency="none",
-        known_facts=["Projected sender facts contain successful DMARC authentication and no reported failures."],
+        known_facts=[
+            "Projected sender facts contain successful DMARC authentication and no reported failures."
+        ],
         inferences=["Known sender activity appears healthy in the selected evidence window."],
         unknowns=["Inbox placement and individual delivery outcomes."],
         verification_condition="Continue receiving aggregate reports without a new authentication failure pattern.",
         no_action_reason="No current authentication failures were found in the selected evidence window.",
         watch_condition="DMARQ will notify when a meaningful sender or authentication change appears.",
+        supporting_signals=_source_signals(source),
     )

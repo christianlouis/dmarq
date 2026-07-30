@@ -16,10 +16,24 @@ def _assessment(outcome="action_required", domain="example.test"):
     return {
         "outcome": outcome,
         "domain": domain,
-        "intended_mail_impact": "likely_affected" if outcome == "action_required" else "likely_not_affected",
+        "intended_mail_impact": (
+            "likely_affected" if outcome == "action_required" else "likely_not_affected"
+        ),
         "urgency": "timely" if outcome == "action_required" else "none",
         "confidence": "High",
         "assessment_version": "v1",
+        "claim_level": "inferred",
+        "delivery_certainty": "inferred_only",
+        "supporting_signals": [
+            {
+                "signal_id": "signal-a",
+                "family": "dmarc_authentication",
+                "signal_type": "aggregate_authentication_result",
+                "outcome": "fail",
+                "claim_level": "observed",
+                "delivery_certainty": "authentication_only",
+            }
+        ],
         "next_action": {"href": f"/domains/{domain}#sending-sources"},
     }
 
@@ -30,15 +44,57 @@ def test_actionable_incident_notifies_only_when_created_or_materially_changed(db
     db_session.commit()
 
     first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
-    repeated = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    repeated = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
     changed_assessment = _assessment()
     changed_assessment["urgency"] = "urgent"
-    changed = record_mail_health_assessment(db_session, workspace=workspace, assessment=changed_assessment)
+    changed = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=changed_assessment
+    )
 
     assert first["notification_reason"] == "created"
     assert repeated["notification_reason"] is None
     assert changed["notification_reason"] == "material_change"
     assert db_session.query(MailHealthIncident).count() == 1
+
+
+def test_changed_evidence_certainty_is_a_material_notification_change(db_session):
+    workspace = Workspace(slug="calm-evidence-change", name="Calm evidence change")
+    db_session.add(workspace)
+    db_session.commit()
+
+    first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    changed_assessment = _assessment()
+    changed_assessment["delivery_certainty"] = "non_delivery_reported"
+    changed_assessment["supporting_signals"] = [{"signal_id": "dsn-signal-b"}]
+    changed = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=changed_assessment,
+    )
+
+    assert first["notification_reason"] == "created"
+    assert changed["notification_reason"] == "material_change"
+    assert changed["incident"]["assessment"]["delivery_certainty"] == "non_delivery_reported"
+
+
+def test_rolling_evidence_row_ids_do_not_trigger_a_material_notification(db_session):
+    workspace = Workspace(slug="calm-evidence-window", name="Calm evidence window")
+    db_session.add(workspace)
+    db_session.commit()
+
+    first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    shifted_window = _assessment()
+    shifted_window["supporting_signals"][0]["signal_id"] = "signal-from-next-window"
+    repeated = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=shifted_window,
+    )
+
+    assert first["notification_reason"] == "created"
+    assert repeated["notification_reason"] is None
 
 
 def test_protected_unknown_use_is_persisted_but_suppressed_by_default(db_session):
@@ -63,8 +119,12 @@ def test_incident_identity_is_workspace_scoped(db_session):
     db_session.add_all([first_workspace, second_workspace])
     db_session.commit()
 
-    first = record_mail_health_assessment(db_session, workspace=first_workspace, assessment=_assessment())
-    second = record_mail_health_assessment(db_session, workspace=second_workspace, assessment=_assessment())
+    first = record_mail_health_assessment(
+        db_session, workspace=first_workspace, assessment=_assessment()
+    )
+    second = record_mail_health_assessment(
+        db_session, workspace=second_workspace, assessment=_assessment()
+    )
 
     assert first["incident"]["incident_key"] != second["incident"]["incident_key"]
     assert db_session.query(MailHealthIncident).count() == 2
@@ -74,7 +134,9 @@ def test_acknowledge_and_snooze_do_not_mark_an_incident_resolved(db_session):
     workspace = Workspace(slug="calm-operator", name="Calm Operator")
     db_session.add(workspace)
     db_session.commit()
-    result = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    result = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
     incident_id = result["incident"]["id"]
 
     acknowledged = update_incident_operator_state(
@@ -155,7 +217,9 @@ def test_invalid_operator_action_and_malformed_assessment_are_safe(db_session):
     workspace = Workspace(slug="calm-invalid", name="Calm Invalid")
     db_session.add(workspace)
     db_session.commit()
-    created = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    created = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
     row = db_session.query(MailHealthIncident).one()
     row.assessment = "not-json"
     db_session.commit()
@@ -178,13 +242,19 @@ def test_invalid_operator_action_and_malformed_assessment_are_safe(db_session):
 
 
 def test_disabled_and_active_snooze_suppress_notification_but_keep_incidents(db_session):
-    disabled = Workspace(slug="calm-disabled", name="Calm Disabled", notification_posture="disabled")
+    disabled = Workspace(
+        slug="calm-disabled", name="Calm Disabled", notification_posture="disabled"
+    )
     snoozed_workspace = Workspace(slug="calm-snoozed", name="Calm Snoozed")
     db_session.add_all([disabled, snoozed_workspace])
     db_session.commit()
 
-    disabled_result = record_mail_health_assessment(db_session, workspace=disabled, assessment=_assessment())
-    created = record_mail_health_assessment(db_session, workspace=snoozed_workspace, assessment=_assessment())
+    disabled_result = record_mail_health_assessment(
+        db_session, workspace=disabled, assessment=_assessment()
+    )
+    created = record_mail_health_assessment(
+        db_session, workspace=snoozed_workspace, assessment=_assessment()
+    )
     update_incident_operator_state(
         db_session,
         workspace=snoozed_workspace,
@@ -196,7 +266,9 @@ def test_disabled_and_active_snooze_suppress_notification_but_keep_incidents(db_
     )
     changed = _assessment()
     changed["urgency"] = "urgent"
-    snoozed_result = record_mail_health_assessment(db_session, workspace=snoozed_workspace, assessment=changed)
+    snoozed_result = record_mail_health_assessment(
+        db_session, workspace=snoozed_workspace, assessment=changed
+    )
 
     assert disabled_result["notification_reason"] is None
     assert snoozed_result["notification_reason"] is None
@@ -208,12 +280,21 @@ def test_operator_state_rejects_missing_incident_and_snooze_timestamp(db_session
     other_workspace = Workspace(slug="calm-missing-other", name="Calm Missing Other")
     db_session.add_all([workspace, other_workspace])
     db_session.commit()
-    foreign = record_mail_health_assessment(db_session, workspace=other_workspace, assessment=_assessment(domain="other.test"))
+    foreign = record_mail_health_assessment(
+        db_session, workspace=other_workspace, assessment=_assessment(domain="other.test")
+    )
 
     for kwargs, message in (
         ({"incident_id": 9999, "action": "acknowledge", "snoozed_until": None}, "not found"),
         ({"incident_id": 9999, "action": "snooze", "snoozed_until": None}, "not found"),
-        ({"incident_id": foreign["incident"]["id"], "action": "acknowledge", "snoozed_until": None}, "not found"),
+        (
+            {
+                "incident_id": foreign["incident"]["id"],
+                "action": "acknowledge",
+                "snoozed_until": None,
+            },
+            "not found",
+        ),
     ):
         try:
             update_incident_operator_state(
@@ -228,7 +309,9 @@ def test_operator_state_rejects_missing_incident_and_snooze_timestamp(db_session
         else:
             raise AssertionError("A cross-workspace incident must not be writable.")
 
-    created = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    created = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
     try:
         update_incident_operator_state(
             db_session,

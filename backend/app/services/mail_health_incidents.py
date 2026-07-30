@@ -47,13 +47,27 @@ def _material_state(assessment: Dict[str, Any]) -> str:
             "intended_mail_impact": assessment.get("intended_mail_impact"),
             "urgency": assessment.get("urgency"),
             "confidence": assessment.get("confidence"),
+            "claim_level": assessment.get("claim_level"),
+            "delivery_certainty": assessment.get("delivery_certainty"),
+            "supporting_signal_semantics": sorted(
+                (
+                    str(signal.get("family") or ""),
+                    str(signal.get("signal_type") or ""),
+                    str(signal.get("outcome") or ""),
+                    str(signal.get("claim_level") or ""),
+                    str(signal.get("delivery_certainty") or ""),
+                )
+                for signal in assessment.get("supporting_signals") or []
+            ),
             "next_action": assessment.get("next_action", {}).get("href"),
             "assessment_version": assessment.get("assessment_version"),
         }
     )
 
 
-def incident_to_dict(row: MailHealthIncident, *, notification_reason: Optional[str] = None) -> Dict[str, Any]:
+def incident_to_dict(
+    row: MailHealthIncident, *, notification_reason: Optional[str] = None
+) -> Dict[str, Any]:
     try:
         assessment = json.loads(row.assessment)
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -71,7 +85,9 @@ def incident_to_dict(row: MailHealthIncident, *, notification_reason: Optional[s
         "assessment": assessment,
         "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
-        "last_material_change_at": row.last_material_change_at.isoformat() if row.last_material_change_at else None,
+        "last_material_change_at": (
+            row.last_material_change_at.isoformat() if row.last_material_change_at else None
+        ),
         "last_notified_at": row.last_notified_at.isoformat() if row.last_notified_at else None,
         "last_notification_reason": row.last_notification_reason,
         "snoozed_until": row.snoozed_until.isoformat() if row.snoozed_until else None,
@@ -240,7 +256,11 @@ def record_mail_health_assessment(
             evidence="A fresh report-backed assessment no longer found this actionable state.",
         )
         db.commit()
-        return {"incident": None, "notification_reason": None, "resolved": [incident_to_dict(row) for row in resolved]}
+        return {
+            "incident": None,
+            "notification_reason": None,
+            "resolved": [incident_to_dict(row) for row in resolved],
+        }
 
     key = _incident_key(workspace, assessment)
     state_hash = _material_state(assessment)
@@ -270,17 +290,28 @@ def record_mail_health_assessment(
 
     db.flush()
     reason = _should_notify(
-        workspace, assessment, is_new=is_new, materially_changed=materially_changed, now=now, row=row
+        workspace,
+        assessment,
+        is_new=is_new,
+        materially_changed=materially_changed,
+        now=now,
+        row=row,
     )
     if reason:
         row.last_notified_at = now
         row.last_notification_reason = reason
     db.commit()
     db.refresh(row)
-    return {"incident": incident_to_dict(row, notification_reason=reason), "notification_reason": reason, "resolved": []}
+    return {
+        "incident": incident_to_dict(row, notification_reason=reason),
+        "notification_reason": reason,
+        "resolved": [],
+    }
 
 
-def list_mail_health_incidents(db: Session, *, workspace: Workspace, limit: int = 50) -> List[Dict[str, Any]]:
+def list_mail_health_incidents(
+    db: Session, *, workspace: Workspace, limit: int = 50
+) -> List[Dict[str, Any]]:
     rows = (
         db.query(MailHealthIncident)
         .filter(MailHealthIncident.workspace_id == workspace.id)
@@ -303,7 +334,9 @@ def update_incident_operator_state(
 ) -> Dict[str, Any]:
     row = (
         db.query(MailHealthIncident)
-        .filter(MailHealthIncident.id == incident_id, MailHealthIncident.workspace_id == workspace.id)
+        .filter(
+            MailHealthIncident.id == incident_id, MailHealthIncident.workspace_id == workspace.id
+        )
         .one_or_none()
     )
     if row is None:
@@ -325,7 +358,10 @@ def update_incident_operator_state(
         entity_type="mail_health_incident",
         entity_id=row.id,
         entity_name=row.domain,
-        details={"status": row.status, "snoozed_until": row.snoozed_until.isoformat() if row.snoozed_until else None},
+        details={
+            "status": row.status,
+            "snoozed_until": row.snoozed_until.isoformat() if row.snoozed_until else None,
+        },
         auth_context=auth_context,
     )
     db.commit()

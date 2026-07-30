@@ -11,7 +11,7 @@ import secrets
 from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, Response
@@ -106,6 +106,7 @@ from app.services.mail_service_imports import (
     preview_mail_service_import,
     supported_mail_service_import_providers,
 )
+from app.services.mail_signals import build_dmarc_source_signals
 from app.services.mailflow_assessment import build_domain_mailflow_assessment
 from app.services.migration_import import preview_migration_import
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
@@ -2042,6 +2043,18 @@ class SourceVolumeHistoryEntry(BaseModel):
     failed: int = 0
 
 
+ClaimLevel = Literal["observed", "derived", "inferred", "operator_reported", "unknown"]
+DeliveryCertainty = Literal[
+    "not_applicable",
+    "authentication_only",
+    "receiver_disposition_reported",
+    "transport_failure_reported",
+    "non_delivery_reported",
+    "delivery_reported",
+    "inferred_only",
+]
+
+
 class MailflowIdentity(BaseModel):
     """Report-backed authentication identity for one sending path."""
 
@@ -2063,6 +2076,9 @@ class MailflowIdentity(BaseModel):
     receiver_disposition: str = "none"
     intended_mail_impact: str = "unknown"
     evidence_level: str = "observed"
+    claim_level: ClaimLevel = "observed"
+    delivery_certainty: DeliveryCertainty = "authentication_only"
+    signals: List[Dict[str, Any]] = Field(default_factory=list)
     provider_evidence_status: str = "not_connected"
     next_step: str
     verification_condition: str
@@ -2112,8 +2128,8 @@ class SourceEntry(BaseModel):
     dmarc_fail_count: int = 0
     disposition_counts: Dict[str, int] = Field(default_factory=dict)
     delivery_status: str = "unknown"
-    delivery_label: str = "Delivery status unknown"
-    delivery_detail: str = "No DMARC delivery outcome is available for this source."
+    delivery_label: str = "Authentication result unknown"
+    delivery_detail: str = "No aggregate DMARC authentication observation is available."
     # Deprecated compatibility aliases. DMARC aggregate reports do not prove
     # individual delivery; use the explicit observation fields below instead.
     authentication_status: str = "unknown"
@@ -2124,8 +2140,9 @@ class SourceEntry(BaseModel):
     receiver_disposition: str = "unknown"
     receiver_disposition_label: str = "Receiver-reported disposition unavailable"
     evidence_kind: str = "dmarc_aggregate_report"
-    claim_level: str = "observed"
-    delivery_certainty: str = "unknown"
+    claim_level: ClaimLevel = "observed"
+    delivery_certainty: DeliveryCertainty = "authentication_only"
+    signals: List[Dict[str, Any]] = Field(default_factory=list)
     hostname: Optional[str] = None
     ptr_status: Optional[str] = None
     ptr_detail: Optional[str] = None
@@ -9021,6 +9038,7 @@ async def get_domain_sources(
         domain_name,
         sources,
         sender_by_ip,
+        workspace_id=workspace.id,
     )
     mailflow_by_ip = {
         str(flow.get("source_ip") or "unknown"): flow
@@ -9054,6 +9072,20 @@ async def get_domain_sources(
         reputation = reputations_by_ip.get(ip)
         delivery = _source_delivery_status(source)
         authentication = _source_authentication_observation(source)
+        signals = build_dmarc_source_signals(
+            source,
+            workspace_id=workspace.id,
+            domain=domain_name,
+            evidence_refs=source.get("evidence_refs") or (),
+        )
+        delivery_certainty = (
+            "receiver_disposition_reported"
+            if any(
+                signal["family"] == "dmarc_reported_disposition" and signal["outcome"] != "unknown"
+                for signal in signals
+            )
+            else "authentication_only"
+        )
         recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
         recommendations.extend(_anomaly_recommendations(source_anomalies))
         recommendations.extend(_reputation_recommendations(reputation))
@@ -9088,12 +9120,15 @@ async def get_domain_sources(
                 receiver_disposition_label=authentication["disposition_label"],
                 evidence_kind="dmarc_aggregate_report",
                 claim_level="observed",
-                delivery_certainty="unknown",
+                delivery_certainty=delivery_certainty,
+                signals=signals,
                 hostname=hostname,
                 ptr_status=(ptr_by_ip.get(ip).status if ptr_by_ip.get(ip) else None),
                 ptr_detail=(ptr_by_ip.get(ip).detail if ptr_by_ip.get(ip) else None),
                 evidence_captured_at=str(
-                    (source.get("source_evidence") or {}).get("captured_at") or ""
+                    (source.get("source_evidence") or {}).get("captured_at")
+                    or source.get("captured_at")
+                    or ""
                 )
                 or None,
                 sender=SenderIdentity(**sender),

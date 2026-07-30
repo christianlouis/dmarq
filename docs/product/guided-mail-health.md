@@ -80,6 +80,13 @@ Guidance intentionally describes aggregate DMARC reports as authentication and
 receiver-policy evidence. It does not present them as proof of an individual
 bounce, inbox placement, or read event.
 
+Assessments and source rows expose these boundaries through the versioned
+[`dmarq.mail_signal.v1` contract](../reference/mail-signal-contract.md).
+Observed authentication, receiver-reported disposition, DMARQ inference, and
+unknown delivery outcome remain separate facts. Later DSN or provider-event
+adapters can add stronger delivery evidence without reinterpreting historical
+aggregate reports.
+
 ## Intake choices
 
 The setup assistant returns a versioned

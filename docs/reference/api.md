@@ -1077,12 +1077,17 @@ inbox. Source responses therefore include additive fields:
   receiver-reported DMARC action;
 - `evidence_kind` is currently `dmarc_aggregate_report`;
 - `claim_level` is `observed` for these protocol facts; and
-- `delivery_certainty` remains `unknown` until DMARQ has actual delivery
-  evidence such as a DSN or a signed provider delivery event.
+- `delivery_certainty` is `authentication_only` when only authentication is
+  observed, or `receiver_disposition_reported` when the receiver also recorded
+  a DMARC action. Neither value claims individual delivery.
+- `signals` contains separate versioned authentication and receiver-disposition
+  envelopes with stable evidence references.
 
 The older `delivery_status`, `delivery_label`, and `delivery_detail` fields are
 retained for compatibility but are deprecated. New integrations should use the
-explicit authentication and receiver-disposition fields.
+explicit authentication and receiver-disposition fields. See the
+[Mail signal contract](mail-signal-contract.md) for claim levels, delivery
+certainty, privacy boundaries, and future DSN/provider-event adapters.
 
 #### Get Source Reputation
 

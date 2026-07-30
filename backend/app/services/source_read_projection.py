@@ -74,6 +74,7 @@ def _record_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
         "spf_domains": [],
         "dkim_domains": [],
         "dkim_selectors": [],
+        "report_generators": [],
         "extensions": {},
     }
     _add_unique(metadata["header_from_domains"], record.get("header_from"))
@@ -98,6 +99,7 @@ def _merge_metadata(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[s
         "spf_domains": list(current.get("spf_domains") or []),
         "dkim_domains": list(current.get("dkim_domains") or []),
         "dkim_selectors": list(current.get("dkim_selectors") or []),
+        "report_generators": list(current.get("report_generators") or []),
         "extensions": dict(current.get("extensions") or {}),
     }
     for key in (
@@ -106,6 +108,7 @@ def _merge_metadata(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[s
         "spf_domains",
         "dkim_domains",
         "dkim_selectors",
+        "report_generators",
     ):
         for value in incoming.get(key) or []:
             _add_unique(merged[key], value)
@@ -114,7 +117,9 @@ def _merge_metadata(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[s
     return merged
 
 
-def _projection_records(records: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _projection_records(
+    records: Iterable[Dict[str, Any]], *, report_generator: str | None = None
+) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, Dict[str, Any]] = {}
     for record in records:
         ip = str(record.get("source_ip") or "unknown")
@@ -137,6 +142,7 @@ def _projection_records(records: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str
             },
         )
         count = _int(record.get("count"))
+        _add_unique(item["metadata"]["report_generators"], report_generator)
         item["message_count"] += count
         spf = str(record.get("spf_result") or record.get("spf") or "unknown").lower()
         dkim = str(record.get("dkim_result") or record.get("dkim") or "unknown").lower()
@@ -174,7 +180,10 @@ def materialize_source_projection(
     # report before looking up the next daily aggregate.
     db.flush()
     first_seen, last_seen, observed_at = _observation_window(report)
-    for source_ip, values in _projection_records(report.get("records") or []).items():
+    for source_ip, values in _projection_records(
+        report.get("records") or [],
+        report_generator=str(report.get("org_name") or report.get("email") or "") or None,
+    ).items():
         projection = (
             db.query(DomainSourceDailyProjection)
             .filter(
@@ -255,6 +264,8 @@ def backfill_source_projections(db: Session, *, limit: int = 100) -> int:
         materialize_source_projection(
             db,
             {
+                "org_name": report.org_name,
+                "email": report.source_email,
                 "begin_timestamp": report.begin_date,
                 "end_timestamp": report.end_date,
                 "records": [_persisted_record_payload(record) for record in report.records],
@@ -335,6 +346,9 @@ def load_domain_source_read_projection(
                 "_metadata": _record_metadata({}),
                 "_active_dates": set(),
                 "_captured_at": "",
+                "window_start": None,
+                "window_end": None,
+                "evidence_refs": [],
             },
         )
         source["count"] += _int(row.message_count)
@@ -344,6 +358,17 @@ def load_domain_source_read_projection(
             _int(row.first_seen) or _int(source.get("first_seen")),
         )
         source["last_seen"] = max(_int(source.get("last_seen")), _int(row.last_seen))
+        source["window_start"] = (
+            row.first_seen or row.observed_at
+            if source["window_start"] is None
+            else min(source["window_start"], row.first_seen or row.observed_at)
+        )
+        source["window_end"] = (
+            row.last_seen or row.observed_at
+            if source["window_end"] is None
+            else max(source["window_end"], row.last_seen or row.observed_at)
+        )
+        source["evidence_refs"].append(f"domain_source_daily_projection:{row.id}")
         for field in (
             "spf_pass_count",
             "spf_fail_count",
@@ -356,12 +381,10 @@ def load_domain_source_read_projection(
         ):
             source[field] += _int(getattr(row, field))
         for name, count in _json_dict(row.disposition_counts).items():
-            source["disposition_counts"][name] = _int(source["disposition_counts"].get(name)) + _int(
-                count
-            )
-        source["_metadata"] = _merge_metadata(
-            source["_metadata"], _json_dict(row.metadata_json)
-        )
+            source["disposition_counts"][name] = _int(
+                source["disposition_counts"].get(name)
+            ) + _int(count)
+        source["_metadata"] = _merge_metadata(source["_metadata"], _json_dict(row.metadata_json))
         evidence = _json_dict(row.source_evidence)
         captured_at = str(evidence.get("captured_at") or "")
         if evidence and captured_at >= source["_captured_at"]:
@@ -405,12 +428,10 @@ def load_domain_source_read_projection(
         source["dkim_result"] = _status(
             source["dkim_pass_count"], source["dkim_fail_count"], source["dkim_unknown_count"]
         )
-        source["dmarc_result"] = _status(
-            source["dmarc_pass_count"], source["dmarc_fail_count"]
-        )
+        source["dmarc_result"] = _status(source["dmarc_pass_count"], source["dmarc_fail_count"])
         source["disposition"] = _dominant(source["disposition_counts"])
         source.update(source.pop("_metadata"))
-        source.pop("_captured_at")
+        source["captured_at"] = source.pop("_captured_at") or None
         source_rows.append(source)
 
     report_rows = [

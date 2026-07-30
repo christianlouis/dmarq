@@ -39,6 +39,12 @@ def test_spf_aligned_path_without_dkim_gets_guided_repair():
     assert result["flows"][0]["spf_alignment"] == "pass"
     assert result["flows"][0]["dkim_alignment"] == "not_observed"
     assert result["flows"][0]["provider_evidence_status"] == "not_connected"
+    assert result["flows"][0]["claim_level"] == "observed"
+    assert result["flows"][0]["delivery_certainty"] == "authentication_only"
+    assert {signal["family"] for signal in result["flows"][0]["signals"]} == {
+        "dmarc_authentication",
+        "dmarc_reported_disposition",
+    }
     assert "cannot tell" in result["flows"][0]["detail"]
 
 
@@ -64,6 +70,12 @@ def test_unknown_rejected_spoofer_does_not_get_dkim_repair():
     assert result["repair_steps"] == []
     assert result["flows"][0]["status"] == "likely_unauthorized"
     assert result["flows"][0]["evidence_level"] == "inferred"
+    assert result["flows"][0]["claim_level"] == "inferred"
+    assert result["flows"][0]["delivery_certainty"] == "inferred_only"
+    assert all(
+        signal["delivery_certainty"] != "delivery_reported"
+        for signal in result["flows"][0]["signals"]
+    )
     assert result["inferences"]
     assert result["unknowns"]
 
@@ -150,6 +162,28 @@ def test_zero_traffic_is_ignored():
 
     assert result["status"] == "insufficient_evidence"
     assert result["flows"] == []
+
+
+def test_insufficient_flow_evidence_is_unknown_not_an_authentication_claim():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [
+            _source(
+                count=3,
+                spf_pass_count=0,
+                spf_fail_count=0,
+                dkim_pass_count=0,
+                dkim_fail_count=0,
+                dmarc_fail_count=0,
+            )
+        ],
+        {},
+    )
+
+    flow = result["flows"][0]
+    assert flow["status"] == "insufficient_evidence"
+    assert flow["claim_level"] == "unknown"
+    assert flow["delivery_certainty"] == "not_applicable"
 
 
 def test_mixed_dkim_path_requires_identity_correlation_before_repair():
