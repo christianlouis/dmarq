@@ -31,9 +31,9 @@ from app.services.organizations import (
     ensure_subscription,
     get_or_create_starter_plan,
 )
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
-from app.services.ptr_lookup import PtrLookupResult
 from app.services.workspace_access import (
     ROLE_ANALYST,
     ROLE_WORKSPACE_OWNER,
@@ -326,6 +326,28 @@ def test_public_domains_summary_uses_scoped_token_context(client: TestClient, db
     assert response.json()["domains"][0]["domain_name"] == DOMAIN
 
 
+def test_public_mail_health_assessment_exposes_sanitized_structured_evidence(
+    client: TestClient,
+    db_session,
+):
+    _persist_report(db_session)
+    created = create_api_token(db_session, name="health bot", scopes=[READ_REPORTS_SCOPE])
+
+    response = client.get(
+        "/api/v1/public/mail-health/assessment?days=30",
+        headers={"X-API-Key": created.secret},
+    )
+
+    assert response.status_code == 200
+    assessment = response.json()["assessment"]
+    assert assessment["schema_version"] == "dmarq.mail_health_assessment.v2"
+    assert assessment["assessment_id"]
+    assert assessment["next_action"]["safety_boundary"]
+    assert assessment["supporting_signals"]
+    assert all("evidence_refs" in signal for signal in assessment["supporting_signals"])
+    assert "raw_data" not in str(assessment)
+
+
 def test_public_export_catalog_lists_available_exports_and_token_usage(
     client: TestClient,
     db_session,
@@ -352,6 +374,10 @@ def test_public_export_catalog_lists_available_exports_and_token_usage(
     endpoint_by_key = {endpoint["key"]: endpoint for endpoint in body["public_endpoints"]}
     assert endpoint_by_key["domain_reports"]["available"] is True
     assert endpoint_by_key["health_evidence_export"]["available"] is True
+    assert endpoint_by_key["mail_health_assessment"]["available"] is True
+    assert endpoint_by_key["mail_health_assessment"]["path"] == (
+        "/api/v1/public/mail-health/assessment"
+    )
     assert endpoint_by_key["tls_report_summary"]["available"] is False
     assert body["domains"][0]["domain"] == DOMAIN
     assert (
@@ -361,6 +387,7 @@ def test_public_export_catalog_lists_available_exports_and_token_usage(
     assert body["mcp"]["available"] is False
     assert "export_catalog" in {tool["name"] for tool in body["mcp"]["tools"]}
     assert "workspace_usage" in {tool["name"] for tool in body["mcp"]["tools"]}
+    assert "mail_health_assessment" in {tool["name"] for tool in body["mcp"]["tools"]}
 
 
 def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(

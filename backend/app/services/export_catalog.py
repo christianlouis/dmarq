@@ -36,6 +36,13 @@ PUBLIC_EXPORT_ENDPOINTS = [
         "description": "Workspace-level DMARC usage, alert, source, and import counts.",
     },
     {
+        "key": "mail_health_assessment",
+        "method": "GET",
+        "path": "/api/v1/public/mail-health/assessment",
+        "scope": READ_REPORTS_SCOPE,
+        "description": "Deterministic mail-health interpretation from stored aggregate evidence.",
+    },
+    {
         "key": "domain_reports",
         "method": "GET",
         "path_template": "/api/v1/public/domains/{domain}/reports",
@@ -178,6 +185,11 @@ MCP_EXPORT_TOOLS = [
     {
         "name": "workspace_usage",
         "description": "Return workspace-level DMARC usage, source, alert, and import counts.",
+        "read_only": True,
+    },
+    {
+        "name": "mail_health_assessment",
+        "description": "Return deterministic mail-health guidance from stored aggregate evidence.",
         "read_only": True,
     },
 ]

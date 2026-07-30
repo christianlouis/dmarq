@@ -361,6 +361,8 @@ presentation separate from workspace-owned facts and never accept secrets.
 | `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access; resumable drafts are quiet and completing the interview creates a sanitized audit event |
 | `GET /workspaces/guidance/diagnostic-plan` | With `reports:read`, build one localized next step from persisted workspace evidence without provider, DNS, or mailbox I/O |
 | `GET /workspaces/guidance/report-intake-recommendation` | With `reports:read`, rank supported intake paths and return localized data-flow, availability, first-report, and verification evidence without returning credentials or performing provider I/O |
+| `GET /workspaces/mail-health/sender-classifications` | With `reports:read`, list the latest auditable decision for each exact domain/source-IP scope |
+| `PUT /workspaces/mail-health/sender-classifications` | With `reports:write`, append a `legitimate`, `unknown`, `unauthorized`, `expected_forwarding`, or `stale` decision; report history is never mutated |
 
 The workspace profile accepts ordered values from the documented goal and
 sovereignty enums. The first installation goal is the primary goal used by the
@@ -1088,6 +1090,24 @@ retained for compatibility but are deprecated. New integrations should use the
 explicit authentication and receiver-disposition fields. See the
 [Mail signal contract](mail-signal-contract.md) for claim levels, delivery
 certainty, privacy boundaries, and future DSN/provider-event adapters.
+
+### Deterministic mail-health assessment
+
+```http
+GET /public/mail-health/assessment?days=30
+```
+
+Requires `reports:read` and returns the same sanitized
+`dmarq.mail_health_assessment.v2` contract used by the guided dashboard. The
+response includes a stable assessment ID, algorithm version, evidence window
+and freshness, outcome, normalized impact/urgency/confidence bands, structured
+conclusion key, known facts, inferences, unknowns, one safe next action,
+verification condition, and supporting mail-signal references. Raw report data,
+message bodies, credentials, and superseded audit details are not returned.
+
+The MCP tool `mail_health_assessment` accepts the same bounded `days` value.
+Both paths query persisted report projections and sender-classification audit
+rows only; they never trigger DNS, PTR, reputation, provider, or AI calls.
 
 #### Get Source Reputation
 

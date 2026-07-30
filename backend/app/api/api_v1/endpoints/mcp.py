@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -21,6 +21,7 @@ from app.services.ai_assistance import (
 from app.services.alert_history import alert_history_summary, list_workspace_alert_history
 from app.services.api_tokens import MCP_READ_SCOPE
 from app.services.export_catalog import build_export_catalog
+from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.organizations import require_organization_feature
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
@@ -80,6 +81,20 @@ READ_ONLY_TOOLS = [
                 "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30},
             },
             "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
+        "name": "mail_health_assessment",
+        "description": (
+            "Return one deterministic mail-health conclusion with confidence, evidence, "
+            "unknowns, and the safest next action."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30}
+            },
         },
         "readOnlyHint": True,
     },
@@ -372,10 +387,39 @@ def _call_workspace_usage_tool(
     return build_workspace_usage_summary(db, workspace)
 
 
+def _call_mail_health_assessment_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Dict[str, Any]:
+    """Return the versioned assessment through the existing read-only dispatcher."""
+    days = _tool_days(arguments)
+    workspace = resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=workspace_id,
+    )
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    return {
+        "days": days,
+        "assessment": build_workspace_mail_health_assessment(
+            db,
+            workspace=workspace,
+            start_ts=int(start.timestamp()),
+            end_ts=int(end.timestamp()),
+        ),
+    }
+
+
 READ_ONLY_SYNC_HANDLERS = {
     "action_proposals": _call_action_proposals_tool,
     "alert_history": _call_alert_history_tool,
     "export_catalog": _call_export_catalog_tool,
+    "mail_health_assessment": _call_mail_health_assessment_tool,
     "workspace_usage": _call_workspace_usage_tool,
 }
 

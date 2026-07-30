@@ -129,13 +129,18 @@ def _resolve_active_incidents(
     domain: Optional[str],
     now: datetime,
     evidence: str,
+    workspace_wide: bool = False,
 ) -> List[MailHealthIncident]:
     query = db.query(MailHealthIncident).filter(
         MailHealthIncident.workspace_id == workspace.id,
         MailHealthIncident.status.in_(["open", "acknowledged", "snoozed"]),
     )
-    if domain:
-        query = query.filter(MailHealthIncident.domain == domain)
+    if not workspace_wide:
+        query = query.filter(
+            MailHealthIncident.domain == domain
+            if domain is not None
+            else MailHealthIncident.domain.is_(None)
+        )
     resolved = query.all()
     for row in resolved:
         row.status = "resolved"
@@ -247,6 +252,19 @@ def record_mail_health_assessment(
     outcome = str(assessment.get("outcome") or "insufficient_evidence")
     domain = assessment.get("domain")
 
+    waiting_for_report_data = (
+        outcome == "monitor"
+        and domain is None
+        and any(
+            signal.get("family") == "intake_health"
+            and signal.get("outcome") == "no_report_evidence_in_window"
+            for signal in assessment.get("supporting_signals") or []
+        )
+    )
+
+    if waiting_for_report_data:
+        return {"incident": None, "notification_reason": None, "resolved": []}
+
     if outcome in {"healthy", "insufficient_evidence"}:
         resolved = _resolve_active_incidents(
             db,
@@ -254,6 +272,7 @@ def record_mail_health_assessment(
             domain=domain,
             now=now,
             evidence="A fresh report-backed assessment no longer found this actionable state.",
+            workspace_wide=outcome == "healthy" and domain is None,
         )
         db.commit()
         return {
