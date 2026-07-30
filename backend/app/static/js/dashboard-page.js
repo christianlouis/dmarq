@@ -291,7 +291,9 @@ function dashboardApp() {
         },
 
         get guidedMailHealthVerification() {
-            return this.guidedMailHealth?.verification_condition || '';
+            return this.guidedMailHealthPresentation?.verification_text
+                || this.guidedMailHealth?.verification_condition
+                || '';
         },
 
         get guidedMailHealthEvidenceScope() {

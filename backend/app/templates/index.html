@@ -68,7 +68,7 @@
                     </ul>
                     <p class="mt-3 text-xs leading-5"><span class="font-semibold">How to verify: </span><span x-text="guidedMailHealthVerification"></span></p>
                 </div>
-                <div x-show="guidedMailHealthPresentation.show_exact_evidence && guidanceContext === 'evidence'" x-cloak class="mt-4 max-w-3xl rounded border border-[#d7e8df] bg-white p-3 text-sm text-[#45505f]">
+                <div x-show="guidedMailHealthPresentation.show_exact_evidence" x-cloak class="mt-4 max-w-3xl rounded border border-[#d7e8df] bg-white p-3 text-sm text-[#45505f]">
                     <p class="font-semibold text-[#272a5f]">Technical record</p>
                     <p class="mt-1">Review the sender, report, and authentication evidence linked to this assessment.</p>
                     <a :href="guidedMailHealthHref" class="btn btn-outline btn-sm mt-3" x-text="guidedMailHealthEvidenceLabel"></a>
