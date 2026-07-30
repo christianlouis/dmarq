@@ -1,5 +1,6 @@
 """Workspace preference tests for the opt-in guided dashboard."""
 
+import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -384,7 +385,7 @@ def test_workspace_guidance_profile_is_versioned_validated_and_audited(authed_cl
     audit = db_session.query(WorkspaceAuditLog).one()
     assert audit.action == "workspace.guidance_profile_updated"
     assert audit.workspace_id == workspace.id
-    assert "Poste.io" in audit.details
+    assert json.loads(audit.details)["mail_context"]["known_mail_providers"] == ["Poste.io"]
 
 
 def test_workspace_guidance_profile_rejects_unknown_schema_values(authed_client, db_session):
