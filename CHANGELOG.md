@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided mail-health presentation now comes from one versioned English/German
+  catalog instead of template-specific wording. Watch, Diagnose, and Evidence
+  combine with guided, standard, or expert detail over the same immutable
+  assessment and permissions; the dashboard progressively reveals why,
+  observations, unknowns, and exact evidence without hiding the primary action
+  or changing the classic opt-in boundary.
 - Mail-health interpretation now uses a deterministic, versioned assessment
   contract with stable outcome, impact, urgency and confidence bands, explicit
   facts/inferences/unknowns, evidence windows, one safe next action, and

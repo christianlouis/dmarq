@@ -167,3 +167,18 @@ read-only assessment:
 - **Evidence** links directly to the unchanged sender or report evidence.
 
 No context changes the underlying evidence, permissions, or DNS write safety.
+
+## Presentation catalog
+
+The dashboard does not invent assessment wording in its template or browser
+code. The server attaches a `presentation` object generated from the versioned
+English/German guidance catalog, the effective personal profile, and the
+request locale. It contains the headline, conclusion, intended-mail impact,
+urgency, confidence label, rationale, one action, verification text, optional
+no-action explanation, and explicit visibility rules for supporting detail.
+
+All primary assessment conclusion keys must exist in both languages. Automated
+contract tests render every primary conclusion through all three contexts and
+all three explanation depths, and verify that the underlying assessment ID,
+facts, signals, and authorization inputs remain unchanged. English remains the
+fallback for future non-primary keys until their catalog entry is added.
