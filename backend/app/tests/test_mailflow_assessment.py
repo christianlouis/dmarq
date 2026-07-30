@@ -164,6 +164,28 @@ def test_zero_traffic_is_ignored():
     assert result["flows"] == []
 
 
+def test_insufficient_flow_evidence_is_unknown_not_an_authentication_claim():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [
+            _source(
+                count=3,
+                spf_pass_count=0,
+                spf_fail_count=0,
+                dkim_pass_count=0,
+                dkim_fail_count=0,
+                dmarc_fail_count=0,
+            )
+        ],
+        {},
+    )
+
+    flow = result["flows"][0]
+    assert flow["status"] == "insufficient_evidence"
+    assert flow["claim_level"] == "unknown"
+    assert flow["delivery_certainty"] == "not_applicable"
+
+
 def test_mixed_dkim_path_requires_identity_correlation_before_repair():
     result = build_domain_mailflow_assessment(
         "example.com",

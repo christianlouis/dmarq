@@ -255,18 +255,32 @@ def build_intake_window_signal(
     ).to_dict()
 
 
+def _dmarc_signal_statement(family: str, outcome: str) -> str | None:
+    authentication = {
+        "pass": "The receiver recognized this use of the domain as authenticated.",
+        "fail": "The receiver reported that this mail did not pass domain authentication.",
+        "mixed": "The receiver reported both authenticated and unauthenticated mail from this source.",
+    }
+    dispositions = {
+        "reject": "The reporting receiver recorded DMARC disposition reject.",
+        "quarantine": "The reporting receiver recorded DMARC disposition quarantine.",
+        "none": "The reporting receiver recorded no DMARC policy action for the failure.",
+        "mixed": "The reporting receiver recorded more than one DMARC disposition for this source.",
+    }
+    if family == "dmarc_authentication":
+        return authentication.get(outcome)
+    if family == "dmarc_reported_disposition":
+        return dispositions.get(outcome)
+    return None
+
+
 def guided_signal_statement(signal: Mapping[str, Any]) -> str:
     """Render a truthful English fallback from a normalized guidance key."""
     family = str(signal.get("family") or "")
     outcome = str(signal.get("outcome") or "unknown")
-    if family == "dmarc_authentication" and outcome == "pass":
-        return "The receiver recognized this use of the domain as authenticated."
-    if family == "dmarc_authentication" and outcome == "fail":
-        return "The receiver reported that this mail did not pass domain authentication."
-    if family == "dmarc_reported_disposition" and outcome in {"reject", "quarantine"}:
-        return f"The reporting receiver recorded DMARC disposition {outcome}."
-    if family == "dmarc_reported_disposition" and outcome == "none":
-        return "The reporting receiver recorded no DMARC policy action for the failure."
+    dmarc_statement = _dmarc_signal_statement(family, outcome)
+    if dmarc_statement:
+        return dmarc_statement
     if family == "smtp_tls_report":
         return "A sending system reported a TLS delivery-path result."
     if (

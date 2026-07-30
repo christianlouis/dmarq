@@ -120,11 +120,12 @@ def _flow(
         )
         next_step = "Keep report intake running"
 
-    evidence_level = (
-        "inferred"
-        if status in {"likely_unauthorized", "investigate_alignment", "investigate_source"}
-        else "observed"
-    )
+    if status in {"likely_unauthorized", "investigate_alignment", "investigate_source"}:
+        evidence_level = "inferred"
+    elif status == "insufficient_evidence":
+        evidence_level = "unknown"
+    else:
+        evidence_level = "observed"
     signals = build_dmarc_source_signals(
         source,
         workspace_id=workspace_id,
@@ -152,7 +153,9 @@ def _flow(
         "evidence_level": evidence_level,
         "claim_level": evidence_level,
         "delivery_certainty": (
-            "inferred_only" if evidence_level == "inferred" else "authentication_only"
+            "inferred_only"
+            if evidence_level == "inferred"
+            else "not_applicable" if evidence_level == "unknown" else "authentication_only"
         ),
         "signals": signals,
         "provider_evidence_status": "not_connected",

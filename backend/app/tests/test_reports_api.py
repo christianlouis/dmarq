@@ -159,6 +159,40 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
     assert json.loads(projection.metadata_json)["report_generators"] == ["receiver.example"]
 
 
+def test_projection_backfill_uses_source_email_when_org_name_is_empty(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name="projection-email.example", workspace_id=workspace.id, active=True)
+    db_session.add(domain)
+    db_session.flush()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="projection-email-fallback",
+        org_name="",
+        source_email="reports@receiver.example",
+        begin_date=1_704_067_200,
+        end_date=1_704_153_599,
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip="192.0.2.78",
+            count=4,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+        )
+    )
+    db_session.commit()
+
+    assert backfill_source_projections(db_session, limit=10) == 1
+    db_session.commit()
+
+    projection = db_session.query(DomainSourceDailyProjection).one()
+    assert json.loads(projection.metadata_json)["report_generators"] == ["reports@receiver.example"]
+
+
 def test_projection_backfill_merges_same_sender_day_within_one_batch(db_session):
     """A single historic batch may contain several reports for one daily sender fact."""
     workspace = get_or_create_default_workspace(db_session)

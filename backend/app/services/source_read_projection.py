@@ -265,6 +265,7 @@ def backfill_source_projections(db: Session, *, limit: int = 100) -> int:
             db,
             {
                 "org_name": report.org_name,
+                "email": report.source_email,
                 "begin_timestamp": report.begin_date,
                 "end_timestamp": report.end_date,
                 "records": [_persisted_record_payload(record) for record in report.records],

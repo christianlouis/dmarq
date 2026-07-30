@@ -135,6 +135,8 @@ def test_dmarc_source_creates_separate_authentication_and_disposition_signals():
     assert disposition["outcome"] == "mixed"
     assert disposition["delivery_certainty"] == "receiver_disposition_reported"
     assert disposition["evidence_refs"] == ["domain_source_daily_projection:10"]
+    assert "authenticated and unauthenticated" in guided_signal_statement(authentication)
+    assert "more than one DMARC disposition" in guided_signal_statement(disposition)
 
 
 def test_missing_report_window_is_a_derived_intake_fact_not_a_delivery_claim():
