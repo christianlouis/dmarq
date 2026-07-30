@@ -180,7 +180,15 @@ class Route53DNSClient:
                 candidates.append((len(zone_name), self._zone_id(zone), zone_name))
         if not candidates:
             raise LookupError(f"Route 53 has no public hosted zone for {name}")
-        _, zone_id, zone_name = max(candidates)
+        longest_match = max(candidate[0] for candidate in candidates)
+        matches = [candidate for candidate in candidates if candidate[0] == longest_match]
+        if len(matches) > 1:
+            zone_name = matches[0][2]
+            raise LookupError(
+                f"Route 53 has multiple public hosted zones named {zone_name}; "
+                "remove the duplicate or select an unambiguous account before applying DNS changes"
+            )
+        _, zone_id, zone_name = matches[0]
         return {"id": zone_id, "name": zone_name}
 
 

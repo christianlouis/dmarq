@@ -55,7 +55,14 @@ class OVHDNSClient:
                 timestamp,
             ]
         )
-        signature = "$1$" + hashlib.sha1(signature_input.encode("utf-8")).hexdigest()
+        # OVH's legacy request-signing contract requires this exact SHA-1 digest. It is
+        # an API MAC over a timestamped request, not password storage or data integrity.
+        signature = (
+            "$1$"
+            + hashlib.sha1(  # lgtm[py/weak-sensitive-data-hashing]
+                signature_input.encode("utf-8"), usedforsecurity=False
+            ).hexdigest()
+        )
         return {
             "X-Ovh-Application": str(self.credentials.application_key),
             "X-Ovh-Consumer": str(self.credentials.consumer_key),

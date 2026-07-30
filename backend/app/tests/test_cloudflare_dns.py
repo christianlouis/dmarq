@@ -3003,6 +3003,24 @@ def test_dns_write_provider_registry_rejects_unknown_provider():
         raise AssertionError("Expected unsupported DNS provider error")
 
 
+def test_route53_zone_resolution_rejects_ambiguous_public_zones():
+    client = route53_dns.Route53DNSClient(
+        route53_client=FakeRoute53BotoClient(
+            pages=[
+                {
+                    "HostedZones": [
+                        {"Id": "/hostedzone/Z1", "Name": f"{DOMAIN}."},
+                        {"Id": "/hostedzone/Z2", "Name": f"{DOMAIN}."},
+                    ]
+                }
+            ]
+        )
+    )
+
+    with pytest.raises(LookupError, match="multiple public hosted zones"):
+        asyncio.run(client.zone_for_domain(DOMAIN))
+
+
 def test_dns_change_plan_marks_apply_ready_records(authed_client: TestClient, db_session):
     db_session.add(Domain(name=DOMAIN))
     db_session.commit()

@@ -17,8 +17,8 @@ from app.services.cloudflare_dns import (
     get_zone_for_domain,
     sync_dns_record_changes,
 )
-from app.services.hetzner_dns import build_hetzner_dns_client
-from app.services.route53_dns import build_route53_dns_client
+from app.services.hetzner_dns import build_hetzner_dns_client, get_hetzner_dns_credentials
+from app.services.route53_dns import build_route53_dns_client, get_route53_dns_credentials
 
 SUPPORTED_AUTOMATED_RECORD_TYPES = {"TXT", "CNAME"}
 SUPPORTED_AUTOMATED_OPERATIONS = {"create", "update"}
@@ -712,6 +712,7 @@ class NativeManagedDNSWriteProvider:
             else [record for record in owner_records if record.get("type") == record_type]
         )
         current_values = [str(record.get("content") or "") for record in matches]
+        owner_types = {str(record.get("type") or "").upper() for record in owner_records}
         conflicting_types = sorted(
             {
                 str(record.get("type") or "").upper()
@@ -719,10 +720,13 @@ class NativeManagedDNSWriteProvider:
                 if str(record.get("type") or "").upper() != record_type
             }
         )
+        cname_conflict = (record_type == "CNAME" and bool(conflicting_types)) or (
+            record_type != "CNAME" and "CNAME" in owner_types
+        )
         blocked_reason = _baseline_block_reason(plan=plan, records=matches)
-        if not replacement and conflicting_types:
+        if not replacement and cname_conflict:
             blocked_reason = (
-                "A conflicting provider record exists at this owner name "
+                "A conflicting CNAME record exists at this owner name "
                 f"({', '.join(conflicting_types)}); use an explicit reviewed record-type migration"
             )
         elif not blocked_reason and replacement:
@@ -1019,7 +1023,12 @@ def build_dns_write_provider(provider_id: str) -> DNSWriteProvider:
     normalized = normalize_provider_id(provider_id)
     if normalized == "cloudflare":
         return CloudflareDNSWriteProvider()
-    if normalized in {"route53", "hetzner"}:
+    native_credentials_configured = (
+        normalized == "route53" and get_route53_dns_credentials().configured
+    ) or (normalized == "hetzner" and get_hetzner_dns_credentials().configured)
+    if normalized in {"route53", "hetzner"} and (
+        native_credentials_configured or not lexicon_provider_environment_configured(normalized)
+    ):
         return NativeManagedDNSWriteProvider(normalized)
     if normalized in LEXICON_PROVIDERS:
         return LexiconDNSWriteProvider(normalized)
