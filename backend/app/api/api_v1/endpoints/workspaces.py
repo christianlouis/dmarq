@@ -527,11 +527,11 @@ def _report_intake_evidence(
             )
             .first()
         )
-    settings = get_settings()
     domains = (
         db.query(Domain).filter(Domain.workspace_id == workspace.id).order_by(Domain.id.asc()).all()
     )
     selected_domain = _selected_diagnostic_domain(domains, profile)
+    settings = get_settings()
     report_query = (
         db.query(DMARCReport)
         .join(Domain, Domain.id == DMARCReport.domain_id)

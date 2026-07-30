@@ -39,6 +39,7 @@ function workspaceOnboarding(options = {}) {
         intakeContinuousMonitoring: false,
         intakeLocalBridgeAvailable: false,
         savingIntakePreference: false,
+        intakePreferenceSaveQueued: false,
         interviewDomain: '',
         interviewControlsDns: '',
         interviewDomainSendsMail: '',
@@ -731,20 +732,27 @@ function workspaceOnboarding(options = {}) {
             }
         },
         async saveIntakePreferences() {
-            if (this.savingIntakePreference) return;
             if (!this.selectedGoal) {
                 this.intakeRecommendationError = this.translate('Answer the setup questions before saving intake preferences.');
+                return;
+            }
+            if (this.savingIntakePreference) {
+                this.intakePreferenceSaveQueued = true;
                 return;
             }
             this.savingIntakePreference = true;
             this.intakeRecommendationError = '';
             try {
-                await this.saveWorkspaceGuidanceProfile(true, this.guidanceInterviewCompleted);
+                do {
+                    this.intakePreferenceSaveQueued = false;
+                    await this.saveWorkspaceGuidanceProfile(true, this.guidanceInterviewCompleted);
+                } while (this.intakePreferenceSaveQueued);
                 await this.loadIntakeRecommendation();
             } catch (error) {
                 this.intakeRecommendationError = error.message || 'Your intake preferences could not be saved.';
             } finally {
                 this.savingIntakePreference = false;
+                this.intakePreferenceSaveQueued = false;
             }
         },
         draftFields() {

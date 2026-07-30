@@ -422,7 +422,7 @@
                     <li class="flex items-start gap-3">
                         <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
                               :class="step.complete ? 'bg-[#e7f6f2] text-[#176d58]' : 'bg-[#f1f0ef] text-[#5f5c78]'"
-                              x-text="step.complete ? translate('OK') : step.position"></span>
+                              x-text="step.complete ? translate('Complete') : step.position"></span>
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                 <p class="font-semibold text-[#292542]" x-text="step.title"></p>

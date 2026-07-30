@@ -25,10 +25,10 @@ The setup distinguishes these states:
 - **Rejected**: the intake reached DMARQ, but the message or attachment could
   not be parsed. Import history contains the bounded error evidence.
 
-For continuous sources, an intake path is verified when its component
-connection succeeds, DMARQ accepts or safely deduplicates a report, and the
-operator can open the first interpretation. For manual XML, ZIP, or GZIP input,
-successful upload acceptance replaces the component-connection check.
+An intake path is verified when DMARQ accepts or safely deduplicates a report
+and the operator can open the first interpretation. For continuous sources,
+the source connection must also succeed; for manual XML, ZIP, or GZIP uploads,
+successful upload acceptance is the route-specific verification step.
 Authentication reports are not proof that a particular message was delivered,
 bounced, placed in spam, or read.
 
