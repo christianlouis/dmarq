@@ -36,6 +36,7 @@ REPORT_INTAKE_PREFERENCES = {
     "gmail",
     "m365",
     "cloudflare_worker",
+    "aws_gateway",
     "webhook",
     "not_sure",
 }

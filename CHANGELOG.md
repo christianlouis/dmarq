@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided setup now recommends one report-intake path from the operator's saved
+  goals and persisted source/import state, with manual upload, local IMAP,
+  Proton Mail Bridge, Gmail, Microsoft 365, Cloudflare Worker, AWS SES/Lambda,
+  and generic webhook alternatives. The primary CTA stays visible while data
+  flow, credentials, public exposure, failure modes, and alternatives use
+  progressive disclosure. First-report states distinguish waiting, accepted,
+  safely deduplicated, and rejected imports in English and German. The chooser
+  never exposes secrets, performs provider I/O, deploys infrastructure, or
+  changes DNS.
 - Guided setup now uses a resumable, problem-first interview and a versioned
   diagnostic plan built only from persisted domain, DNS-posture, report,
   sender, intake, and provider-readiness evidence. Operators choose one primary

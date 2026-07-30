@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.workspaces import (
+    _report_intake_evidence,
     _selected_diagnostic_domain,
     _stored_report_evidence,
 )
@@ -16,7 +17,9 @@ from app.core.security import require_admin_auth
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
+from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -85,6 +88,168 @@ def test_diagnostic_failures_use_the_latest_report_not_lifetime_history(db_sessi
 
     assert (report_count, message_count, failed_message_count) == (2, 8, 0)
     assert latest_report_id == fresh_report.id
+
+
+def test_report_intake_recommendation_uses_persisted_source_and_import_state(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = Workspace(
+        slug="intake-recommendation",
+        name="Intake recommendation",
+        guidance_installation_goals='["continuous_monitoring"]',
+        guidance_mail_context='{"setup_effort":"balanced"}',
+    )
+    domain = Domain(
+        name="intake.example",
+        workspace=workspace,
+        dmarc_report_mailbox="reports@intake.example",
+    )
+    source = MailSource(
+        workspace=workspace,
+        name="Reports Gmail",
+        method="GMAIL_API",
+        enabled=True,
+        last_checked=datetime.utcnow(),
+    )
+    report = DMARCReport(
+        domain=domain,
+        report_id="intake-report",
+        org_name="Receiver",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_400,
+    )
+    db_session.add_all([workspace, domain, source, report])
+    db_session.flush()
+    db_session.add(
+        MailSourceImport(
+            mail_source_id=source.id,
+            trigger="manual",
+            status="completed",
+            processed=1,
+            reports_found=1,
+            duplicate_reports=0,
+            error_count=0,
+            finished_at=datetime.utcnow(),
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.workspaces.get_settings",
+        lambda: SimpleNamespace(
+            GUIDED_MAIL_HEALTH_UI_ENABLED=True,
+            PUBLIC_BASE_URL="https://dmarq.example",
+            WEBHOOK_SECRET="configured-not-returned",
+            default_locale="en",
+        ),
+    )
+
+    response = authed_client.get(
+        "/api/v1/workspaces/guidance/report-intake-recommendation",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended"]["id"] == "gmail"
+    assert payload["first_report"]["state"] == "working"
+    assert payload["first_report"]["report_count"] == 1
+    assert payload["primary_action"]["href"] == f"/reports/{report.id}"
+    assert len(payload["journey"]) == 8
+    assert payload["journey"][0]["complete"] is True
+    assert payload["public_endpoint"] == {
+        "https_ready": True,
+        "webhook_configured": True,
+    }
+    assert "configured-not-returned" not in response.text
+
+
+def test_report_intake_evidence_scopes_reports_to_the_selected_domain(db_session, monkeypatch):
+    workspace = Workspace(slug="intake-domain-scope", name="Intake domain scope")
+    selected = Domain(name="selected.example", workspace=workspace)
+    other = Domain(name="other.example", workspace=workspace)
+    report = DMARCReport(
+        domain=other,
+        report_id="other-domain-report",
+        org_name="Receiver",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_400,
+    )
+    db_session.add_all([workspace, selected, other, report])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.workspaces.get_settings",
+        lambda: SimpleNamespace(PUBLIC_BASE_URL=None, WEBHOOK_SECRET=None),
+    )
+
+    evidence = _report_intake_evidence(
+        db_session,
+        workspace=workspace,
+        profile={"mail_context": {"domains": [selected.name]}},
+    )
+
+    assert evidence.domain_name == selected.name
+    assert evidence.total_report_count == 0
+    assert evidence.latest_report_id is None
+
+    missing_evidence = _report_intake_evidence(
+        db_session,
+        workspace=workspace,
+        profile={"mail_context": {"domains": ["not-monitored.example"]}},
+    )
+
+    assert missing_evidence.domain_name is None
+    assert missing_evidence.total_report_count == 0
+    assert missing_evidence.latest_report_id is None
+
+
+def test_report_intake_evidence_uses_saved_base_url_and_latest_import(db_session, monkeypatch):
+    workspace = Workspace(slug="intake-finished-import", name="Intake finished import")
+    source = MailSource(
+        workspace=workspace,
+        name="Reports IMAP",
+        method="IMAP",
+        enabled=True,
+    )
+    db_session.add_all(
+        [
+            workspace,
+            source,
+            Setting(
+                key="general.base_url",
+                value="https://saved.dmarq.example",
+                category="general",
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(
+        MailSourceImport(
+            mail_source_id=source.id,
+            trigger="scheduled",
+            status="success",
+            reports_found=0,
+            duplicate_reports=2,
+            error_count=0,
+            finished_at=datetime.utcnow(),
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.workspaces.get_settings",
+        lambda: SimpleNamespace(PUBLIC_BASE_URL=None, WEBHOOK_SECRET=None),
+    )
+
+    evidence = _report_intake_evidence(
+        db_session,
+        workspace=workspace,
+        profile={"mail_context": {}},
+    )
+
+    assert evidence.public_base_url == "https://saved.dmarq.example"
+    assert evidence.latest_import_status == "success"
+    assert evidence.latest_import_duplicates == 2
 
 
 @contextmanager

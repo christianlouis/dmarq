@@ -56,6 +56,30 @@ function mailSourcesApp() {
         async init() {
             this.bindPageControls();
             await this.loadSources();
+            this.openRequestedSourceForm();
+        },
+
+        openRequestedSourceForm() {
+            const params = new URLSearchParams(window.location.search);
+            const requestedMethod = String(params.get('method') || '').toUpperCase();
+            const allowedMethods = new Set(['IMAP', 'GMAIL_API', 'M365_GRAPH']);
+            if (!allowedMethods.has(requestedMethod)) return;
+            this.openAddForm();
+            this.form.method = requestedMethod;
+            if (requestedMethod === 'GMAIL_API') {
+                this.form.name = 'Gmail DMARC reports';
+            } else if (requestedMethod === 'M365_GRAPH') {
+                this.form.name = 'Microsoft 365 DMARC reports';
+            } else if (params.get('bridge') === 'proton') {
+                this.form.name = 'Proton Mail Bridge';
+                this.form.server = '127.0.0.1';
+                this.form.port = 1143;
+                this.form.use_ssl = false;
+            }
+            params.delete('method');
+            params.delete('bridge');
+            const query = params.toString();
+            window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
         },
 
         bindPageControls() {

@@ -68,6 +68,83 @@ const reputationUnknown = {
   recommendations: [],
 };
 
+const reportIntakeRecommendation = {
+  schema: 'dmarq.report_intake_recommendation.v1',
+  generated_from: 'persisted_state_and_operator_preferences',
+  primary_action: {label: 'Connect IMAP', href: '/mail-sources?method=IMAP'},
+  recommended: {
+    id: 'local_imap',
+    title: 'Your own report mailbox over IMAP',
+    summary: 'DMARQ reads a dedicated mailbox in an environment you control.',
+    flow: ['Report sender', 'Your mailbox', 'IMAP', 'DMARQ'],
+    processors: ['Your mail provider or server', 'Your DMARQ instance'],
+    public_exposure: 'No public DMARQ URL is required.',
+    credentials: 'Mailbox user and password; scope access to the report mailbox.',
+    complexity: 'medium',
+    test_method: 'Test the connection, trigger one poll, and inspect import status.',
+    action_label: 'Connect IMAP',
+    href: '/mail-sources?method=IMAP',
+    confidence: 'medium',
+    reason: 'This path best matches your data-path preference and detected state.',
+    already_configured: false,
+  },
+  alternatives: [
+    {
+      id: 'cloudflare_worker',
+      title: 'Cloudflare Email Routing and Worker',
+      tradeoff: 'No mailbox polling, but public HTTPS reachability is required.',
+      available: false,
+      availability_reason: 'A public HTTPS DMARQ URL is required before this path can be tested.',
+      action_label: 'Open Worker how-to',
+      href: '/docs/cloudflare-worker',
+    },
+    {
+      id: 'manual_upload',
+      title: 'Upload an existing report',
+      tradeoff: 'Very simple, but unsuitable for unattended monitoring.',
+      available: true,
+      availability_reason: null,
+      action_label: 'Upload report',
+      href: '/upload',
+    },
+  ],
+  first_report: {
+    state: 'setup_required',
+    headline: 'Choose a report-intake path',
+    description: 'No continuous report source is enabled yet.',
+    latest_import: {status: null, accepted: 0, duplicates: 0, rejected: 0},
+  },
+  verification: [
+    {id: 'component_test', label: 'Test the connection and inspect import status.', complete: false},
+    {id: 'first_report', label: 'DMARQ accepts or safely deduplicates the first aggregate report.', complete: false},
+  ],
+  journey: [
+    {
+      id: 'journey_1',
+      position: 1,
+      title: 'Choose a report destination',
+      description: 'Choose a dedicated destination address for aggregate reports.',
+      complete: false,
+      href: '/domains/cklnet.com#dns-records',
+    },
+    {
+      id: 'journey_8',
+      position: 8,
+      title: 'Open the first interpretation',
+      description: 'Finish setup in the explanation, not on a raw import row.',
+      complete: false,
+      href: '/reports',
+    },
+  ],
+  preferences: {
+    selected_option: 'not_sure',
+    setup_effort: 'balanced',
+    continuous_monitoring: false,
+    local_bridge_available: false,
+  },
+  public_endpoint: {https_ready: false, webhook_configured: false},
+};
+
 const operationsHealth = {
   status: 'ok',
   database: { ok: true, detail: 'SQLite ready' },
@@ -950,6 +1027,7 @@ async function installApiMocks(page) {
         interview_completed: false,
         interview_step: 1,
       },
+      '/api/v1/workspaces/guidance/report-intake-recommendation': reportIntakeRecommendation,
       '/api/v1/onboarding/preview': {
         plan: {
           tasks: [
@@ -1469,6 +1547,10 @@ test('onboarding persists the problem-first goal without losing existing mail co
       domain_sends_mail: true,
       bounce_available: false,
       low_volume: false,
+      report_intake_preference: 'not_sure',
+      setup_effort: 'balanced',
+      continuous_monitoring: false,
+      local_bridge_available: false,
     },
     interview_version: 1,
     interview_completed: true,
@@ -1607,6 +1689,143 @@ test('guided onboarding exposes a recoverable diagnostic plan error', async ({ p
   await expect(page.getByText('Your next step could not be loaded')).toBeVisible();
   await page.getByRole('button', {name: 'Try again'}).click();
   await expect(page.getByRole('heading', {name: 'Monitoring is ready'})).toBeVisible();
+});
+
+test('guided onboarding shows one intake recommendation and keeps alternatives progressive', async ({page}) => {
+  await page.goto('/onboarding');
+
+  await expect(page.getByRole('heading', {name: 'Your own report mailbox over IMAP'})).toBeVisible();
+  await expect(page.getByRole('link', {name: 'Connect IMAP'})).toBeVisible();
+  await expect(page.getByText('Choose a report-intake path')).toBeVisible();
+  await expect(page.getByText('Cloudflare Email Routing and Worker')).toBeHidden();
+
+  await page.getByText('Data path and requirements').click();
+  await expect(page.getByText(/Failure or forensic reports can contain message-specific metadata/)).toBeVisible();
+  await page.getByText('Adjust recommendation').click();
+  await expect(page.getByRole('combobox', {name: 'Preferred path'})).toBeDisabled();
+
+  await page.getByText('Compare alternatives').click();
+  await expect(page.getByText('Cloudflare Email Routing and Worker')).toBeVisible();
+  await expect(page.getByText('A public HTTPS DMARQ URL is required before this path can be tested.')).toBeVisible();
+  await expect(page.getByRole('link', {name: 'Upload report'})).toBeVisible();
+  await page.getByText('Complete first-report journey').click();
+  await expect(page.getByText('Choose a report destination')).toBeVisible();
+  await expect(page.getByText('Open the first interpretation')).toBeVisible();
+});
+
+test('guided onboarding renders a persisted German Proton Bridge recommendation', async ({page, context, baseURL}) => {
+  await context.addCookies([{name: 'dmarq_locale', value: 'de', url: baseURL}]);
+  await page.route('**/api/v1/workspaces/guidance/report-intake-recommendation', async (route) => {
+    await route.fulfill(json({
+      ...reportIntakeRecommendation,
+      primary_action: {label: 'Bridge-IMAP verbinden', href: '/mail-sources?method=IMAP&bridge=proton'},
+      recommended: {
+        ...reportIntakeRecommendation.recommended,
+        id: 'proton_bridge',
+        title: 'Proton Mail über lokale Bridge',
+        summary: 'Eine Proton-Mailbox wird über Proton Mail Bridge lokal für DMARQ erreichbar.',
+        flow: ['Report-Absender', 'Proton Mail', 'Lokale Bridge', 'DMARQ'],
+        processors: ['Proton', 'Proton Mail Bridge', 'Deine DMARQ-Instanz'],
+        public_exposure: 'Keine öffentliche DMARQ-URL erforderlich.',
+        credentials: 'Von Bridge erzeugte lokale IMAP-Zugangsdaten.',
+        test_method: 'Bridge-IMAP testen und danach einen DMARQ-Poll auslösen.',
+        action_label: 'Bridge-IMAP verbinden',
+        href: '/mail-sources?method=IMAP&bridge=proton',
+      },
+      first_report: {
+        ...reportIntakeRecommendation.first_report,
+        state: 'waiting',
+        headline: 'Warten auf den ersten Aggregatreport',
+        description: 'Der Intake-Weg ist eingerichtet.',
+      },
+      alternatives: [],
+      preferences: {
+        selected_option: 'proton_bridge',
+        setup_effort: 'balanced',
+        continuous_monitoring: true,
+        local_bridge_available: true,
+      },
+    }));
+  });
+
+  await page.goto('/onboarding');
+  await expect(page.getByText(/Empfohlener Report-Eingang/i)).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Proton Mail über lokale Bridge'})).toBeVisible();
+  await expect(page.getByRole('link', {name: 'Bridge-IMAP verbinden'})).toBeVisible();
+  await expect(page.getByText('Warten auf den ersten Aggregatreport')).toBeVisible();
+});
+
+test('guided onboarding renders manual, hosted, and ready Worker recommendations', async ({page}) => {
+  let selected = 'manual';
+  const variants = {
+    manual: {
+      id: 'manual_upload',
+      title: 'Upload an existing report',
+      summary: 'Interpret one report without a persistent connection.',
+      action_label: 'Upload report',
+      href: '/upload',
+      flow: ['Report file', 'DMARQ upload', 'Local interpretation'],
+    },
+    hosted: {
+      id: 'gmail',
+      title: 'Connect Gmail with OAuth',
+      summary: 'Use revocable delegated access to a dedicated report mailbox.',
+      action_label: 'Connect Gmail',
+      href: '/mail-sources?method=GMAIL_API',
+      flow: ['Report sender', 'Gmail', 'OAuth', 'DMARQ'],
+    },
+    worker: {
+      id: 'cloudflare_worker',
+      title: 'Cloudflare Email Routing and Worker',
+      summary: 'Forward raw report mail to an authenticated HTTPS endpoint.',
+      action_label: 'Open Worker how-to',
+      href: '/docs/cloudflare-worker',
+      flow: ['Report sender', 'Email Routing', 'Worker', 'DMARQ webhook'],
+      availability_reason: 'HTTPS is ready; configure an inbound webhook secret next.',
+    },
+  };
+  await page.route('**/api/v1/workspaces/guidance/report-intake-recommendation', async (route) => {
+    const variant = variants[selected];
+    await route.fulfill(json({
+      ...reportIntakeRecommendation,
+      recommended: {
+        ...reportIntakeRecommendation.recommended,
+        ...variant,
+      },
+      primary_action: {label: variant.action_label, href: variant.href},
+      alternatives: [],
+      public_endpoint: {
+        https_ready: selected === 'worker',
+        webhook_configured: selected === 'worker',
+      },
+    }));
+  });
+
+  await page.goto('/onboarding');
+  await expect(page.getByRole('heading', {name: variants.manual.title})).toBeVisible();
+  await expect(page.getByRole('link', {name: variants.manual.action_label})).toBeVisible();
+
+  selected = 'hosted';
+  await page.reload();
+  await expect(page.getByRole('heading', {name: variants.hosted.title})).toBeVisible();
+  await expect(page.getByRole('link', {name: variants.hosted.action_label})).toBeVisible();
+
+  selected = 'worker';
+  await page.reload();
+  await expect(page.getByRole('heading', {name: variants.worker.title})).toBeVisible();
+  await expect(page.getByRole('link', {name: variants.worker.action_label})).toBeVisible();
+  await expect(page.getByText(variants.worker.availability_reason)).toBeVisible();
+});
+
+test('intake recommendation link opens a prefilled Proton Bridge source', async ({page}) => {
+  await page.goto('/mail-sources?method=IMAP&bridge=proton');
+
+  await expect(page.getByRole('heading', {name: 'Add Mail Source'})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: /Name/})).toHaveValue('Proton Mail Bridge');
+  await expect(page.getByRole('combobox', {name: 'Method'})).toHaveValue('IMAP');
+  await expect(page.getByRole('textbox', {name: /Server/})).toHaveValue('127.0.0.1');
+  await expect(page.getByRole('spinbutton', {name: 'Port'})).toHaveValue('1143');
+  await expect(page.getByRole('checkbox', {name: /Use TLS/})).not.toBeChecked();
 });
 
 test('domain sender view guides DKIM repair from saved mailflow evidence', async ({ page }) => {
