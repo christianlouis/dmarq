@@ -358,14 +358,14 @@ def load_domain_source_read_projection(
         )
         source["last_seen"] = max(_int(source.get("last_seen")), _int(row.last_seen))
         source["window_start"] = (
-            row.observed_at
+            row.first_seen or row.observed_at
             if source["window_start"] is None
-            else min(source["window_start"], row.observed_at)
+            else min(source["window_start"], row.first_seen or row.observed_at)
         )
         source["window_end"] = (
-            row.observed_at
+            row.last_seen or row.observed_at
             if source["window_end"] is None
-            else max(source["window_end"], row.observed_at)
+            else max(source["window_end"], row.last_seen or row.observed_at)
         )
         source["evidence_refs"].append(f"domain_source_daily_projection:{row.id}")
         for field in (

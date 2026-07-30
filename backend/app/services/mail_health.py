@@ -66,6 +66,10 @@ def _merge_source_rows(
             {
                 "domain": domain.name,
                 "source_ip": str(row.source_ip),
+                "spf_pass_count": 0,
+                "spf_fail_count": 0,
+                "dkim_pass_count": 0,
+                "dkim_fail_count": 0,
                 "dmarc_pass_count": 0,
                 "dmarc_fail_count": 0,
                 "disposition_counts": defaultdict(int),
@@ -76,25 +80,43 @@ def _merge_source_rows(
                 "window_end": None,
                 "evidence_refs": [],
                 "report_generators": [],
+                "header_from_domains": [],
+                "envelope_from_domains": [],
+                "spf_domains": [],
+                "dkim_domains": [],
+                "dkim_selectors": [],
             },
         )
+        source["spf_pass_count"] += _count(row.spf_pass_count)
+        source["spf_fail_count"] += _count(row.spf_fail_count)
+        source["dkim_pass_count"] += _count(row.dkim_pass_count)
+        source["dkim_fail_count"] += _count(row.dkim_fail_count)
         source["dmarc_pass_count"] += _count(row.dmarc_pass_count)
         source["dmarc_fail_count"] += _count(row.dmarc_fail_count)
         source["window_start"] = (
-            row.observed_at
+            row.first_seen or row.observed_at
             if source["window_start"] is None
-            else min(source["window_start"], row.observed_at)
+            else min(source["window_start"], row.first_seen or row.observed_at)
         )
         source["window_end"] = (
-            row.observed_at
+            row.last_seen or row.observed_at
             if source["window_end"] is None
-            else max(source["window_end"], row.observed_at)
+            else max(source["window_end"], row.last_seen or row.observed_at)
         )
         source["evidence_refs"].append(f"domain_source_daily_projection:{row.id}")
-        for generator in _as_dict(row.metadata_json).get("report_generators") or []:
-            normalized = str(generator).strip()
-            if normalized and normalized not in source["report_generators"]:
-                source["report_generators"].append(normalized)
+        metadata = _as_dict(row.metadata_json)
+        for field in (
+            "report_generators",
+            "header_from_domains",
+            "envelope_from_domains",
+            "spf_domains",
+            "dkim_domains",
+            "dkim_selectors",
+        ):
+            for value in metadata.get(field) or []:
+                normalized = str(value).strip()
+                if normalized and normalized not in source[field]:
+                    source[field].append(normalized)
         for disposition, count in _as_dict(row.disposition_counts).items():
             source["disposition_counts"][str(disposition).lower()] += _count(count)
         evidence = _as_dict(row.source_evidence)
@@ -135,9 +157,18 @@ def _assessment(
     watch_condition: str | None = None,
     supporting_signals: list[Dict[str, Any]] | None = None,
     conclusion_claim_level: str = "inferred",
+    derived_facts: list[str] | None = None,
 ) -> Dict[str, Any]:
+    derived_fact_set = set(derived_facts or [])
     observed_claims = [
-        {"claim_level": "observed", "statement": statement} for statement in known_facts or []
+        {"claim_level": "observed", "statement": statement}
+        for statement in known_facts or []
+        if statement not in derived_fact_set
+    ]
+    derived_claims = [
+        {"claim_level": "derived", "statement": statement}
+        for statement in known_facts or []
+        if statement in derived_fact_set
     ]
     inferred_claims = [
         {"claim_level": "inferred", "statement": statement} for statement in inferences or []
@@ -174,7 +205,7 @@ def _assessment(
         "delivery_certainty": "inferred_only",
         "signal_schema_version": MAIL_SIGNAL_SCHEMA_VERSION,
         "supporting_signals": supporting_signals or [],
-        "claims": observed_claims + inferred_claims + unknown_claims,
+        "claims": observed_claims + derived_claims + inferred_claims + unknown_claims,
     }
 
 
@@ -204,6 +235,7 @@ def build_workspace_mail_health_assessment(
     )
     sources = _merge_source_rows(rows)
     if not sources:
+        no_evidence_fact = "No projected sender facts were found for the selected date window."
         return _assessment(
             outcome="insufficient_evidence",
             title="Waiting for DMARC report data",
@@ -218,7 +250,8 @@ def build_workspace_mail_health_assessment(
             evidence_scope="No report-backed authentication evidence is available yet.",
             intended_mail_impact="unknown",
             urgency="monitor",
-            known_facts=["No projected sender facts were found for the selected date window."],
+            known_facts=[no_evidence_fact],
+            derived_facts=[no_evidence_fact],
             inferences=["DMARQ cannot assess mail authentication health yet."],
             unknowns=["How receivers evaluate mail from this domain."],
             verification_condition="Ingest an aggregate DMARC report for this domain.",
@@ -264,6 +297,9 @@ def build_workspace_mail_health_assessment(
         identity = source["identity"]
         passed = _count(source["dmarc_pass_count"])
         changed = " It also passed authentication in this selected period." if passed else ""
+        sender_match_fact = (
+            f"{identity.get('name') or 'A known sender'} matched a known sender profile."
+        )
         return _assessment(
             outcome="action_required",
             title=f"Check {identity.get('name') or 'a known sender'} authentication",
@@ -287,9 +323,10 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="likely_affected",
             urgency="timely",
             known_facts=[
-                f"{identity.get('name') or 'A known sender'} matched a known sender profile.",
+                sender_match_fact,
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
+            derived_facts=[sender_match_fact],
             inferences=["This sender may affect mail you intend to send."],
             unknowns=["Whether each affected message was delivered, bounced, or read."],
             verification_condition="Fresh reports show the sender authenticating without DMARC failures.",
@@ -298,6 +335,9 @@ def build_workspace_mail_health_assessment(
 
     if unknown_protected and not unknown_failing:
         source = max(unknown_protected, key=lambda item: _count(item["dmarc_fail_count"]))
+        unmatched_fact = (
+            "The source did not match a known provider or owned-infrastructure profile."
+        )
         return _assessment(
             outcome="no_action_likely_unauthorized_use",
             title="Likely unauthorized use is being blocked",
@@ -320,9 +360,10 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="likely_not_affected",
             urgency="none",
             known_facts=[
-                "The source did not match a known provider or owned-infrastructure profile.",
+                unmatched_fact,
                 "Receiver reports recorded protective quarantine or reject handling for all observed failures.",
             ],
+            derived_facts=[unmatched_fact],
             inferences=[
                 "This is likely unauthorized use rather than a fault in your known sending setup."
             ],
@@ -337,6 +378,7 @@ def build_workspace_mail_health_assessment(
 
     if unknown_failing:
         source = max(unknown_failing, key=lambda item: _count(item["dmarc_fail_count"]))
+        unmatched_fact = "The source did not match a known sender profile."
         return _assessment(
             outcome="investigation_required",
             title="Identify an unrecognized sending source",
@@ -358,9 +400,10 @@ def build_workspace_mail_health_assessment(
             intended_mail_impact="unknown",
             urgency="timely",
             known_facts=[
-                "The source did not match a known sender profile.",
+                unmatched_fact,
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} authentication failure(s).",
             ],
+            derived_facts=[unmatched_fact],
             inferences=["DMARQ cannot yet tell whether this source belongs to your mail estate."],
             unknowns=["Whether the source is an approved sender and its final delivery outcome."],
             verification_condition="Classify the source or collect fresh report evidence that identifies its owner.",

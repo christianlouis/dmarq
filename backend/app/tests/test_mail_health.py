@@ -17,6 +17,13 @@ def _projection(
     failed: int = 0,
     disposition_counts: dict | None = None,
     hostname: str | None = None,
+    first_seen: int | None = None,
+    last_seen: int | None = None,
+    metadata: dict | None = None,
+    spf_passed: int = 0,
+    spf_failed: int = 0,
+    dkim_passed: int = 0,
+    dkim_failed: int = 0,
 ) -> DomainSourceDailyProjection:
     evidence = {"captured_at": "2026-07-26T12:00:00Z"}
     if hostname:
@@ -25,13 +32,18 @@ def _projection(
         domain_id=domain_id,
         source_ip=ip,
         observed_at=int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp()),
-        first_seen=int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp()),
-        last_seen=int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp()),
+        first_seen=first_seen or int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp()),
+        last_seen=last_seen or int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp()),
         message_count=passed + failed,
         report_count=1,
+        spf_pass_count=spf_passed,
+        spf_fail_count=spf_failed,
+        dkim_pass_count=dkim_passed,
+        dkim_fail_count=dkim_failed,
         dmarc_pass_count=passed,
         dmarc_fail_count=failed,
         disposition_counts=json.dumps(disposition_counts or {}),
+        metadata_json=json.dumps(metadata or {}),
         source_evidence=json.dumps(evidence),
     )
 
@@ -85,8 +97,68 @@ def test_known_sender_failures_are_actionable_without_claiming_delivery(db_sessi
     }
     assert {claim["claim_level"] for claim in result["claims"]} == {
         "observed",
+        "derived",
         "inferred",
         "unknown",
+    }
+
+
+def test_health_signals_keep_protocol_counts_identities_and_report_boundaries(db_session):
+    workspace = Workspace(slug="guided-signal-detail", name="Guided signal detail")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    first_seen = int(datetime(2026, 7, 25, 3, 15, tzinfo=timezone.utc).timestamp())
+    last_seen = int(datetime(2026, 7, 25, 21, 45, tzinfo=timezone.utc).timestamp())
+    db_session.add(
+        _projection(
+            domain.id,
+            ip="203.0.113.10",
+            passed=8,
+            failed=2,
+            disposition_counts={"none": 8, "reject": 2},
+            hostname="mta1.mtasv.net",
+            first_seen=first_seen,
+            last_seen=last_seen,
+            spf_passed=7,
+            spf_failed=3,
+            dkim_passed=8,
+            dkim_failed=2,
+            metadata={
+                "header_from_domains": ["example.test"],
+                "envelope_from_domains": ["bounce.example.test"],
+                "spf_domains": ["bounce.example.test"],
+                "dkim_domains": ["example.test"],
+                "dkim_selectors": ["selector1"],
+                "report_generators": ["receiver.example"],
+            },
+        )
+    )
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+    authentication = next(
+        signal
+        for signal in result["supporting_signals"]
+        if signal["family"] == "dmarc_authentication"
+    )
+
+    assert authentication["window_start"] == first_seen
+    assert authentication["window_end"] == last_seen
+    assert authentication["payload"] == {
+        "source_ip": "203.0.113.10",
+        "passed": 8,
+        "failed": 2,
+        "spf_passed": 7,
+        "spf_failed": 3,
+        "dkim_passed": 8,
+        "dkim_failed": 2,
+        "header_from_domains": ["example.test"],
+        "envelope_from_domains": ["bounce.example.test"],
+        "spf_domains": ["bounce.example.test"],
+        "dkim_domains": ["example.test"],
+        "dkim_selectors": ["selector1"],
+        "report_generators": ["receiver.example"],
     }
 
 

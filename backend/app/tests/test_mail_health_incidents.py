@@ -24,7 +24,16 @@ def _assessment(outcome="action_required", domain="example.test"):
         "assessment_version": "v1",
         "claim_level": "inferred",
         "delivery_certainty": "inferred_only",
-        "supporting_signals": [{"signal_id": "signal-a"}],
+        "supporting_signals": [
+            {
+                "signal_id": "signal-a",
+                "family": "dmarc_authentication",
+                "signal_type": "aggregate_authentication_result",
+                "outcome": "fail",
+                "claim_level": "observed",
+                "delivery_certainty": "authentication_only",
+            }
+        ],
         "next_action": {"href": f"/domains/{domain}#sending-sources"},
     }
 
@@ -68,6 +77,24 @@ def test_changed_evidence_certainty_is_a_material_notification_change(db_session
     assert first["notification_reason"] == "created"
     assert changed["notification_reason"] == "material_change"
     assert changed["incident"]["assessment"]["delivery_certainty"] == "non_delivery_reported"
+
+
+def test_rolling_evidence_row_ids_do_not_trigger_a_material_notification(db_session):
+    workspace = Workspace(slug="calm-evidence-window", name="Calm evidence window")
+    db_session.add(workspace)
+    db_session.commit()
+
+    first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    shifted_window = _assessment()
+    shifted_window["supporting_signals"][0]["signal_id"] = "signal-from-next-window"
+    repeated = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=shifted_window,
+    )
+
+    assert first["notification_reason"] == "created"
+    assert repeated["notification_reason"] is None
 
 
 def test_protected_unknown_use_is_persisted_but_suppressed_by_default(db_session):

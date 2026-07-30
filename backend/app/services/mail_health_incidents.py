@@ -49,10 +49,15 @@ def _material_state(assessment: Dict[str, Any]) -> str:
             "confidence": assessment.get("confidence"),
             "claim_level": assessment.get("claim_level"),
             "delivery_certainty": assessment.get("delivery_certainty"),
-            "supporting_signal_ids": sorted(
-                str(signal.get("signal_id"))
+            "supporting_signal_semantics": sorted(
+                (
+                    str(signal.get("family") or ""),
+                    str(signal.get("signal_type") or ""),
+                    str(signal.get("outcome") or ""),
+                    str(signal.get("claim_level") or ""),
+                    str(signal.get("delivery_certainty") or ""),
+                )
                 for signal in assessment.get("supporting_signals") or []
-                if signal.get("signal_id")
             ),
             "next_action": assessment.get("next_action", {}).get("href"),
             "assessment_version": assessment.get("assessment_version"),
