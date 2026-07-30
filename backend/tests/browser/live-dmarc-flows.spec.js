@@ -910,6 +910,46 @@ async function installApiMocks(page) {
         interview_completed: true,
         profile_version: 1,
       },
+      '/api/v1/workspaces/guidance/diagnostic-plan': {
+        schema: 'dmarq.diagnostic_plan.v1',
+        plan_version: 1,
+        generated_from: 'persisted_evidence',
+        primary_goal: 'learn_or_explore',
+        domain: 'cklnet.com',
+        conclusion: {
+          code: 'monitoring_ready',
+          title: 'Monitoring is ready',
+          summary: 'DMARQ has persisted evidence for cklnet.com.',
+        },
+        current_action: {
+          id: 'open_domain',
+          title: 'Monitoring is ready',
+          description: 'DMARQ has persisted evidence for cklnet.com.',
+          label: 'Open domain overview',
+          href: '/domains/cklnet.com',
+          why: 'The next useful work comes from changes in stored evidence.',
+          verification: 'New reports continue arriving.',
+          blocked_by: [],
+        },
+        later_steps: [
+          {id: 'classify_senders', title: 'Classify intended sending services', href: '/domains/cklnet.com#sending-sources'},
+        ],
+        known_facts: ['1 monitored domain is stored.'],
+        inferences: [],
+        unknowns: [],
+        evidence: {
+          domain_count: 1,
+          report_count: 4,
+          message_count: 100,
+          failed_message_count: 0,
+          enabled_source_count: 1,
+          checked_source_count: 1,
+          dns_evidence_available: true,
+          dns_provider_connected: true,
+        },
+        interview_completed: false,
+        interview_step: 1,
+      },
       '/api/v1/onboarding/preview': {
         plan: {
           tasks: [
@@ -1369,24 +1409,66 @@ test('onboarding persists the problem-first goal without losing existing mail co
   await page.route('**/api/v1/workspaces/guidance/workspace-profile', async (route) => {
     if (route.request().method() !== 'PUT') return route.fallback();
     savedWorkspaceProfile = route.request().postDataJSON();
-    await route.fulfill(json({...savedWorkspaceProfile, profile_version: 1, interview_completed: true}));
+    await route.fulfill(json({...savedWorkspaceProfile, profile_version: 1}));
+  });
+  await page.route('**/api/v1/domains/summary**', async (route) => {
+    await route.fulfill(json({total_domains: 0, reports_processed: 0}));
+  });
+  await page.route('**/api/v1/mail-sources', async (route) => {
+    await route.fulfill(json([]));
+  });
+  await page.route('**/api/v1/workspaces/guidance/diagnostic-plan', async (route) => {
+    await route.fulfill(json({
+      current_action: {
+        id: 'explain_report',
+        title: 'Open the newest report explanation',
+        description: 'Start with one stored report.',
+        label: 'Explain the newest report',
+        href: '/reports',
+        why: 'One bounded report is easier to understand.',
+        verification: 'Intended and unrelated sources are distinguishable.',
+      },
+      later_steps: [],
+      known_facts: ['No report has been stored yet.'],
+      inferences: ['A report explains authentication, not individual delivery.'],
+      unknowns: [],
+    }));
   });
 
   await page.goto('/onboarding');
-  await page.getByLabel('Report data preference').selectOption('privacy_first');
   await page.getByRole('button', { name: /I received DMARC reports/ }).click();
+  await page.getByText('Also relevant to me').click();
+  await page.getByRole('checkbox', {name: /Someone may be using my domain/}).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.locator('section[aria-labelledby="install-goal-heading"] input[placeholder="example.com"]').fill('mail.example');
+  await page.getByRole('group', {name: 'Can you change DNS for this domain?'}).getByRole('radio', {name: 'Yes'}).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('group', {name: 'Does this domain intentionally send email?'}).getByRole('radio', {name: 'Yes'}).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Report data preference').selectOption('privacy_first');
+  await page.getByRole('button', { name: 'Show my next step' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Bring in one report before changing DNS' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Open the newest report explanation' })).toBeVisible();
+  await page.getByText('Why DMARQ chose this step').click();
+  await expect(page.getByText('A report explains authentication, not individual delivery.')).toBeVisible();
   expect(savedPreference).toEqual({
     depth: 'standard',
     context: 'watch',
     teaching_hints_enabled: false,
   });
   expect(savedWorkspaceProfile).toEqual({
-    installation_goals: ['understand_reports'],
+    installation_goals: ['understand_reports', 'protect_against_spoofing'],
     sovereignty_preference: 'privacy_first',
     notification_posture: 'actionable_only',
-    mail_context: {dns_provider: 'Cloudflare'},
+    mail_context: {
+      dns_provider: 'Cloudflare',
+      interview_step: 4,
+      domains: ['mail.example'],
+      controls_dns: true,
+      domain_sends_mail: true,
+      bounce_available: false,
+      low_volume: false,
+    },
     interview_version: 1,
     interview_completed: true,
   });
@@ -1413,18 +1495,119 @@ test('onboarding preserves valid specialist goals when preferences change', asyn
     savedWorkspaceProfile = route.request().postDataJSON();
     await route.fulfill(json({...savedWorkspaceProfile, profile_version: 1}));
   });
+  await page.route('**/api/v1/domains/summary**', async (route) => {
+    await route.fulfill(json({total_domains: 0, reports_processed: 0}));
+  });
+  await page.route('**/api/v1/mail-sources', async (route) => {
+    await route.fulfill(json([]));
+  });
 
   await page.goto('/onboarding');
   await expect(page.getByRole('button', { name: /Messages are being rejected or bounced/ })).toBeVisible();
-  const saveRequest = page.waitForRequest(request => (
-    request.method() === 'PUT' && request.url().endsWith('/api/v1/workspaces/guidance/workspace-profile')
-  ));
+  await page.getByRole('button', { name: /Messages are being rejected or bounced/ }).click();
+  await expect.poll(() => savedWorkspaceProfile?.installation_goals).toEqual(['investigate_bounces']);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Report data preference').selectOption('balanced');
-  await saveRequest;
 
-  expect(savedWorkspaceProfile.installation_goals).toEqual(['investigate_bounces']);
-  expect(savedWorkspaceProfile.sovereignty_preference).toBe('balanced');
+  await expect.poll(() => savedWorkspaceProfile?.sovereignty_preference).toBe('balanced');
 });
+
+test('guided onboarding keeps the primary action visible on mobile and resumes progress', async ({ page }) => {
+  await page.route('**/api/v1/domains/summary**', async (route) => {
+    await route.fulfill(json({total_domains: 0, reports_processed: 0}));
+  });
+  await page.route('**/api/v1/mail-sources', async (route) => {
+    await route.fulfill(json([]));
+  });
+  await page.route('**/api/v1/workspaces/guidance/workspace-profile', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    const profile = route.request().postDataJSON();
+    await route.fulfill(json({...profile, profile_version: 1}));
+  });
+  await page.setViewportSize({width: 390, height: 844});
+
+  await page.goto('/onboarding');
+  await page.getByRole('button', {name: /I want to keep mail delivery healthy/}).click();
+  await page.getByRole('button', {name: 'Continue'}).click();
+
+  await expect(page.getByRole('heading', {name: 'Which domain is affected?'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Continue'})).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+});
+
+test('guided onboarding presents the problem-first path in German', async ({page, context}) => {
+  await context.addCookies([{
+    name: 'dmarq_locale',
+    value: 'de',
+    url: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:18080',
+  }]);
+  await page.route('**/api/v1/workspaces/guidance', async (route) => {
+    await route.fulfill(json({
+      available: true,
+      enabled: false,
+      depth: 'guided',
+      context: 'watch',
+      installation_goals: [],
+      sovereignty_preference: 'not_sure',
+      notification_posture: 'actionable_only',
+      mail_context: {},
+      interview_completed: false,
+    }));
+  });
+  await page.route('**/api/v1/domains/summary**', async (route) => {
+    await route.fulfill(json({total_domains: 0, reports_processed: 0}));
+  });
+  await page.route('**/api/v1/mail-sources', async (route) => {
+    await route.fulfill(json([]));
+  });
+  await page.route('**/api/v1/workspaces/guidance/workspace-profile', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    const profile = route.request().postDataJSON();
+    await route.fulfill(json({...profile, profile_version: 1}));
+  });
+
+  await page.goto('/onboarding');
+  await expect(page.getByRole('heading', {name: 'Was hat dich zu DMARQ gebracht?'})).toBeVisible();
+  await page.getByRole('button', {name: /Ich möchte meine Mailzustellung dauerhaft gesund halten/}).click();
+  await page.getByRole('button', {name: 'Weiter'}).click();
+  await expect(page.getByRole('heading', {name: 'Welche Domain ist betroffen?'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Weiter'})).toBeVisible();
+});
+
+test('guided onboarding exposes a recoverable diagnostic plan error', async ({ page }) => {
+  let attempts = 0;
+  await page.route('**/api/v1/workspaces/guidance/diagnostic-plan', async (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill(json({detail: 'Stored evidence is temporarily unavailable.'}, 503));
+      return;
+    }
+    await route.fulfill(json({
+      current_action: {
+        id: 'open_domain',
+        title: 'Monitoring is ready',
+        description: 'Stored evidence is ready.',
+        label: 'Open domain overview',
+        href: '/domains/cklnet.com',
+        why: 'Reports are arriving.',
+        verification: 'New reports continue arriving.',
+        blocked_by: [],
+      },
+      later_steps: [],
+      known_facts: ['Reports are stored.'],
+      inferences: [],
+      unknowns: [],
+    }));
+  });
+
+  await page.goto('/onboarding');
+  await expect(page.getByText('Your next step could not be loaded')).toBeVisible();
+  await page.getByRole('button', {name: 'Try again'}).click();
+  await expect(page.getByRole('heading', {name: 'Monitoring is ready'})).toBeVisible();
+});
+
 test('domain sender view guides DKIM repair from saved mailflow evidence', async ({ page }) => {
   await page.goto('/domains/cklnet.com#sending-sources');
 

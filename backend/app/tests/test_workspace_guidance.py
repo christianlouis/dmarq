@@ -2,12 +2,17 @@
 
 import json
 from contextlib import contextmanager
+from datetime import datetime
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
+from app.models.domain import Domain
+from app.models.mail_source import MailSource
+from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -608,3 +613,212 @@ def test_incident_evaluation_and_writes_are_denied_to_analysts(test_app, db_sess
     assert read_response.status_code == 200
     assert evaluate_response.status_code == 403
     assert posture_response.status_code == 403
+
+
+def test_diagnostic_plan_reads_persisted_domain_report_and_intake_evidence(
+    authed_client: TestClient,
+    db_session,
+):
+    workspace = Workspace(
+        slug="diagnostic-plan",
+        name="Diagnostic plan",
+        guidance_installation_goals='["understand_reports"]',
+        guidance_mail_context='{"domains":["diagnostic.example"],"domain_sends_mail":true}',
+    )
+    domain = Domain(
+        name="diagnostic.example",
+        workspace=workspace,
+        dmarc_policy="reject",
+        spf_record="v=spf1 -all",
+    )
+    report = DMARCReport(
+        domain=domain,
+        report_id="diagnostic-report",
+        org_name="Example Receiver",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_400,
+        policy="reject",
+    )
+    record = ReportRecord(
+        report=report,
+        source_ip="192.0.2.10",
+        count=8,
+        disposition="none",
+        dkim="pass",
+        spf="pass",
+        header_from="diagnostic.example",
+    )
+    source = MailSource(
+        workspace=workspace,
+        name="Diagnostic IMAP",
+        method="IMAP",
+        enabled=True,
+        last_checked=datetime.utcnow(),
+    )
+    db_session.add_all([workspace, domain, report, record, source])
+    db_session.flush()
+    snapshot = DomainDNSPostureSnapshot(
+        domain_id=domain.id,
+        workspace_id=workspace.id,
+        trigger="scheduled",
+        selector_hash="selectors",
+        result_fingerprint="result",
+        result_json=json.dumps(
+            {
+                "dmarc": True,
+                "spf": True,
+                "dkim": True,
+                "dkim_selectors": ["selector1", "selector2"],
+                "dmarc_tags": {
+                    "rua": "mailto:aggregate1@example.com,mailto:aggregate2@example.com",
+                    "ruf": "mailto:failure@example.com",
+                },
+            }
+        ),
+        lookup_status="ok",
+        accepted=True,
+    )
+    forensic = ForensicReport(
+        domain_id=domain.id,
+        report_id="forensic-1",
+        reported_domain=domain.name,
+    )
+    tls_report = TLSReport(
+        domain_id=domain.id,
+        report_id="tls-1",
+        policy_domain=domain.name,
+    )
+    db_session.add_all([snapshot, forensic, tls_report])
+    db_session.flush()
+    db_session.add(
+        DomainDNSPostureCurrent(
+            domain_id=domain.id,
+            workspace_id=workspace.id,
+            accepted_snapshot_id=snapshot.id,
+            latest_snapshot_id=snapshot.id,
+        )
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/workspaces/guidance/diagnostic-plan",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated_from"] == "persisted_evidence"
+    assert payload["domain"] == "diagnostic.example"
+    assert payload["current_action"]["id"] == "explain_report"
+    assert payload["current_action"]["href"] == f"/reports/{report.id}"
+    assert payload["evidence"] == {
+        "domain_count": 1,
+        "report_count": 1,
+        "forensic_report_count": 1,
+        "tls_report_count": 1,
+        "message_count": 8,
+        "failed_message_count": 0,
+        "enabled_source_count": 1,
+        "checked_source_count": 1,
+        "dns_evidence_available": True,
+        "has_dmarc": True,
+        "has_spf": True,
+        "has_dkim": True,
+        "dkim_selector_count": 2,
+        "dmarc_rua_count": 2,
+        "dmarc_ruf_count": 1,
+        "dns_provider_connected": False,
+    }
+    assert any("DKIM" in fact for fact in payload["known_facts"])
+    assert any("failure report" in fact for fact in payload["known_facts"])
+
+
+def test_workspace_interview_context_is_resumable_and_sanitized(
+    authed_client: TestClient,
+    db_session,
+):
+    workspace = Workspace(slug="diagnostic-resume", name="Diagnostic resume")
+    db_session.add(workspace)
+    db_session.commit()
+    headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+    response = authed_client.put(
+        "/api/v1/workspaces/guidance/workspace-profile",
+        headers=headers,
+        json={
+            "installation_goals": ["investigate_bounces", "continuous_monitoring"],
+            "sovereignty_preference": "privacy_first",
+            "notification_posture": "actionable_only",
+            "mail_context": {
+                "domains": ["Example.COM"],
+                "controls_dns": False,
+                "domain_sends_mail": True,
+                "bounce_available": True,
+                "low_volume": False,
+                "symptom_recipient_provider": "Example receiver",
+                "symptom_first_observed": "2026-07-30",
+                "interview_step": 3,
+            },
+            "interview_version": 1,
+            "interview_completed": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["interview_completed"] is False
+    assert db_session.query(WorkspaceAuditLog).count() == 0
+    assert response.json()["mail_context"] == {
+        "known_mail_providers": [],
+        "domains": ["example.com"],
+        "controls_dns": False,
+        "domain_sends_mail": True,
+        "bounce_available": True,
+        "low_volume": False,
+        "symptom_recipient_provider": "Example receiver",
+        "symptom_first_observed": "2026-07-30",
+        "interview_step": 3,
+    }
+
+    invalid = authed_client.put(
+        "/api/v1/workspaces/guidance/workspace-profile",
+        headers=headers,
+        json={
+            "installation_goals": ["investigate_bounces"],
+            "mail_context": {"domains": ["not a domain"], "interview_step": 5},
+            "interview_completed": False,
+        },
+    )
+    assert invalid.status_code == 422
+
+    completed = authed_client.put(
+        "/api/v1/workspaces/guidance/workspace-profile",
+        headers=headers,
+        json={
+            "installation_goals": ["investigate_bounces", "continuous_monitoring"],
+            "sovereignty_preference": "privacy_first",
+            "notification_posture": "actionable_only",
+            "mail_context": response.json()["mail_context"],
+            "interview_version": 1,
+            "interview_completed": True,
+        },
+    )
+    assert completed.status_code == 200
+    assert db_session.query(WorkspaceAuditLog).count() == 1
+
+
+def test_diagnostic_plan_uses_german_copy_from_locale_cookie(
+    authed_client: TestClient,
+    db_session,
+):
+    workspace = Workspace(slug="diagnostic-de", name="Diagnostic DE")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/workspaces/guidance/diagnostic-plan",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+        cookies={"dmarq_locale": "de"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["current_action"]["label"] == "Domain hinzufügen"

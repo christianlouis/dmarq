@@ -1,18 +1,28 @@
 """Current-user workspace context endpoints."""
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import case, distinct, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.localization import resolve_request_locale
 from app.core.security import require_admin_auth
+from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
+from app.models.domain import Domain
+from app.models.mail_source import MailSource
+from app.models.report import DMARCReport, ForensicReport, ReportRecord, TLSReport
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.cloudflare_dns import get_cloudflare_credentials
+from app.services.diagnostic_plan import DiagnosticEvidence, build_diagnostic_plan
+from app.services.dns_provider_writes import lexicon_provider_environment_configured
 from app.services.guidance_profile import (
     EXPLANATION_DEPTHS,
     INSTALLATION_GOALS,
@@ -25,6 +35,7 @@ from app.services.guidance_profile import (
     encode_json,
     resolve_guidance_profile,
 )
+from app.services.hetzner_dns import get_hetzner_dns_credentials
 from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.mail_health_incidents import (
     NOTIFICATION_POSTURES,
@@ -32,6 +43,7 @@ from app.services.mail_health_incidents import (
     record_mail_health_assessment,
     update_incident_operator_state,
 )
+from app.services.route53_dns import get_route53_dns_credentials
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
@@ -44,6 +56,7 @@ from app.services.workspace_access import (
     resolve_authorized_workspace,
 )
 from app.services.workspace_audit import record_workspace_audit_log
+from app.utils.domain_validator import normalize_domain_name, validate_domain
 
 router = APIRouter()
 
@@ -143,14 +156,92 @@ def _validated_optional_bool(value: Dict[str, Any], key: str) -> Optional[bool]:
     return value[key]
 
 
+def _validated_domains(value: Any) -> List[str]:
+    if not isinstance(value, list) or len(value) > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="domains must be a list with at most 20 entries",
+        )
+    normalized_domains: List[str] = []
+    for raw_domain in value:
+        domain = normalize_domain_name(str(raw_domain or ""))
+        valid, _, _ = validate_domain(domain, check_dns=False)
+        if not valid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid domain in mail context",
+            )
+        if domain not in normalized_domains:
+            normalized_domains.append(domain)
+    return normalized_domains
+
+
+def _validated_optional_text(value: Dict[str, Any], key: str) -> Optional[str]:
+    if value.get(key) is None:
+        return None
+    normalized = str(value[key] or "").strip()
+    if len(normalized) > 80:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{key} must not exceed 80 characters",
+        )
+    return normalized or None
+
+
+def _validated_choice(
+    value: Dict[str, Any], key: str, choices: set[str], detail: str
+) -> Optional[str]:
+    selected = value.get(key)
+    if selected is not None and selected not in choices:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        )
+    return selected
+
+
+def _validated_interview_step(value: Dict[str, Any]) -> Optional[int]:
+    interview_step = value.get("interview_step")
+    if interview_step is None:
+        return None
+    if not isinstance(interview_step, int) or not 1 <= interview_step <= 4:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="interview_step must be between 1 and 4",
+        )
+    return interview_step
+
+
+def _validated_mail_context_bools(value: Dict[str, Any]) -> Dict[str, bool]:
+    result: Dict[str, bool] = {}
+    for key in (
+        "self_hosted_sender",
+        "domain_sends_mail",
+        "controls_dns",
+        "bounce_available",
+        "low_volume",
+    ):
+        validated = _validated_optional_bool(value, key)
+        if validated is not None:
+            result[key] = validated
+    return result
+
+
 def _validated_mail_context(value: Dict[str, Any]) -> Dict[str, Any]:
     allowed = {
+        "domains",
         "known_mail_providers",
         "self_hosted_sender",
+        "domain_sends_mail",
         "dns_provider",
         "report_intake_preference",
         "controls_dns",
         "setup_effort",
+        "bounce_available",
+        "low_volume",
+        "symptom_recipient_provider",
+        "symptom_first_observed",
+        "interview_step",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -161,35 +252,230 @@ def _validated_mail_context(value: Dict[str, Any]) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "known_mail_providers": _validated_provider_names(value.get("known_mail_providers", []))
     }
-    for key in ("self_hosted_sender", "controls_dns"):
-        validated = _validated_optional_bool(value, key)
-        if validated is not None:
-            result[key] = validated
+    normalized_domains = _validated_domains(value.get("domains", []))
+    if normalized_domains:
+        result["domains"] = normalized_domains
+    result.update(_validated_mail_context_bools(value))
+    dns_provider = _validated_optional_text(value, "dns_provider")
     if value.get("dns_provider") is not None:
-        dns_provider = str(value["dns_provider"] or "").strip()
-        if len(dns_provider) > 80:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="dns_provider must not exceed 80 characters",
-            )
-        result["dns_provider"] = dns_provider or None
-    intake = value.get("report_intake_preference")
+        result["dns_provider"] = dns_provider
+    intake = _validated_choice(
+        value,
+        "report_intake_preference",
+        REPORT_INTAKE_PREFERENCES,
+        "Invalid report intake preference",
+    )
     if intake is not None:
-        if intake not in REPORT_INTAKE_PREFERENCES:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid report intake preference",
-            )
         result["report_intake_preference"] = intake
-    effort = value.get("setup_effort")
+    effort = _validated_choice(
+        value,
+        "setup_effort",
+        {"simplest", "balanced", "maximum_control"},
+        "Invalid setup effort",
+    )
     if effort is not None:
-        if effort not in {"simplest", "balanced", "maximum_control"}:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid setup effort",
-            )
         result["setup_effort"] = effort
+    for key in ("symptom_recipient_provider", "symptom_first_observed"):
+        normalized = _validated_optional_text(value, key)
+        if normalized:
+            result[key] = normalized
+    interview_step = _validated_interview_step(value)
+    if interview_step is not None:
+        result["interview_step"] = interview_step
     return result
+
+
+def _selected_diagnostic_domain(domains: List[Domain], profile: Dict[str, Any]) -> Optional[Domain]:
+    requested = profile.get("mail_context", {}).get("domains", [])
+    domains_by_name = {domain.name: domain for domain in domains}
+    return next(
+        (domains_by_name[name] for name in requested if name in domains_by_name),
+        domains[0] if domains else None,
+    )
+
+
+def _destination_count(value: object) -> int:
+    return len([item for item in str(value or "").split(",") if item.strip()])
+
+
+def _stored_dns_evidence(db: Session, selected: Optional[Domain]) -> Dict[str, Any]:
+    has_dmarc = bool(selected and selected.dmarc_policy)
+    has_spf = bool(selected and selected.spf_record)
+    evidence = {
+        "has_dmarc": has_dmarc,
+        "has_spf": has_spf,
+        "has_dkim": False,
+        "dkim_selector_count": 0,
+        "dmarc_rua_count": 0,
+        "dmarc_ruf_count": 0,
+        "available": False,
+    }
+    if selected is None:
+        return evidence
+    current = (
+        db.query(DomainDNSPostureCurrent)
+        .filter(DomainDNSPostureCurrent.domain_id == selected.id)
+        .one_or_none()
+    )
+    snapshot = (
+        db.get(DomainDNSPostureSnapshot, current.accepted_snapshot_id)
+        if current and current.accepted_snapshot_id
+        else None
+    )
+    if snapshot is None:
+        evidence["available"] = has_dmarc or has_spf
+        return evidence
+    try:
+        dns_result = json.loads(snapshot.result_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        dns_result = {}
+    if not isinstance(dns_result, dict):
+        return evidence
+    dmarc_tags = dns_result.get("dmarc_tags")
+    tags = dmarc_tags if isinstance(dmarc_tags, dict) else {}
+    selectors = dns_result.get("dkim_selectors")
+    selector_count = len(selectors) if isinstance(selectors, list) else 0
+    evidence.update(
+        {
+            "has_dmarc": bool(dns_result.get("dmarc")),
+            "has_spf": bool(dns_result.get("spf")),
+            "has_dkim": bool(dns_result.get("dkim")),
+            "dkim_selector_count": selector_count,
+            "dmarc_rua_count": _destination_count(tags.get("rua")),
+            "dmarc_ruf_count": _destination_count(tags.get("ruf")),
+            "available": True,
+        }
+    )
+    return evidence
+
+
+def _stored_report_evidence(
+    db: Session, selected: Optional[Domain]
+) -> tuple[int, int, int, Optional[int]]:
+    if selected is None:
+        return 0, 0, 0, None
+    total_messages = func.coalesce(func.sum(ReportRecord.count), 0)
+    passed_messages = func.coalesce(
+        func.sum(
+            case(
+                (
+                    or_(ReportRecord.dkim == "pass", ReportRecord.spf == "pass"),
+                    ReportRecord.count,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    aggregate = (
+        db.query(func.count(distinct(DMARCReport.id)), total_messages, passed_messages)
+        .select_from(DMARCReport)
+        .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(DMARCReport.domain_id == selected.id)
+        .one()
+    )
+    message_count = int(aggregate[1] or 0)
+    failed_message_count = max(0, message_count - int(aggregate[2] or 0))
+    latest = (
+        db.query(DMARCReport.id)
+        .filter(DMARCReport.domain_id == selected.id)
+        .order_by(DMARCReport.end_date.desc(), DMARCReport.id.desc())
+        .first()
+    )
+    return (
+        int(aggregate[0] or 0),
+        message_count,
+        failed_message_count,
+        int(latest[0]) if latest else None,
+    )
+
+
+def _dns_provider_connected(db: Session, profile: Dict[str, Any]) -> bool:
+    provider_name = str(profile.get("mail_context", {}).get("dns_provider") or "").strip().lower()
+    provider_id = {
+        "cloudflare": "cloudflare",
+        "route 53": "route53",
+        "route53": "route53",
+        "aws": "route53",
+        "aws route 53": "route53",
+        "hetzner": "hetzner",
+        "hetzner dns": "hetzner",
+        "ovh": "ovh",
+        "ovhcloud": "ovh",
+    }.get(provider_name, provider_name.replace(" ", "-"))
+    try:
+        if provider_id == "cloudflare":
+            return get_cloudflare_credentials(db).configured
+        if provider_id == "route53":
+            return (
+                get_route53_dns_credentials().configured
+                or lexicon_provider_environment_configured(provider_id)
+            )
+        if provider_id == "hetzner":
+            return (
+                get_hetzner_dns_credentials().configured
+                or lexicon_provider_environment_configured(provider_id)
+            )
+        return bool(provider_id and lexicon_provider_environment_configured(provider_id))
+    except Exception:  # pragma: no cover - readiness checks expose no secret material.
+        return False
+
+
+def _diagnostic_evidence(
+    db: Session,
+    *,
+    workspace: Workspace,
+    profile: Dict[str, Any],
+) -> DiagnosticEvidence:
+    """Build a bounded diagnostic read model from persisted database rows."""
+    domains = (
+        db.query(Domain)
+        .filter(Domain.workspace_id == workspace.id, Domain.active.is_(True))
+        .order_by(Domain.name.asc())
+        .all()
+    )
+    selected = _selected_diagnostic_domain(domains, profile)
+    dns_evidence = _stored_dns_evidence(db, selected)
+    report_count, message_count, failed_message_count, latest_report_id = _stored_report_evidence(
+        db, selected
+    )
+    sources = db.query(MailSource).filter(MailSource.workspace_id == workspace.id).all()
+    enabled_sources = [source for source in sources if source.enabled]
+    forensic_report_count = (
+        db.query(func.count(ForensicReport.id))
+        .filter(ForensicReport.domain_id == selected.id)
+        .scalar()
+        if selected
+        else 0
+    )
+    tls_report_count = (
+        db.query(func.count(TLSReport.id)).filter(TLSReport.domain_id == selected.id).scalar()
+        if selected
+        else 0
+    )
+    return DiagnosticEvidence(
+        domain_names=tuple(domain.name for domain in domains),
+        selected_domain=selected.name if selected else None,
+        has_dmarc=dns_evidence["has_dmarc"],
+        has_spf=dns_evidence["has_spf"],
+        has_dkim=dns_evidence["has_dkim"],
+        dkim_selector_count=dns_evidence["dkim_selector_count"],
+        dmarc_rua_count=dns_evidence["dmarc_rua_count"],
+        dmarc_ruf_count=dns_evidence["dmarc_ruf_count"],
+        dmarc_policy=selected.dmarc_policy if selected else None,
+        dns_evidence_available=dns_evidence["available"],
+        report_count=report_count,
+        forensic_report_count=int(forensic_report_count or 0),
+        tls_report_count=int(tls_report_count or 0),
+        message_count=message_count,
+        failed_message_count=failed_message_count,
+        enabled_source_count=len(enabled_sources),
+        checked_source_count=sum(
+            1 for source in enabled_sources if source.last_checked is not None
+        ),
+        dns_provider_connected=_dns_provider_connected(db, profile),
+        latest_report_id=latest_report_id,
+    )
 
 
 def _workspace_context_row(
@@ -539,32 +825,33 @@ async def update_workspace_guidance_profile(
     workspace.guidance_interview_completed_at = (
         datetime.utcnow() if payload.interview_completed else None
     )
-    record_workspace_audit_log(
-        db,
-        workspace=workspace,
-        action="workspace.guidance_profile_updated",
-        entity_type="workspace_guidance_profile",
-        entity_id=workspace.id,
-        entity_name=workspace.name,
-        auth_context=_auth,
-        request=request,
-        details={
-            "previous": {
-                "installation_goals": previous["installation_goals"],
-                "sovereignty_preference": previous["sovereignty_preference"],
-                "notification_posture": previous["notification_posture"],
-                "mail_context": previous["mail_context"],
+    if payload.interview_completed:
+        record_workspace_audit_log(
+            db,
+            workspace=workspace,
+            action="workspace.guidance_profile_updated",
+            entity_type="workspace_guidance_profile",
+            entity_id=workspace.id,
+            entity_name=workspace.name,
+            auth_context=_auth,
+            request=request,
+            details={
+                "previous": {
+                    "installation_goals": previous["installation_goals"],
+                    "sovereignty_preference": previous["sovereignty_preference"],
+                    "notification_posture": previous["notification_posture"],
+                    "mail_context": previous["mail_context"],
+                },
+                "current": {
+                    "installation_goals": goals,
+                    "sovereignty_preference": payload.sovereignty_preference,
+                    "notification_posture": payload.notification_posture,
+                    "mail_context": context,
+                },
+                "profile_version": PROFILE_VERSION,
+                "interview_version": payload.interview_version,
             },
-            "current": {
-                "installation_goals": goals,
-                "sovereignty_preference": payload.sovereignty_preference,
-                "notification_posture": payload.notification_posture,
-                "mail_context": context,
-            },
-            "profile_version": PROFILE_VERSION,
-            "interview_version": payload.interview_version,
-        },
-    )
+        )
     db.commit()
     profile = _guidance_payload(workspace, _auth_user(db, _auth))
     return {
@@ -595,6 +882,31 @@ async def get_effective_guidance_profile(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     return _guidance_payload(workspace, _auth_user(db, _auth))
+
+
+@router.get("/guidance/diagnostic-plan")
+async def get_guidance_diagnostic_plan(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return one next-step plan derived only from persisted workspace evidence."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    profile = _guidance_payload(workspace, _auth_user(db, _auth))
+    evidence = _diagnostic_evidence(db, workspace=workspace, profile=profile)
+    locale = resolve_request_locale(
+        request, default=getattr(get_settings(), "default_locale", "en")
+    )
+    plan = build_diagnostic_plan(profile, evidence, locale=locale)
+    plan["interview_completed"] = profile["interview_completed"]
+    plan["interview_step"] = int(profile["mail_context"].get("interview_step") or 1)
+    return plan
 
 
 @router.put("/guidance/notification-posture")

@@ -358,14 +358,16 @@ presentation separate from workspace-owned facts and never accept secrets.
 | `GET /workspaces/guidance/preferences` | Read the caller's explanation depth, default context, and teaching-hint preference |
 | `PUT /workspaces/guidance/preferences` | Update the signed-in caller's presentation with read access; auth-disabled/API-key mode requires write access and stores the workspace fallback |
 | `GET /workspaces/guidance/workspace-profile` | Read shared goals, report-data preference, notification posture, non-secret mail context, and schema versions |
-| `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access and create a sanitized audit event |
+| `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access; resumable drafts are quiet and completing the interview creates a sanitized audit event |
+| `GET /workspaces/guidance/diagnostic-plan` | Build one localized next step from persisted workspace evidence without provider, DNS, or mailbox I/O |
 
 The workspace profile accepts ordered values from the documented goal and
-sovereignty enums. `mail_context` is restricted to known mail providers,
-`self_hosted_sender`, `dns_provider`, `report_intake_preference`, `controls_dns`,
-and `setup_effort`. Unknown keys and unsupported future interview versions
-return `422`. The effective response reports whether the preference came from
-the current user or the workspace fallback.
+sovereignty enums. The first installation goal is the primary goal used by the
+diagnostic plan; later values retain optional secondary concerns. `mail_context` is restricted to known mail providers,
+monitored domains, sender and DNS-control context, report-intake preference,
+bounded symptom metadata, and interview progress. Unknown keys and unsupported
+future interview versions return `422`. The effective response reports whether
+the preference came from the current user or the workspace fallback.
 
 ### Mail Source Backfills
 

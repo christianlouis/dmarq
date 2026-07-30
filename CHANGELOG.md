@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided setup now uses a resumable, problem-first interview and a versioned
+  diagnostic plan built only from persisted domain, DNS-posture, report,
+  sender, intake, and provider-readiness evidence. Operators choose one primary
+  goal and may retain secondary concerns. Stored DKIM selectors, DMARC report
+  destinations, and aggregate/failure/TLS report counts enrich the plan without
+  live lookups. It presents one current
+  action, a verification condition, up to four later steps, and explicit known
+  facts and unknowns in English or German. Fresh and already configured
+  single-user installs are covered, while the classic setup remains unchanged
+  unless the deployment feature flag is enabled.
+- Resumable interview drafts now save without audit noise; completing the
+  interview creates the single sanitized workspace configuration event.
 - Guidance preferences are now durable and versioned instead of browser-only.
   Each signed-in user can choose explanation depth, Watch/Diagnose/Evidence
   context, and contextual teaching hints without changing colleagues' views;

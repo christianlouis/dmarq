@@ -35,14 +35,17 @@ context:
   permission.
 - The workspace stores ordered installation goals, report-data preference,
   notification posture, and a small non-secret description of the mail setup.
-  Changing this shared profile requires workspace-write permission and creates
-  a sanitized audit event.
+  Saving resumable interview drafts requires workspace-write permission but
+  does not create noisy audit rows. Completing the interview creates one
+  sanitized audit event.
 - Auth-disabled and API-key single-user installations store presentation
   choices on the workspace so a browser restart does not reset them.
 
-The profile schema is versioned. Mail context accepts only known providers,
-self-hosted-sender status, DNS provider, preferred report-intake route, DNS
-control, and setup-effort preference. Passwords, tokens, mailbox addresses,
+The profile schema is versioned. Mail context accepts only monitored domain
+names, known providers, self-hosted-sender status, whether the domain sends
+mail, DNS provider and control, preferred report-intake route, setup-effort
+preference, low-volume/bounce presence, bounded symptom metadata, and the
+saved interview step. Passwords, tokens, mailbox addresses, message content,
 and arbitrary fields are rejected rather than persisted.
 
 ## Problem-first setup
@@ -50,14 +53,28 @@ and arbitrary fields are rejected rather than persisted.
 When `GUIDED_MAIL_HEALTH_UI_ENABLED=true`, a fresh self-hosted workspace can
 optionally state why it installed DMARQ: suspected delivery trouble, confusing
 reports, likely domain abuse, preventive monitoring, or simple curiosity. The
-answer is stored as an ordered, versioned workspace goal; a signed-in person's
+primary answer and optional secondary concerns are stored as ordered,
+versioned workspace goals; a signed-in person's
 chosen explanation depth is stored as their own presentation preference. The
 same interview can record whether the operator prefers a local data path,
 privacy, a balanced trade-off, convenience, or help deciding. These options
 rank future intake advice but never claim one hosting model is universally
-better. The profile selects a clear first action, but does not enable the
-guided dashboard, alter DNS, or hide the established setup and evidence
-workflows.
+better. The four short screens save after every decision and can be resumed. A
+fresh install starts with the user's problem, then asks for the affected
+domain, DNS control, intended sending, and explanation preference. Unknown
+answers may be skipped. Existing installations receive a current plan
+immediately and may open the same questions only when useful.
+
+The resulting `dmarq.diagnostic_plan.v1` response is deterministic and
+read-only. It combines the stored workspace profile with persisted domains,
+last-known-good DNS posture (including stored DKIM selectors and DMARC report
+destinations), aggregate/failure/TLS report counts, source status, and DNS
+provider readiness. It returns one current action with rationale and a
+verifiable completion condition, at most four later steps, known facts,
+inferences, and unknowns. Generating the plan never performs a DNS lookup,
+connects to a mailbox, or writes to a provider. The profile and plan do not
+enable the guided dashboard, alter DNS, or hide the established setup and
+evidence workflows.
 
 Guidance intentionally describes aggregate DMARC reports as authentication and
 receiver-policy evidence. It does not present them as proof of an individual
