@@ -356,6 +356,66 @@ def test_expected_forwarding_never_recommends_adding_intermediary_to_spf(db_sess
     assert "SPF" not in result["next_action"]["label"]
 
 
+def test_explicit_unauthorized_source_does_not_request_classification_again(db_session):
+    workspace = Workspace(slug="guided-unauthorized", name="Guided unauthorized")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(
+        _projection(
+            domain.id,
+            ip="198.51.100.46",
+            failed=9,
+            disposition_counts={"none": 9},
+        )
+    )
+    record_sender_classification(
+        db_session,
+        workspace=workspace,
+        domain="example.test",
+        source_ip="198.51.100.46",
+        classification="unauthorized",
+        reason="Confirmed outside the mail estate",
+        auth_context={"auth_type": "disabled"},
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "action_required"
+    assert result["conclusion"]["key"] == "mail_health.confirmed_unauthorized_use_unprotected"
+    assert "classif" not in result["next_action"]["label"].lower()
+    assert any(claim["claim_level"] == "operator_reported" for claim in result["claims"])
+
+
+def test_ipv6_operator_classification_matches_noncanonical_projection_spelling(db_session):
+    workspace = Workspace(slug="guided-ipv6", name="Guided IPv6")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(
+        _projection(
+            domain.id,
+            ip="2001:0db8:0000:0000:0000:0000:0000:0001",
+            failed=2,
+            disposition_counts={"none": 2},
+        )
+    )
+    record_sender_classification(
+        db_session,
+        workspace=workspace,
+        domain="example.test",
+        source_ip="2001:db8::1",
+        classification="legitimate",
+        reason="Owned IPv6 sender",
+        auth_context={"auth_type": "disabled"},
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "action_required"
+    assert result["supporting_signals"][0]["payload"]["source_ip"] == "2001:db8::1"
+
+
 def test_connected_low_volume_workspace_without_reports_is_a_watch_state(db_session):
     workspace = Workspace(
         slug="guided-low-volume",
@@ -395,6 +455,26 @@ def test_dmarc_pass_with_operator_reported_bounce_requires_delivery_evidence(db_
     assert result["conclusion"]["key"] == "mail_health.dmarc_pass_bounce_mismatch"
     assert "SMTP" in result["summary"]
     assert result["delivery_certainty"] == "inferred_only"
+
+
+def test_bounce_context_does_not_claim_an_unselected_domain_explains_the_bounce(db_session):
+    workspace = Workspace(
+        slug="guided-bounce-domain",
+        name="Guided bounce domain",
+        guidance_mail_context='{"bounce_available":true,"domains":["bounce.test"]}',
+    )
+    bounce_domain = Domain(name="bounce.test", workspace=workspace)
+    healthy_domain = Domain(name="healthy.test", workspace=workspace)
+    db_session.add_all([workspace, bounce_domain, healthy_domain])
+    db_session.flush()
+    db_session.add(_projection(healthy_domain.id, ip="203.0.113.40", passed=40))
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "healthy"
+    assert result["domain"] is None
+    assert result["conclusion"]["key"] != "mail_health.dmarc_pass_bounce_mismatch"
 
 
 def test_stale_report_evidence_limits_confidence(db_session):

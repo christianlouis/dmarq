@@ -13,7 +13,8 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Dict, Iterable
+from ipaddress import ip_address
+from typing import Any, Callable, Dict, Iterable
 
 from sqlalchemy.orm import Session
 
@@ -90,17 +91,26 @@ def _urgency_band(value: str) -> str:
     }.get(value, "watch")
 
 
+def _canonical_source_ip(value: object) -> str:
+    raw_value = str(value or "").strip()
+    try:
+        return str(ip_address(raw_value))
+    except ValueError:
+        return raw_value
+
+
 def _merge_source_rows(
     rows: Iterable[tuple[Domain, DomainSourceDailyProjection]],
 ) -> Dict[str, Any]:
     sources: Dict[tuple[str, str], Dict[str, Any]] = {}
     for domain, row in rows:
-        key = (domain.name, str(row.source_ip))
+        normalized_ip = _canonical_source_ip(row.source_ip)
+        key = (domain.name, normalized_ip)
         source = sources.setdefault(
             key,
             {
                 "domain": domain.name,
-                "source_ip": str(row.source_ip),
+                "source_ip": normalized_ip,
                 "spf_pass_count": 0,
                 "spf_fail_count": 0,
                 "dkim_pass_count": 0,
@@ -194,6 +204,7 @@ def _assessment(
     conclusion_claim_level: str = "inferred",
     delivery_certainty: str = "inferred_only",
     derived_facts: list[str] | None = None,
+    operator_reported_facts: list[str] | None = None,
     workspace_id: int | None = None,
     window_start: int | None = None,
     window_end: int | None = None,
@@ -201,10 +212,11 @@ def _assessment(
     conclusion_key: str | None = None,
 ) -> Dict[str, Any]:
     derived_fact_set = set(derived_facts or [])
+    operator_fact_set = set(operator_reported_facts or [])
     observed_claims = [
         {"claim_level": "observed", "statement": statement}
         for statement in known_facts or []
-        if statement not in derived_fact_set
+        if statement not in derived_fact_set and statement not in operator_fact_set
     ]
     derived_claims = [
         {"claim_level": "derived", "statement": statement}
@@ -213,6 +225,10 @@ def _assessment(
     ]
     inferred_claims = [
         {"claim_level": "inferred", "statement": statement} for statement in inferences or []
+    ]
+    operator_claims = [
+        {"claim_level": "operator_reported", "statement": statement}
+        for statement in operator_reported_facts or []
     ]
     unknown_claims = [
         {"claim_level": "unknown", "statement": statement} for statement in unknowns or []
@@ -270,7 +286,9 @@ def _assessment(
         "delivery_certainty": delivery_certainty,
         "signal_schema_version": MAIL_SIGNAL_SCHEMA_VERSION,
         "supporting_signals": supporting_signals or [],
-        "claims": observed_claims + derived_claims + inferred_claims + unknown_claims,
+        "claims": (
+            observed_claims + derived_claims + operator_claims + inferred_claims + unknown_claims
+        ),
     }
 
 
@@ -321,10 +339,12 @@ def _classify_failing_sources(
     list[Dict[str, Any]],
     list[Dict[str, Any]],
     list[Dict[str, Any]],
+    list[Dict[str, Any]],
 ]:
     """Group failing sources using stored evidence and auditable operator decisions."""
     known: list[Dict[str, Any]] = []
     forwarding: list[Dict[str, Any]] = []
+    unauthorized: list[Dict[str, Any]] = []
     protected: list[Dict[str, Any]] = []
     unknown: list[Dict[str, Any]] = []
     for source in sources.values():
@@ -341,6 +361,9 @@ def _classify_failing_sources(
         source["previous_pass_count"] = _count(previous.get("dmarc_pass_count"))
         if operator_classification == "expected_forwarding":
             forwarding.append(source)
+            continue
+        if operator_classification == "unauthorized":
+            unauthorized.append(source)
             continue
         identity = identify_sender(
             source["source_ip"],
@@ -361,7 +384,7 @@ def _classify_failing_sources(
             dispositions.get("quarantine")
         )
         (protected if protected_count >= failed else unknown).append(source)
-    return known, forwarding, protected, unknown
+    return known, forwarding, unauthorized, protected, unknown
 
 
 def _no_source_assessment(
@@ -413,10 +436,21 @@ def _no_source_assessment(
     )
 
 
-def _only_protected_failures(
-    protected: list[Dict[str, Any]], unknown: list[Dict[str, Any]]
-) -> bool:
-    return bool(protected) and not unknown
+def _priority_unauthorized_source(
+    confirmed: list[Dict[str, Any]],
+    protected: list[Dict[str, Any]],
+    unknown: list[Dict[str, Any]],
+) -> Dict[str, Any] | None:
+    candidates = confirmed + protected
+    if not candidates or (not confirmed and unknown):
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            item.get("operator_classification") == "unauthorized",
+            _count(item["dmarc_fail_count"]),
+        ),
+    )
 
 
 def _contextual_assessment(
@@ -439,6 +473,123 @@ def _contextual_assessment(
         window_end=end_ts,
         **values,
     )
+
+
+def _unauthorized_use_assessment(
+    assessment: Callable[..., Dict[str, Any]],
+    source: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Distinguish confirmed unauthorized use from likely blocked spoofing."""
+    failed = _count(source["dmarc_fail_count"])
+    dispositions = source["disposition_counts"]
+    protected_count = _count(dispositions.get("reject")) + _count(dispositions.get("quarantine"))
+    explicit = source.get("operator_classification") == "unauthorized"
+    operator_fact = "An operator classified this exact domain and source IP as unauthorized."
+    if explicit and protected_count < failed:
+        return assessment(
+            outcome="action_required",
+            title="Protect the domain from confirmed unauthorized use",
+            summary=(
+                f"An operator classified {source['source_ip']} as unauthorized for "
+                f"{source['domain']}, but receivers did not report protective handling for all "
+                f"{failed} authentication failure(s). Review policy readiness before tightening DMARC."
+            ),
+            next_step="Review domain protection and known-sender readiness",
+            href=f"/domains/{source['domain']}#remediation-queue",
+            confidence="High",
+            reasons=[
+                "The exact source has an auditable unauthorized classification.",
+                "Receiver reports did not consistently record quarantine or reject handling.",
+            ],
+            evidence_scope="The ownership decision is operator-reported; policy handling comes from aggregate receiver reports.",
+            domain=source["domain"],
+            intended_mail_impact="likely_not_affected",
+            urgency="timely",
+            known_facts=[
+                operator_fact,
+                f"Aggregate reports recorded {failed} authentication failure(s).",
+            ],
+            operator_reported_facts=[operator_fact],
+            inferences=[
+                "Current policy may not consistently protect against this unauthorized use."
+            ],
+            unknowns=["The final delivery outcome of individual messages."],
+            verification_condition=(
+                "Known senders remain healthy and fresh receiver reports record protective handling "
+                "for the unauthorized source."
+            ),
+            supporting_signals=_source_signals(source),
+            conclusion_key="mail_health.confirmed_unauthorized_use_unprotected",
+        )
+
+    unmatched_fact = (
+        operator_fact
+        if explicit
+        else "The source did not match a known provider or owned-infrastructure profile."
+    )
+    return assessment(
+        outcome="no_action_likely_unauthorized_use",
+        title=(
+            "Confirmed unauthorized use is being blocked"
+            if explicit
+            else "Likely unauthorized use is being blocked"
+        ),
+        summary=(
+            f"The unauthorized source had {failed} authentication failure(s) for "
+            f"{source['domain']}, and receivers applied your protective DMARC policy. "
+            "Known sender failures were not found in this period."
+            if explicit
+            else f"An unrecognized source had {failed} authentication failure(s) for "
+            f"{source['domain']}, and receivers applied your protective DMARC policy. "
+            "Known sender failures were not found in this period."
+        ),
+        next_step="Review source evidence",
+        href=f"/domains/{source['domain']}#sending-sources",
+        confidence="High" if explicit else "Medium",
+        reasons=[
+            (
+                "The exact source has an auditable unauthorized classification."
+                if explicit
+                else "The source could not be matched to known sending infrastructure."
+            ),
+            "Receiver reports recorded quarantine or reject for all observed failures.",
+        ],
+        evidence_scope="This is an interpretation of aggregate receiver reports, not proof of a specific delivery outcome.",
+        domain=source["domain"],
+        intended_mail_impact="likely_not_affected",
+        urgency="none",
+        known_facts=[
+            unmatched_fact,
+            "Receiver reports recorded protective quarantine or reject handling for all observed failures.",
+        ],
+        derived_facts=[] if explicit else [unmatched_fact],
+        operator_reported_facts=[operator_fact] if explicit else [],
+        inferences=["This does not currently appear to be a fault in your intended sending setup."],
+        unknowns=["The final outcome of individual messages."],
+        verification_condition="Known senders remain healthy and policy remains protective.",
+        no_action_reason="Receivers reported protective handling and no known sender failures were found.",
+        watch_condition="DMARQ will surface a new action if the pattern or known-sender health changes.",
+        supporting_signals=_source_signals(source),
+        conclusion_key="mail_health.confirmed_unauthorized_use_blocked" if explicit else None,
+    )
+
+
+def _bounce_context_source(
+    sources: Dict[tuple[str, str], Dict[str, Any]], mail_context: Dict[str, Any]
+) -> Dict[str, Any] | None:
+    """Match a reported bounce only to the domains selected in the interview."""
+    if not mail_context.get("bounce_available"):
+        return None
+    selected_domains = {
+        str(domain).strip().lower().rstrip(".") for domain in mail_context.get("domains") or []
+    }
+    candidates = [
+        source
+        for source in sources.values()
+        if _count(source["dmarc_pass_count"])
+        and (not selected_domains or source["domain"] in selected_domains)
+    ]
+    return max(candidates, key=lambda item: _count(item["dmarc_pass_count"]), default=None)
 
 
 def build_workspace_mail_health_assessment(
@@ -495,12 +646,16 @@ def build_workspace_mail_health_assessment(
         freshness=freshness,
     )
 
-    known_failing, forwarding_failing, unknown_protected, unknown_failing = (
-        _classify_failing_sources(
-            sources,
-            previous_sources=previous_sources,
-            classifications=classifications,
-        )
+    (
+        known_failing,
+        forwarding_failing,
+        confirmed_unauthorized,
+        unknown_protected,
+        unknown_failing,
+    ) = _classify_failing_sources(
+        sources,
+        previous_sources=previous_sources,
+        classifications=classifications,
     )
 
     if known_failing:
@@ -596,48 +751,12 @@ def build_workspace_mail_health_assessment(
             conclusion_key="mail_health.expected_forwarding",
         )
 
-    if _only_protected_failures(unknown_protected, unknown_failing):
-        source = max(unknown_protected, key=lambda item: _count(item["dmarc_fail_count"]))
-        unmatched_fact = (
-            "The source did not match a known provider or owned-infrastructure profile."
-        )
-        return assessment(
-            outcome="no_action_likely_unauthorized_use",
-            title="Likely unauthorized use is being blocked",
-            summary=(
-                f"An unrecognized source had {_count(source['dmarc_fail_count'])} authentication failure(s) "
-                f"for {source['domain']}, and receivers applied your protective DMARC policy. "
-                "Known sender failures were not found in this period."
-            ),
-            next_step="Review source evidence",
-            href=f"/domains/{source['domain']}#sending-sources",
-            confidence="High" if mail_context.get("domain_sends_mail") is False else "Medium",
-            reasons=[
-                "The source could not be matched to a known provider or owned infrastructure.",
-                "Receiver reports recorded quarantine or reject for all observed failures.",
-            ],
-            evidence_scope=(
-                "This is an interpretation of aggregate receiver reports, not proof of a specific delivery outcome."
-            ),
-            domain=source["domain"],
-            intended_mail_impact="likely_not_affected",
-            urgency="none",
-            known_facts=[
-                unmatched_fact,
-                "Receiver reports recorded protective quarantine or reject handling for all observed failures.",
-            ],
-            derived_facts=[unmatched_fact],
-            inferences=[
-                "This is likely unauthorized use rather than a fault in your known sending setup."
-            ],
-            unknowns=[
-                "Who operated the unrecognized source and the final outcome of individual messages."
-            ],
-            verification_condition="Known senders remain healthy and no new evidence links this source to your mail estate.",
-            no_action_reason="Receivers already reported protective handling and no known sender failures were found.",
-            watch_condition="DMARQ will surface a new action if the pattern changes or a known sender fails.",
-            supporting_signals=_source_signals(source),
-        )
+    unauthorized_source = _priority_unauthorized_source(
+        confirmed_unauthorized, unknown_protected, unknown_failing
+    )
+    if unauthorized_source:
+        source = unauthorized_source
+        return _unauthorized_use_assessment(assessment, source)
 
     if unknown_failing:
         source = max(unknown_failing, key=lambda item: _count(item["dmarc_fail_count"]))
@@ -708,8 +827,9 @@ def build_workspace_mail_health_assessment(
             delivery_certainty="not_applicable",
         )
 
-    source = max(sources.values(), key=lambda item: _count(item["dmarc_pass_count"]))
-    if mail_context.get("bounce_available") and observed_passes:
+    bounce_source = _bounce_context_source(sources, mail_context)
+    if bounce_source:
+        source = bounce_source
         return assessment(
             outcome="insufficient_evidence",
             title="DMARC passes do not explain the reported bounce",
@@ -741,6 +861,7 @@ def build_workspace_mail_health_assessment(
             supporting_signals=_source_signals(source),
             conclusion_key="mail_health.dmarc_pass_bounce_mismatch",
         )
+    source = max(sources.values(), key=lambda item: _count(item["dmarc_pass_count"]))
     return assessment(
         outcome="healthy",
         title="Known senders are authenticating successfully",
