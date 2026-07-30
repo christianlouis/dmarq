@@ -1,6 +1,9 @@
 """Privacy, idempotency, and API tests for delivery evidence."""
 
+import json
 from datetime import datetime, timedelta
+
+from sqlalchemy.exc import IntegrityError
 
 from app.models.delivery_event import DeliveryEvent
 from app.models.workspace import Workspace
@@ -89,6 +92,7 @@ def test_dsn_ingest_is_idempotent_and_privacy_minimized(db_session):
     assert "private-person" not in (row.diagnostic_text or "")
     assert "Secret content" not in (row.sanitized_payload or "")
     assert row.retention_until > row.received_at
+    assert json.loads(row.signal_json)["family"] == "dsn_delivery_status"
 
 
 def test_provider_diagnostic_redacts_recipient_local_part(db_session):
@@ -146,6 +150,48 @@ def test_provider_event_enforces_replay_window_and_idempotency(db_session):
         assert "replay window" in str(exc)
     else:
         raise AssertionError("Old provider event was accepted")
+
+
+def test_provider_event_treats_unique_race_as_duplicate(db_session, monkeypatch):
+    workspace = Workspace(slug="provider-event-race", name="Provider event race")
+    db_session.add(workspace)
+    db_session.commit()
+    payload = {
+        "schema_version": "dmarq.provider_delivery_event.v1",
+        "provider": "example-provider",
+        "event_id": "evt-race",
+        "event": "bounced",
+        "occurred_at": datetime.utcnow(),
+        "domain": "example.com",
+    }
+    original, _ = ingest_provider_event(db_session, workspace=workspace, payload=payload)
+    from app.services import delivery_events as delivery_service
+
+    real_lookup = delivery_service._delivery_event_for_key
+    lookup_calls = 0
+
+    def raced_lookup(*args, **kwargs):
+        nonlocal lookup_calls
+        lookup_calls += 1
+        return None if lookup_calls == 1 else real_lookup(*args, **kwargs)
+
+    real_flush = db_session.flush
+    flush_calls = 0
+
+    def raced_flush(*args, **kwargs):
+        nonlocal flush_calls
+        flush_calls += 1
+        if flush_calls == 1:
+            raise IntegrityError("insert", {}, Exception("duplicate"))
+        return real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(delivery_service, "_delivery_event_for_key", raced_lookup)
+    monkeypatch.setattr(db_session, "flush", raced_flush)
+
+    duplicate, created = ingest_provider_event(db_session, workspace=workspace, payload=payload)
+
+    assert created is False
+    assert duplicate["id"] == original["id"]
 
 
 def test_provider_event_endpoint_requires_the_delivery_write_scope(client, db_session):

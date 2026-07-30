@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import getaddresses
 from typing import Any, Dict, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -142,6 +143,26 @@ def _event_to_dict(row: DeliveryEvent) -> Dict[str, Any]:
     }
 
 
+def _delivery_event_for_key(
+    db: Session,
+    *,
+    workspace_id: int,
+    source_system: str,
+    provider: str,
+    event_id: str,
+) -> Optional[DeliveryEvent]:
+    return (
+        db.query(DeliveryEvent)
+        .filter(
+            DeliveryEvent.workspace_id == workspace_id,
+            DeliveryEvent.source_system == source_system,
+            DeliveryEvent.provider == provider,
+            DeliveryEvent.event_id == event_id,
+        )
+        .one_or_none()
+    )
+
+
 def _persist(
     db: Session,
     *,
@@ -165,15 +186,12 @@ def _persist(
     provider_semantics: Optional[str],
     sanitized_payload: Optional[Dict[str, Any]],
 ) -> tuple[DeliveryEvent, bool]:
-    existing = (
-        db.query(DeliveryEvent)
-        .filter(
-            DeliveryEvent.workspace_id == workspace.id,
-            DeliveryEvent.source_system == source_system,
-            DeliveryEvent.provider == provider,
-            DeliveryEvent.event_id == event_id,
-        )
-        .one_or_none()
+    existing = _delivery_event_for_key(
+        db,
+        workspace_id=workspace.id,
+        source_system=source_system,
+        provider=provider,
+        event_id=event_id,
     )
     if existing is not None:
         return existing, False
@@ -220,8 +238,21 @@ def _persist(
         signal_json="{}",
         sanitized_payload=_json(sanitized_payload) if sanitized_payload else None,
     )
-    db.add(row)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except IntegrityError:
+        existing = _delivery_event_for_key(
+            db,
+            workspace_id=workspace.id,
+            source_system=source_system,
+            provider=provider,
+            event_id=event_id,
+        )
+        if existing is None:
+            raise
+        return existing, False
     signal = build_delivery_event_signal(row)
     row.signal_json = _json(signal)
     return row, True

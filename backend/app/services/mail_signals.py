@@ -262,7 +262,7 @@ def build_delivery_event_signal(event: Any) -> dict[str, Any]:
     source_system = str(getattr(event, "source_system", None) or "provider_webhook")
     family = (
         "dsn_delivery_status"
-        if source_system.startswith(("imap", "gmail", "m365", "webhook", "smtp"))
+        if source_system.startswith(("imap", "gmail", "m365", "webhook", "smtp", "manual_dsn"))
         else "provider_delivery_event"
     )
     if outcome in {"bounced", "blocked", "dropped"}:

@@ -16,8 +16,8 @@ from functools import partial
 from ipaddress import ip_address
 from typing import Any, Callable, Dict
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 
 from app.models.delivery_event import DeliveryEvent
 from app.models.domain import Domain
@@ -35,6 +35,62 @@ from app.services.sender_intelligence import identify_sender
 
 ASSESSMENT_SCHEMA_VERSION = "dmarq.mail_health_assessment.v2"
 ASSESSMENT_ALGORITHM_VERSION = "deterministic-2026-07"
+
+
+def _latest_unsuperseded_non_delivery_event(
+    db: Session,
+    *,
+    workspace_id: int,
+    start_at: datetime,
+    end_at: datetime,
+) -> DeliveryEvent | None:
+    """Return a negative event unless newer correlated success supersedes it."""
+    newer = aliased(DeliveryEvent)
+    correlation_match = or_(
+        and_(
+            DeliveryEvent.message_id_hash.isnot(None),
+            newer.message_id_hash == DeliveryEvent.message_id_hash,
+        ),
+        and_(
+            DeliveryEvent.message_id_hash.is_(None),
+            DeliveryEvent.envelope_id_hash.isnot(None),
+            newer.envelope_id_hash == DeliveryEvent.envelope_id_hash,
+        ),
+        and_(
+            DeliveryEvent.message_id_hash.is_(None),
+            DeliveryEvent.envelope_id_hash.is_(None),
+            DeliveryEvent.recipient_hash.isnot(None),
+            newer.recipient_hash == DeliveryEvent.recipient_hash,
+        ),
+    )
+    superseded = (
+        db.query(newer.id)
+        .filter(
+            newer.workspace_id == DeliveryEvent.workspace_id,
+            newer.normalized_event.in_(["accepted", "delivered"]),
+            or_(
+                newer.occurred_at > DeliveryEvent.occurred_at,
+                and_(
+                    newer.occurred_at == DeliveryEvent.occurred_at,
+                    newer.id > DeliveryEvent.id,
+                ),
+            ),
+            correlation_match,
+        )
+        .exists()
+    )
+    return (
+        db.query(DeliveryEvent)
+        .filter(
+            DeliveryEvent.workspace_id == workspace_id,
+            DeliveryEvent.occurred_at >= start_at,
+            DeliveryEvent.occurred_at <= end_at,
+            DeliveryEvent.normalized_event.in_(["bounced", "blocked", "dropped"]),
+            ~superseded,
+        )
+        .order_by(DeliveryEvent.occurred_at.desc(), DeliveryEvent.id.desc())
+        .first()
+    )
 
 
 def _as_dict(value: object) -> Dict[str, Any]:
@@ -745,18 +801,11 @@ def build_workspace_mail_health_assessment(
         freshness=freshness,
         freshness_at=newest_evidence_at or None,
     )
-    delivery_event = (
-        db.query(DeliveryEvent)
-        .filter(
-            DeliveryEvent.workspace_id == workspace.id,
-            DeliveryEvent.occurred_at
-            >= datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None),
-            DeliveryEvent.occurred_at
-            <= datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None),
-            DeliveryEvent.normalized_event.in_(["bounced", "blocked", "dropped"]),
-        )
-        .order_by(DeliveryEvent.occurred_at.desc(), DeliveryEvent.id.desc())
-        .first()
+    delivery_event = _latest_unsuperseded_non_delivery_event(
+        db,
+        workspace_id=workspace.id,
+        start_at=datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None),
+        end_at=datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None),
     )
     if delivery_event is not None:
         domain = delivery_event.domain

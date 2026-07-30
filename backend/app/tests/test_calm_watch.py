@@ -60,3 +60,35 @@ def test_calm_watch_sends_once_for_an_unchanged_incident(db_session, monkeypatch
     assert "Repair sender authentication" in sent[0]["body"]
     assert incident.last_notified_at is not None
     assert len(webhooks) == 1
+
+
+def test_calm_watch_retries_workspaces_deferred_by_cycle_cap(db_session, monkeypatch):
+    workspaces = [
+        Workspace(slug=f"watch-cap-{index}", name=f"Watch cap {index}") for index in range(6)
+    ]
+    db_session.add_all(workspaces)
+    db_session.commit()
+    sent = []
+
+    monkeypatch.setattr(
+        "app.services.calm_watch.build_workspace_mail_health_assessment",
+        lambda *_args, **_kwargs: _assessment(),
+    )
+    monkeypatch.setattr(
+        "app.services.calm_watch.send_notification",
+        lambda _db, **kwargs: sent.append(kwargs)
+        or SimpleNamespace(to_dict=lambda: {"success": True, "message": "sent"}),
+    )
+    monkeypatch.setattr(
+        "app.services.calm_watch.enqueue_webhook_event",
+        lambda *_args, **_kwargs: None,
+    )
+
+    first = evaluate_and_send_calm_watch(db_session)
+    second = evaluate_and_send_calm_watch(db_session)
+
+    assert len(first["sent"]) == 5
+    assert any(item["reason"] == "cycle_cap" for item in first["suppressed"])
+    assert len(second["sent"]) == 1
+    assert second["sent"][0]["workspace_id"] == workspaces[-1].id
+    assert len(sent) == 6

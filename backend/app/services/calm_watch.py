@@ -108,6 +108,17 @@ def evaluate_and_send_calm_watch(db: Session, *, days: int = 30) -> Dict[str, An
             ),
         )
         if len(sent) >= MAX_NOTIFICATIONS_PER_CYCLE:
+            record_incident_notification_result(
+                db,
+                workspace=workspace,
+                incident_id=int(incident["id"]),
+                reason=reason,
+                result={
+                    "success": False,
+                    "rate_limited": True,
+                    "message": "Deferred by the per-cycle Calm Watch notification cap.",
+                },
+            )
             suppressed.append({"workspace_id": workspace.id, "reason": "cycle_cap"})
             continue
         title, body = _message(incident)

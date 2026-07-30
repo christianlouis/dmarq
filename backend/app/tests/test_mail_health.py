@@ -90,6 +90,45 @@ def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(d
     assert result["next_action"]["href"] == "/delivery-events?domain=example.test"
 
 
+def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
+    workspace = Workspace(slug="delivery-retry", name="Delivery retry")
+    db_session.add(workspace)
+    db_session.commit()
+    base = {
+        "schema_version": "dmarq.provider_delivery_event.v1",
+        "provider": "postmark",
+        "domain": "example.test",
+        "recipient": "recipient@example.net",
+        "message_id": "retry-message-1",
+    }
+    ingest_provider_event(
+        db_session,
+        workspace=workspace,
+        payload={
+            **base,
+            "event_id": "bounce-before-retry",
+            "event": "bounced",
+            "occurred_at": datetime(2026, 7, 25),
+            "status_code": "4.7.0",
+        },
+    )
+    ingest_provider_event(
+        db_session,
+        workspace=workspace,
+        payload={
+            **base,
+            "event_id": "delivered-after-retry",
+            "event": "delivered",
+            "occurred_at": datetime(2026, 7, 26),
+        },
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] != "action_required"
+    assert result["title"] != "A sending system reported non-delivery"
+
+
 def test_known_sender_failures_are_actionable_without_claiming_delivery(db_session):
     workspace = Workspace(slug="guided-known", name="Guided known")
     domain = Domain(name="example.test", workspace=workspace)
