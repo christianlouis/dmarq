@@ -52,6 +52,7 @@ nav:
     - Release Checklist: deployment/release-checklist.md
   - Technical Reference:
     - API Reference: reference/api.md
+    - Mail Signal Contract: reference/mail-signal-contract.md
     - Cloudflare Email Worker Webhook: cloudflare-email-worker-inbound-webhook.md
     - Ecosystem Integration Matrix: reference/ecosystem-integrations.md
     - Provider Integrations: reference/provider-integrations.md

@@ -3200,7 +3200,13 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     assert source["receiver_disposition"] == "mixed"
     assert source["evidence_kind"] == "dmarc_aggregate_report"
     assert source["claim_level"] == "observed"
-    assert source["delivery_certainty"] == "unknown"
+    assert source["delivery_certainty"] == "receiver_disposition_reported"
+    assert {signal["family"] for signal in source["signals"]} == {
+        "dmarc_authentication",
+        "dmarc_reported_disposition",
+    }
+    assert all(signal["claim_level"] == "observed" for signal in source["signals"])
+    assert all(signal["delivery_certainty"] != "delivery_reported" for signal in source["signals"])
 
 
 @pytest.mark.parametrize(

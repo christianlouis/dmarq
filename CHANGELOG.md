@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Guided assessments, domain mailflow diagnoses, and sending-source responses
+  now expose a versioned protocol-aware mail-signal contract. DMARC
+  authentication and receiver-reported policy actions remain separate from
+  inferred conclusions and future DSN/provider delivery evidence, with stable
+  evidence references, claim levels, delivery certainty, and aggregate-safe
+  privacy metadata. Deprecated delivery aliases remain available for existing
+  API clients.
 - Guided setup now recommends one report-intake path from the operator's saved
   goals and persisted source/import state, with manual upload, local IMAP,
   Proton Mail Bridge, Gmail, Microsoft 365, Cloudflare Worker, AWS SES/Lambda,

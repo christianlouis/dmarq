@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable
 
+from app.services.mail_signals import build_dmarc_source_signals
+
 
 def _count(value: object) -> int:
     try:
@@ -37,7 +39,13 @@ def _alignment_status(pass_count: int, fail_count: int) -> str:
     return "unknown"
 
 
-def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
+def _flow(
+    source: Dict[str, Any],
+    sender: Dict[str, Any],
+    *,
+    workspace_id: int | None,
+    domain: str,
+) -> Dict[str, Any]:
     messages = _count(source.get("count"))
     spf_pass = _count(source.get("spf_pass_count"))
     spf_fail = _count(source.get("spf_fail_count"))
@@ -112,6 +120,17 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
         )
         next_step = "Keep report intake running"
 
+    evidence_level = (
+        "inferred"
+        if status in {"likely_unauthorized", "investigate_alignment", "investigate_source"}
+        else "observed"
+    )
+    signals = build_dmarc_source_signals(
+        source,
+        workspace_id=workspace_id,
+        domain=domain,
+        evidence_refs=source.get("evidence_refs") or (),
+    )
     return {
         "source_ip": str(source.get("source_ip") or "unknown"),
         "sender_name": str(sender.get("name") or "Unknown sender"),
@@ -130,11 +149,12 @@ def _flow(source: Dict[str, Any], sender: Dict[str, Any]) -> Dict[str, Any]:
         "dmarc_status": str(source.get("dmarc_result") or "unknown"),
         "receiver_disposition": str(source.get("disposition") or "none"),
         "intended_mail_impact": intended_mail_impact,
-        "evidence_level": (
-            "inferred"
-            if status in {"likely_unauthorized", "investigate_alignment", "investigate_source"}
-            else "observed"
+        "evidence_level": evidence_level,
+        "claim_level": evidence_level,
+        "delivery_certainty": (
+            "inferred_only" if evidence_level == "inferred" else "authentication_only"
         ),
+        "signals": signals,
         "provider_evidence_status": "not_connected",
         "next_step": next_step,
         "verification_condition": (
@@ -147,10 +167,17 @@ def build_domain_mailflow_assessment(
     domain: str,
     sources: Iterable[Dict[str, Any]],
     sender_by_ip: Dict[str, Dict[str, Any]],
+    *,
+    workspace_id: int | None = None,
 ) -> Dict[str, Any]:
     """Build one domain summary plus per-source mailflow identity facts."""
     flows = [
-        _flow(source, sender_by_ip.get(str(source.get("source_ip") or "unknown"), {}))
+        _flow(
+            source,
+            sender_by_ip.get(str(source.get("source_ip") or "unknown"), {}),
+            workspace_id=workspace_id,
+            domain=domain,
+        )
         for source in sources
         if _count(source.get("count")) > 0
     ]

@@ -26,13 +26,13 @@ from app.services.organizations import OrganizationPlanLimitError
 from app.services.ptr_lookup import PtrLookupResult
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_read_projection import (
     _acquire_source_projection_write_lock,
     backfill_source_projections,
     load_domain_source_read_projection,
     materialize_source_projection,
 )
-from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
@@ -120,6 +120,7 @@ def test_save_parsed_report_materializes_daily_sender_facts(db_session):
     assert projection.dmarc_pass_count == 7
     assert projection.dmarc_fail_count == 3
     assert json.loads(projection.disposition_counts) == {"none": 7, "reject": 3}
+    assert json.loads(projection.metadata_json)["report_generators"] == ["Workspace Test Org"]
 
 
 def test_projection_backfill_materializes_unprojected_reports(db_session):
@@ -154,6 +155,8 @@ def test_projection_backfill_materializes_unprojected_reports(db_session):
 
     assert db_session.query(DomainSourceDailyProjection).count() == 1
     assert db_session.get(DMARCReport, report.id).source_projection_at is not None
+    projection = db_session.query(DomainSourceDailyProjection).one()
+    assert json.loads(projection.metadata_json)["report_generators"] == ["receiver.example"]
 
 
 def test_projection_backfill_merges_same_sender_day_within_one_batch(db_session):
@@ -172,7 +175,7 @@ def test_projection_backfill_merges_same_sender_day_within_one_batch(db_session)
     second = DMARCReport(
         domain_id=domain.id,
         report_id="projection-batch-second",
-        org_name="receiver.example",
+        org_name="receiver-two.example",
         begin_date=1_704_067_200,
         end_date=1_704_153_599,
     )
@@ -206,7 +209,14 @@ def test_projection_backfill_merges_same_sender_day_within_one_batch(db_session)
     projection = db_session.query(DomainSourceDailyProjection).one()
     assert projection.message_count == 20
     assert projection.report_count == 2
-    assert db_session.query(DMARCReport).filter(DMARCReport.source_projection_at.is_(None)).count() == 0
+    assert json.loads(projection.metadata_json)["report_generators"] == [
+        "receiver.example",
+        "receiver-two.example",
+    ]
+    assert (
+        db_session.query(DMARCReport).filter(DMARCReport.source_projection_at.is_(None)).count()
+        == 0
+    )
 
 
 def test_projection_write_lock_serializes_postgres_writers():
@@ -273,7 +283,9 @@ def test_projection_write_lock_serializes_postgres_writers():
 def test_projection_window_uses_report_end_time(db_session, monkeypatch):
     """A report remains visible until its actual DMARC reporting window ends."""
     workspace = get_or_create_default_workspace(db_session)
-    report = _parsed_report(domain="projection-window.example", report_id="projection-window", count=4)
+    report = _parsed_report(
+        domain="projection-window.example", report_id="projection-window", count=4
+    )
     report["begin_timestamp"] = 1_704_146_400
     report["end_timestamp"] = 1_704_239_999
     report["begin_date"] = report["begin_timestamp"]
