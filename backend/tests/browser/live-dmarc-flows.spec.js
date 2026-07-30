@@ -1701,6 +1701,8 @@ test('guided onboarding shows one intake recommendation and keeps alternatives p
 
   await page.getByText('Data path and requirements').click();
   await expect(page.getByText(/Failure or forensic reports can contain message-specific metadata/)).toBeVisible();
+  await page.getByText('Adjust recommendation').click();
+  await expect(page.getByRole('combobox', {name: 'Preferred path'})).toBeDisabled();
 
   await page.getByText('Compare alternatives').click();
   await expect(page.getByText('Cloudflare Email Routing and Worker')).toBeVisible();
@@ -1779,6 +1781,7 @@ test('guided onboarding renders manual, hosted, and ready Worker recommendations
       action_label: 'Open Worker how-to',
       href: '/docs/cloudflare-worker',
       flow: ['Report sender', 'Email Routing', 'Worker', 'DMARQ webhook'],
+      availability_reason: 'HTTPS is ready; configure an inbound webhook secret next.',
     },
   };
   await page.route('**/api/v1/workspaces/guidance/report-intake-recommendation', async (route) => {
@@ -1811,6 +1814,7 @@ test('guided onboarding renders manual, hosted, and ready Worker recommendations
   await page.reload();
   await expect(page.getByRole('heading', {name: variants.worker.title})).toBeVisible();
   await expect(page.getByRole('link', {name: variants.worker.action_label})).toBeVisible();
+  await expect(page.getByText(variants.worker.availability_reason)).toBeVisible();
 });
 
 test('intake recommendation link opens a prefilled Proton Bridge source', async ({page}) => {

@@ -344,6 +344,9 @@
                 <h2 id="report-intake-heading" class="mt-1 text-xl font-semibold text-[#07071f]" x-text="recommendedIntake.title"></h2>
                 <p class="mt-2 max-w-3xl text-sm leading-6 text-[#5f5c78]" x-text="recommendedIntake.summary"></p>
                 <p class="mt-2 max-w-3xl text-sm leading-6 text-[#292542]" x-text="recommendedIntake.reason"></p>
+                <p x-show="recommendedIntake.availability_reason"
+                   class="mt-2 max-w-3xl text-sm leading-6 text-[#8a2d0d]"
+                   x-text="recommendedIntake.availability_reason"></p>
                 <div class="mt-3 flex flex-wrap gap-2 text-xs font-medium">
                     <span class="rounded border border-[#d9e7e7] bg-[#f7fbfb] px-2 py-1"
                           x-text="`${translate('Complexity')}: ${recommendedIntake.complexity}`"></span>
@@ -419,7 +422,7 @@
                     <li class="flex items-start gap-3">
                         <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
                               :class="step.complete ? 'bg-[#e7f6f2] text-[#176d58]' : 'bg-[#f1f0ef] text-[#5f5c78]'"
-                              x-text="step.complete ? 'OK' : step.position"></span>
+                              x-text="step.complete ? translate('OK') : step.position"></span>
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                 <p class="font-semibold text-[#292542]" x-text="step.title"></p>
@@ -439,7 +442,8 @@
             <div class="mt-4 grid gap-4 md:grid-cols-2">
                 <label class="form-control">
                     <span class="label-text font-medium" x-text="translate('Preferred path')"></span>
-                    <select class="select select-bordered mt-1" x-model="intakePreference" @change="saveIntakePreferences">
+                    <select class="select select-bordered mt-1" x-model="intakePreference" @change="saveIntakePreferences"
+                            :disabled="savingIntakePreference || !selectedGoal">
                         <option value="not_sure" x-text="translate('Let DMARQ recommend')"></option>
                         <option value="manual_upload" x-text="translate('Manual upload')"></option>
                         <option value="local_imap" x-text="translate('Local or self-hosted IMAP')"></option>
@@ -453,18 +457,21 @@
                 </label>
                 <label class="form-control">
                     <span class="label-text font-medium" x-text="translate('Setup effort')"></span>
-                    <select class="select select-bordered mt-1" x-model="intakeSetupEffort" @change="saveIntakePreferences">
+                    <select class="select select-bordered mt-1" x-model="intakeSetupEffort" @change="saveIntakePreferences"
+                            :disabled="savingIntakePreference || !selectedGoal">
                         <option value="simplest" x-text="translate('Simplest')"></option>
                         <option value="balanced" x-text="translate('Balanced')"></option>
                         <option value="maximum_control" x-text="translate('Maximum control')"></option>
                     </select>
                 </label>
                 <label class="flex items-start gap-3 rounded-md border border-[#d9e7e7] bg-white p-3">
-                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeContinuousMonitoring" @change="saveIntakePreferences">
+                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeContinuousMonitoring" @change="saveIntakePreferences"
+                           :disabled="savingIntakePreference || !selectedGoal">
                     <span><strong class="block" x-text="translate('Continuous monitoring')"></strong><span class="mt-1 block text-xs text-[#5f5c78]" x-text="translate('Keep importing reports without manual uploads.')"></span></span>
                 </label>
                 <label class="flex items-start gap-3 rounded-md border border-[#d9e7e7] bg-white p-3">
-                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeLocalBridgeAvailable" @change="saveIntakePreferences">
+                    <input type="checkbox" class="checkbox checkbox-sm mt-0.5" x-model="intakeLocalBridgeAvailable" @change="saveIntakePreferences"
+                           :disabled="savingIntakePreference || !selectedGoal">
                     <span><strong class="block" x-text="translate('Local bridge available')"></strong><span class="mt-1 block text-xs text-[#5f5c78]" x-text="translate('A service such as Proton Mail Bridge can run continuously near DMARQ.')"></span></span>
                 </label>
             </div>

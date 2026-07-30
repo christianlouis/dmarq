@@ -731,7 +731,11 @@ function workspaceOnboarding(options = {}) {
             }
         },
         async saveIntakePreferences() {
-            if (this.savingIntakePreference || !this.selectedGoal) return;
+            if (this.savingIntakePreference) return;
+            if (!this.selectedGoal) {
+                this.intakeRecommendationError = this.translate('Answer the setup questions before saving intake preferences.');
+                return;
+            }
             this.savingIntakePreference = true;
             this.intakeRecommendationError = '';
             try {

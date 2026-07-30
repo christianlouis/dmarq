@@ -25,10 +25,12 @@ The setup distinguishes these states:
 - **Rejected**: the intake reached DMARQ, but the message or attachment could
   not be parsed. Import history contains the bounded error evidence.
 
-An intake path is verified when its component connection succeeds, DMARQ
-accepts or safely deduplicates a report, and the operator can open the first
-interpretation. Authentication reports are not proof that a particular message
-was delivered, bounced, placed in spam, or read.
+For continuous sources, an intake path is verified when its component
+connection succeeds, DMARQ accepts or safely deduplicates a report, and the
+operator can open the first interpretation. For manual XML, ZIP, or GZIP input,
+successful upload acceptance replaces the component-connection check.
+Authentication reports are not proof that a particular message was delivered,
+bounced, placed in spam, or read.
 
 This chooser covers DMARC **aggregate** reports. Failure or forensic reports
 can include message-specific headers, addresses, subjects, or samples depending
@@ -44,9 +46,12 @@ Later reports must be uploaded again.
 
 ## Local or self-hosted IMAP
 
-DMARQ polls a dedicated report mailbox over plain IMAP, STARTTLS, or implicit
-TLS according to the source settings. Scope the credentials to that mailbox.
-DMARQ does not need a public URL, but it must be able to reach the IMAP server.
+DMARQ polls a dedicated report mailbox using implicit TLS or STARTTLS according
+to the source settings. Scope the credentials to that mailbox. Plain IMAP sends
+mailbox credentials and report contents without transport encryption and is not
+recommended; use it only for an isolated, trusted local Bridge path where TLS is
+not available, never across an untrusted network. DMARQ does not need a public
+URL, but it must be able to reach the IMAP server.
 
 ## Proton Mail Bridge
 
@@ -104,7 +109,7 @@ separate `X-Webhook-Secret` for this endpoint.
   or the webhook secret.
 - Choosing an option stores only its stable identifier and non-secret setup
   preferences in the versioned workspace profile.
-- Reading a recommendation needs report-read access. Updating preferences
-  needs workspace-write access.
+- Reading a recommendation needs `reports:read`. Updating preferences needs
+  workspace-write access.
 - No recommendation grants provider permissions, performs a live connection,
   changes DNS, or enables an unavailable public endpoint.
