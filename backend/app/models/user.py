@@ -36,6 +36,8 @@ class User(Base):
     # changing a workspace's safe default experience.
     guidance_depth = Column(String(24), nullable=True)
     guidance_context = Column(String(24), nullable=True)
+    guidance_teaching_hints_enabled = Column(Boolean, nullable=True)
+    guidance_profile_version = Column(Integer, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=True)

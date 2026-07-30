@@ -275,6 +275,16 @@ def _run_onboarding_expression(storage: dict[str, str], expression: str) -> obje
     return json.loads(result.stdout)
 
 
+def test_onboarding_maps_specialist_goals_to_an_editable_guided_category():
+    assert (
+        _run_onboarding_expression(
+            {},
+            "app.guidedGoalForProfile({goal: 'investigate_bounces', installation_goals: ['investigate_bounces']})",
+        )
+        == "delivery_problem"
+    )
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 
@@ -1772,17 +1782,27 @@ def test_login_error_banner_uses_registered_component_for_csp_migration():
 
 
 def test_profile_renders_external_page_script_for_csp_migration():
+    context = {
+        "app_name": "DMARQ",
+        "auth_configured": False,
+        "auth_disabled": False,
+        "auth_provider": "logto",
+        "auth_provider_label": "Logto",
+        "logto_configured": False,
+    }
     rendered = _render_template(
         "profile.html",
-        app_name="DMARQ",
-        auth_configured=False,
-        auth_disabled=False,
-        auth_provider="logto",
-        auth_provider_label="Logto",
-        logto_configured=False,
+        **context,
+    )
+    guided_rendered = _render_template(
+        "profile.html",
+        guided_mail_health_ui_enabled=True,
+        **context,
     )
 
     assert _has_script_src(rendered, "/static/js/profile-page.js")
+    assert "How DMARQ explains findings" not in rendered
+    assert "How DMARQ explains findings" in guided_rendered
     assert not _has_script_src(
         '<script data-src="/static/js/profile-page.js"></script>',
         "/static/js/profile-page.js",

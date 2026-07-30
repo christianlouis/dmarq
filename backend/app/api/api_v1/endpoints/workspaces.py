@@ -3,16 +3,28 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.database import get_db
 from app.core.config import get_settings
+from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.guidance_profile import (
+    EXPLANATION_DEPTHS,
+    INSTALLATION_GOALS,
+    LEGACY_GOAL_MAP,
+    PRIMARY_GOAL_LEGACY_MAP,
+    PROFILE_VERSION,
+    REPORT_INTAKE_PREFERENCES,
+    SOVEREIGNTY_PREFERENCES,
+    WORK_CONTEXTS,
+    encode_json,
+    resolve_guidance_profile,
+)
 from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.mail_health_incidents import (
     NOTIFICATION_POSTURES,
@@ -21,16 +33,17 @@ from app.services.mail_health_incidents import (
     update_incident_operator_state,
 )
 from app.services.workspace_access import (
-    ROLE_ANALYST,
-    ROLE_WORKSPACE_OWNER,
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
+    ROLE_ANALYST,
+    ROLE_WORKSPACE_OWNER,
     _auth_user,
     is_platform_admin_auth,
     parse_selected_workspace_id,
     permissions_for_role,
     resolve_authorized_workspace,
 )
+from app.services.workspace_audit import record_workspace_audit_log
 
 router = APIRouter()
 
@@ -48,6 +61,7 @@ class GuidancePreferenceUpdate(BaseModel):
     enabled: bool
     depth: str = "guided"
     context: str = "watch"
+    teaching_hints_enabled: Optional[bool] = None
 
 
 class GuidanceProfileUpdate(BaseModel):
@@ -55,6 +69,25 @@ class GuidanceProfileUpdate(BaseModel):
 
     goal: str
     depth: str = "guided"
+
+
+class PersonalGuidancePreferenceUpdate(BaseModel):
+    """Presentation only; never changes evidence access or workspace policy."""
+
+    depth: str
+    context: str
+    teaching_hints_enabled: bool = True
+
+
+class WorkspaceGuidanceProfileUpdate(BaseModel):
+    """Versioned, non-secret operational context for guided decisions."""
+
+    installation_goals: List[str] = Field(max_length=len(INSTALLATION_GOALS))
+    sovereignty_preference: str = "not_sure"
+    notification_posture: str = "actionable_only"
+    mail_context: Dict[str, Any] = Field(default_factory=dict)
+    interview_version: int = PROFILE_VERSION
+    interview_completed: bool = True
 
 
 class NotificationPostureUpdate(BaseModel):
@@ -73,19 +106,90 @@ class IncidentActionUpdate(BaseModel):
 
 def _guidance_payload(workspace: Workspace, user: Optional[User] = None) -> Dict[str, Any]:
     settings = get_settings()
-    available = bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED)
-    has_user_preference = bool(user and (user.guidance_depth or user.guidance_context))
-    return {
-        "available": available,
-        "enabled": bool(workspace.guided_mail_health_enabled) and available,
-        "requested_enabled": bool(workspace.guided_mail_health_enabled),
-        "depth": (user.guidance_depth if user and user.guidance_depth else workspace.guidance_depth) or "standard",
-        "context": (user.guidance_context if user and user.guidance_context else workspace.guidance_context) or "watch",
-        "preference_scope": "user" if has_user_preference else "workspace",
-        "goal": workspace.mail_health_goal,
-        "notification_posture": workspace.notification_posture or "actionable_only",
-        "interview_completed": workspace.guidance_interview_completed_at is not None,
+    return resolve_guidance_profile(
+        workspace,
+        user,
+        available=bool(settings.GUIDED_MAIL_HEALTH_UI_ENABLED),
+    )
+
+
+def _validated_provider_names(value: object) -> List[str]:
+    if not isinstance(value, list) or len(value) > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="known_mail_providers must be a list with at most 20 entries",
+        )
+    normalized_providers = []
+    for provider in value:
+        normalized = str(provider or "").strip()
+        if not normalized or len(normalized) > 80:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Mail provider names must contain 1 to 80 characters",
+            )
+        if normalized not in normalized_providers:
+            normalized_providers.append(normalized)
+    return normalized_providers
+
+
+def _validated_optional_bool(value: Dict[str, Any], key: str) -> Optional[bool]:
+    if key not in value:
+        return None
+    if not isinstance(value[key], bool):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{key} must be true or false",
+        )
+    return value[key]
+
+
+def _validated_mail_context(value: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = {
+        "known_mail_providers",
+        "self_hosted_sender",
+        "dns_provider",
+        "report_intake_preference",
+        "controls_dns",
+        "setup_effort",
     }
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported mail context field: {unknown[0]}",
+        )
+    result: Dict[str, Any] = {
+        "known_mail_providers": _validated_provider_names(value.get("known_mail_providers", []))
+    }
+    for key in ("self_hosted_sender", "controls_dns"):
+        validated = _validated_optional_bool(value, key)
+        if validated is not None:
+            result[key] = validated
+    if value.get("dns_provider") is not None:
+        dns_provider = str(value["dns_provider"] or "").strip()
+        if len(dns_provider) > 80:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="dns_provider must not exceed 80 characters",
+            )
+        result["dns_provider"] = dns_provider or None
+    intake = value.get("report_intake_preference")
+    if intake is not None:
+        if intake not in REPORT_INTAKE_PREFERENCES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid report intake preference",
+            )
+        result["report_intake_preference"] = intake
+    effort = value.get("setup_effort")
+    if effort is not None:
+        if effort not in {"simplest", "balanced", "maximum_control"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid setup effort",
+            )
+        result["setup_effort"] = effort
+    return result
 
 
 def _workspace_context_row(
@@ -118,8 +222,7 @@ def _workspace_context_row(
 def _visible_workspace_roles(db: Session, auth_context: dict) -> Dict[int, str]:
     if is_platform_admin_auth(auth_context):
         return {
-            workspace_id: ROLE_WORKSPACE_OWNER
-            for (workspace_id,) in db.query(Workspace.id).all()
+            workspace_id: ROLE_WORKSPACE_OWNER for (workspace_id,) in db.query(Workspace.id).all()
         }
 
     if (auth_context or {}).get("auth_type") == "api_token":
@@ -196,10 +299,14 @@ async def update_guidance_preference(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Persist an opt-in without changing legacy dashboards automatically."""
-    if payload.depth not in {"guided", "standard", "expert"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth")
-    if payload.context not in {"watch", "diagnose", "evidence"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance context")
+    if payload.depth not in EXPLANATION_DEPTHS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth"
+        )
+    if payload.context not in WORK_CONTEXTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance context"
+        )
     workspace = resolve_authorized_workspace(
         db,
         _auth,
@@ -211,9 +318,14 @@ async def update_guidance_preference(
     if user is not None:
         user.guidance_depth = payload.depth
         user.guidance_context = payload.context
+        if payload.teaching_hints_enabled is not None:
+            user.guidance_teaching_hints_enabled = payload.teaching_hints_enabled
+        user.guidance_profile_version = PROFILE_VERSION
     else:
         workspace.guidance_depth = payload.depth
         workspace.guidance_context = payload.context
+        if payload.teaching_hints_enabled is not None:
+            workspace.guidance_teaching_hints_enabled = payload.teaching_hints_enabled
     db.commit()
     db.refresh(workspace)
     return _guidance_payload(workspace, user)
@@ -236,9 +348,13 @@ async def update_guidance_profile(
         "curious",
     }
     if payload.goal not in valid_goals:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid mail health goal")
-    if payload.depth not in {"guided", "standard", "expert"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid mail health goal"
+        )
+    if payload.depth not in EXPLANATION_DEPTHS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid guidance depth"
+        )
     workspace = resolve_authorized_workspace(
         db,
         _auth,
@@ -246,15 +362,239 @@ async def update_guidance_profile(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.mail_health_goal = payload.goal
+    normalized_goal = LEGACY_GOAL_MAP.get(payload.goal, payload.goal)
+    if normalized_goal in INSTALLATION_GOALS:
+        workspace.guidance_installation_goals = encode_json([normalized_goal])
     user = _auth_user(db, _auth)
     if user is not None:
         user.guidance_depth = payload.depth
+        user.guidance_profile_version = PROFILE_VERSION
     else:
         workspace.guidance_depth = payload.depth
+    workspace.guidance_profile_version = PROFILE_VERSION
+    workspace.guidance_interview_version = PROFILE_VERSION
     workspace.guidance_interview_completed_at = datetime.utcnow()
     db.commit()
     db.refresh(workspace)
     return _guidance_payload(workspace, user)
+
+
+@router.get("/guidance/preferences")
+async def get_personal_guidance_preference(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return the caller's presentation preference or durable workspace fallback."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    profile = _guidance_payload(workspace, _auth_user(db, _auth))
+    return {
+        key: profile[key]
+        for key in (
+            "depth",
+            "context",
+            "teaching_hints_enabled",
+            "preference_scope",
+            "profile_version",
+        )
+    }
+
+
+@router.put("/guidance/preferences")
+async def update_personal_guidance_preference(
+    payload: PersonalGuidancePreferenceUpdate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Update only the caller's presentation, or the single-user fallback."""
+    if payload.depth not in EXPLANATION_DEPTHS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid guidance depth",
+        )
+    if payload.context not in WORK_CONTEXTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid guidance context",
+        )
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    user = _auth_user(db, _auth)
+    if user is not None:
+        user.guidance_depth = payload.depth
+        user.guidance_context = payload.context
+        user.guidance_teaching_hints_enabled = payload.teaching_hints_enabled
+        user.guidance_profile_version = PROFILE_VERSION
+    else:
+        workspace = resolve_authorized_workspace(
+            db,
+            _auth,
+            PERMISSION_REPORTS_WRITE,
+            selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+        )
+        workspace.guidance_depth = payload.depth
+        workspace.guidance_context = payload.context
+        workspace.guidance_teaching_hints_enabled = payload.teaching_hints_enabled
+        workspace.guidance_profile_version = PROFILE_VERSION
+    db.commit()
+    profile = _guidance_payload(workspace, user)
+    return {
+        key: profile[key]
+        for key in (
+            "depth",
+            "context",
+            "teaching_hints_enabled",
+            "preference_scope",
+            "profile_version",
+        )
+    }
+
+
+@router.get("/guidance/workspace-profile")
+async def get_workspace_guidance_profile(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return the non-secret workspace context used by guided decisions."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    profile = _guidance_payload(workspace, _auth_user(db, _auth))
+    return {
+        key: profile[key]
+        for key in (
+            "installation_goals",
+            "sovereignty_preference",
+            "notification_posture",
+            "mail_context",
+            "interview_version",
+            "interview_completed",
+            "profile_version",
+        )
+    }
+
+
+@router.put("/guidance/workspace-profile")
+async def update_workspace_guidance_profile(
+    payload: WorkspaceGuidanceProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Replace the versioned workspace profile and record one sanitized audit event."""
+    goals = []
+    for goal in payload.installation_goals:
+        if goal not in INSTALLATION_GOALS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid installation goal",
+            )
+        if goal not in goals:
+            goals.append(goal)
+    if payload.sovereignty_preference not in SOVEREIGNTY_PREFERENCES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid sovereignty preference",
+        )
+    if payload.notification_posture not in NOTIFICATION_POSTURES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid notification posture",
+        )
+    if payload.interview_version < 1 or payload.interview_version > PROFILE_VERSION:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unsupported interview version",
+        )
+    context = _validated_mail_context(payload.mail_context)
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_WRITE,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    previous = _guidance_payload(workspace, _auth_user(db, _auth))
+    workspace.guidance_installation_goals = encode_json(goals)
+    workspace.mail_health_goal = PRIMARY_GOAL_LEGACY_MAP.get(goals[0], goals[0]) if goals else None
+    workspace.sovereignty_preference = payload.sovereignty_preference
+    workspace.notification_posture = payload.notification_posture
+    workspace.guidance_mail_context = encode_json(context)
+    workspace.guidance_profile_version = PROFILE_VERSION
+    workspace.guidance_interview_version = payload.interview_version
+    workspace.guidance_interview_completed_at = (
+        datetime.utcnow() if payload.interview_completed else None
+    )
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="workspace.guidance_profile_updated",
+        entity_type="workspace_guidance_profile",
+        entity_id=workspace.id,
+        entity_name=workspace.name,
+        auth_context=_auth,
+        request=request,
+        details={
+            "previous": {
+                "installation_goals": previous["installation_goals"],
+                "sovereignty_preference": previous["sovereignty_preference"],
+                "notification_posture": previous["notification_posture"],
+                "mail_context": previous["mail_context"],
+            },
+            "current": {
+                "installation_goals": goals,
+                "sovereignty_preference": payload.sovereignty_preference,
+                "notification_posture": payload.notification_posture,
+                "mail_context": context,
+            },
+            "profile_version": PROFILE_VERSION,
+            "interview_version": payload.interview_version,
+        },
+    )
+    db.commit()
+    profile = _guidance_payload(workspace, _auth_user(db, _auth))
+    return {
+        key: profile[key]
+        for key in (
+            "installation_goals",
+            "sovereignty_preference",
+            "notification_posture",
+            "mail_context",
+            "interview_version",
+            "interview_completed",
+            "profile_version",
+        )
+    }
+
+
+@router.get("/guidance/effective")
+async def get_effective_guidance_profile(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Return the single effective profile consumed by guided pages and APIs."""
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    return _guidance_payload(workspace, _auth_user(db, _auth))
 
 
 @router.put("/guidance/notification-posture")
@@ -266,9 +606,14 @@ async def update_notification_posture(
 ) -> Dict[str, Any]:
     """Choose whether Calm Watch only interrupts for actionable incidents."""
     if payload.posture not in NOTIFICATION_POSTURES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid notification posture")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid notification posture"
+        )
     workspace = resolve_authorized_workspace(
-        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+        db,
+        _auth,
+        PERMISSION_REPORTS_WRITE,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     workspace.notification_posture = payload.posture
     db.commit()
@@ -284,7 +629,10 @@ async def get_mail_health_incidents(
 ) -> Dict[str, Any]:
     """List only incidents in the caller's authorized workspace."""
     workspace = resolve_authorized_workspace(
-        db, _auth, PERMISSION_REPORTS_READ, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     return {"incidents": list_mail_health_incidents(db, workspace=workspace, limit=limit)}
 
@@ -297,7 +645,10 @@ async def evaluate_mail_health_incident(
 ) -> Dict[str, Any]:
     """Evaluate one report-backed Calm Watch assessment without sending a notification."""
     workspace = resolve_authorized_workspace(
-        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+        db,
+        _auth,
+        PERMISSION_REPORTS_WRITE,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     end = datetime.utcnow()
     assessment = build_workspace_mail_health_assessment(
@@ -319,7 +670,10 @@ async def update_mail_health_incident(
 ) -> Dict[str, Any]:
     """Acknowledge or snooze an incident without treating it as resolved."""
     workspace = resolve_authorized_workspace(
-        db, _auth, PERMISSION_REPORTS_WRITE, selected_workspace_id=parse_selected_workspace_id(selected_workspace)
+        db,
+        _auth,
+        PERMISSION_REPORTS_WRITE,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     try:
         snoozed_until = payload.snoozed_until
@@ -337,4 +691,6 @@ async def update_mail_health_incident(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
