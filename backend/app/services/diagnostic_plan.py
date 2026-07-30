@@ -187,7 +187,8 @@ _COPY = {
 
 def _text(locale: str, key: str, **values: object) -> str:
     catalog = _COPY.get(locale, _COPY["en"])
-    return catalog[key].format(**values)
+    template = catalog.get(key) or _COPY["en"][key]
+    return template.format(**values)
 
 
 def _action(
@@ -210,7 +211,7 @@ def _action(
     }
 
 
-def _later_steps(locale: str, current_id: str, domain_href: str) -> list[Dict[str, str]]:
+def _later_steps(locale: str, domain_href: str) -> list[Dict[str, str]]:
     candidates = [
         {
             "id": "confirm_first_report",
@@ -233,7 +234,11 @@ def _later_steps(locale: str, current_id: str, domain_href: str) -> list[Dict[st
             "href": f"{domain_href}#recent-reports",
         },
     ]
-    return [item for item in candidates if item["id"] != current_id][:4]
+    if domain_href == "/domains":
+        candidates = [
+            item for item in candidates if item["id"] not in {"classify_senders", "open_evidence"}
+        ]
+    return candidates[:4]
 
 
 def _first_goal(goals: Iterable[object]) -> str:
@@ -349,14 +354,22 @@ def _select_current_action(
         )
         return current, "insufficient_dmarc_evidence", domain_href
     if not evidence.has_dmarc:
+        if not evidence.dns_evidence_available:
+            current = _action(
+                locale,
+                "check_dns",
+                action_id="inspect_dns_evidence",
+                href=f"{domain_href}#dns-records",
+                domain=domain,
+            )
+            return current, "insufficient_evidence", domain_href
         current = _no_dmarc_action(locale, domain, domain_href, context.get("controls_dns"))
         return current, "setup_required", domain_href
     if evidence.report_count == 0:
-        prefix = "connect" if evidence.enabled_source_count == 0 else "wait"
-        action_id = (
-            "connect_report_intake"
+        prefix, action_id = (
+            ("connect", "connect_report_intake")
             if evidence.enabled_source_count == 0
-            else "verify_report_intake"
+            else ("wait", "verify_report_intake")
         )
         current = _action(
             locale,
@@ -403,8 +416,18 @@ def build_diagnostic_plan(
     goals = profile.get("installation_goals") or []
     goal = _first_goal(goals)
     context = profile.get("mail_context") if isinstance(profile.get("mail_context"), dict) else {}
-    domain = evidence.selected_domain or (
-        evidence.domain_names[0] if evidence.domain_names else None
+    requested_domains = context.get("domains") if isinstance(context.get("domains"), list) else []
+    requested_domain = next((str(item) for item in requested_domains if item), None)
+    requested_domain_missing = bool(
+        requested_domain and requested_domain not in evidence.domain_names
+    )
+    domain = (
+        None
+        if requested_domain_missing
+        else (
+            evidence.selected_domain
+            or (evidence.domain_names[0] if evidence.domain_names else None)
+        )
     )
     known_facts, inferences, unknowns = _evidence_notes(locale, evidence, domain, context)
     current, conclusion_code, domain_href = _select_current_action(
@@ -423,7 +446,7 @@ def build_diagnostic_plan(
             "summary": current["description"],
         },
         "current_action": current,
-        "later_steps": _later_steps(locale, current["id"], domain_href),
+        "later_steps": _later_steps(locale, domain_href),
         "known_facts": known_facts,
         "inferences": inferences,
         "unknowns": unknowns,

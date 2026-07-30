@@ -142,15 +142,15 @@
                 <legend class="text-sm font-semibold text-[#292542]">Can you change DNS for this domain?</legend>
                 <div class="mt-2 grid gap-2 sm:grid-cols-3">
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewControlsDns" type="radio" value="true" class="radio radio-sm">
+                        <input x-model="interviewControlsDns" name="interview-controls-dns" type="radio" value="true" class="radio radio-sm">
                         <span>Yes</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewControlsDns" type="radio" value="false" class="radio radio-sm">
+                        <input x-model="interviewControlsDns" name="interview-controls-dns" type="radio" value="false" class="radio radio-sm">
                         <span>No</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewControlsDns" type="radio" value="" class="radio radio-sm">
+                        <input x-model="interviewControlsDns" name="interview-controls-dns" type="radio" value="" class="radio radio-sm">
                         <span>Not sure</span>
                     </label>
                 </div>
@@ -161,15 +161,15 @@
                 <legend class="text-sm font-semibold text-[#292542]">Does this domain intentionally send email?</legend>
                 <div class="mt-2 grid gap-2 sm:grid-cols-3">
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewDomainSendsMail" type="radio" value="true" class="radio radio-sm">
+                        <input x-model="interviewDomainSendsMail" name="interview-domain-sends-mail" type="radio" value="true" class="radio radio-sm">
                         <span>Yes</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewDomainSendsMail" type="radio" value="false" class="radio radio-sm">
+                        <input x-model="interviewDomainSendsMail" name="interview-domain-sends-mail" type="radio" value="false" class="radio radio-sm">
                         <span>No</span>
                     </label>
                     <label class="flex cursor-pointer items-center gap-2 rounded-md border border-[#d9e7e7] bg-white p-3">
-                        <input x-model="interviewDomainSendsMail" type="radio" value="" class="radio radio-sm">
+                        <input x-model="interviewDomainSendsMail" name="interview-domain-sends-mail" type="radio" value="" class="radio radio-sm">
                         <span>Not sure</span>
                     </label>
                 </div>
@@ -204,7 +204,7 @@
                 <select id="sovereignty-preference"
                         x-model="sovereigntyPreference"
                         class="select select-bordered select-sm w-full sm:max-w-xs"
-                        @change="saveWorkspaceGuidanceProfile">
+                        @change="saveWorkspaceGuidanceProfile(false, guidanceInterviewCompleted)">
                     <option value="not_sure">Help me decide</option>
                     <option value="keep_data_local">Keep the data path local where possible</option>
                     <option value="privacy_first">Prioritize privacy with managed services allowed</option>

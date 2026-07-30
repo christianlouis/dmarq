@@ -65,8 +65,13 @@ function workspaceOnboarding(options = {}) {
             learn_or_explore: 'curious',
             other: 'curious',
         },
-        translate(message) {
-            return typeof window.dmarqT === 'function' ? window.dmarqT(message) : message;
+        translate(message, replacements = {}) {
+            return typeof window.dmarqT === 'function'
+                ? window.dmarqT(message, replacements)
+                : Object.entries(replacements).reduce(
+                    (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
+                    message
+                );
         },
         get translatedMailHealthGoals() {
             return this.mailHealthGoals.map(goal => ({
@@ -127,66 +132,17 @@ function workspaceOnboarding(options = {}) {
         },
         get goalRecommendation() {
             const currentAction = this.diagnosticPlan?.current_action;
-            if (currentAction) {
-                return {
-                    title: currentAction.title,
-                    description: currentAction.description,
-                    evidenceNote: currentAction.why,
-                    verification: currentAction.verification,
-                    action: currentAction.label,
-                    href: currentAction.href,
-                };
-            }
-            const recommendations = {
-                delivery_problem: {
-                    title: 'Start by connecting the report mailbox',
-                    description: 'DMARQ can compare authentication outcomes from receiving providers once aggregate reports arrive. Then it can distinguish known senders that need attention from unrelated sources.',
-                    evidenceNote: 'Aggregate DMARC reports show authentication and receiver policy outcomes. They do not by themselves prove that an individual message bounced, reached an inbox, or landed in spam.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                spam_or_inconsistent: {
-                    title: 'Start by connecting the report mailbox',
-                    description: 'Collect aggregate reports first, then review whether the services that send for your domain authenticate consistently.',
-                    evidenceNote: 'DMARC evidence can identify authentication risks. Inbox placement and individual delivery need separate provider or bounce evidence.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                reports_confusing: {
-                    title: 'Bring in one report before changing DNS',
-                    description: 'Connect the mailbox that receives DMARC reports or upload a report. DMARQ will turn the aggregate evidence into a prioritized explanation.',
-                    evidenceNote: 'A report is evidence about a receiver’s authentication evaluation, not a complete record of every individual delivery.',
-                    action: 'Choose import method',
-                    href: '/mail-sources',
-                },
-                suspected_abuse: {
-                    title: 'Collect reports before changing your policy',
-                    description: 'First identify your intended senders and the sources receivers already reject. That avoids weakening legitimate delivery while investigating possible abuse.',
-                    evidenceNote: 'DMARQ will show which sources are known, which are unknown, and what receivers reported. It will not claim that an unknown source is malicious without enough evidence.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                preventive_monitoring: {
-                    title: 'Set up report intake for ongoing monitoring',
-                    description: 'Connect a report mailbox, then add the domains whose mail you want DMARQ to watch.',
-                    evidenceNote: 'The guided view will surface changes that are likely actionable while retaining the full technical evidence below.',
-                    action: 'Connect report mailbox',
-                    href: '/mail-sources',
-                },
-                curious: {
-                    title: 'Start with one domain and one report source',
-                    description: 'Use a small, reversible setup first. Once reports arrive, DMARQ can show the observed senders and DNS posture for that domain.',
-                    evidenceNote: 'Technical details remain available when you want them; the default view will focus on the next useful question.',
-                    action: 'Add a domain',
-                    href: '/domains',
-                },
+            return {
+                title: currentAction?.title || '',
+                description: currentAction?.description || '',
+                evidenceNote: currentAction?.why || '',
+                verification: currentAction?.verification || '',
+                action: currentAction?.label || '',
+                href: currentAction?.href || '/onboarding',
             };
-            return recommendations[this.selectedGoal] || recommendations.curious;
         },
         get interviewProgress() {
-            return window.dmarqLocale === 'de'
-                ? `Schritt ${this.interviewStep} von 4`
-                : `Step ${this.interviewStep} of 4`;
+            return this.translate('Step {step} of 4', {step: this.interviewStep});
         },
         get interviewStepTitle() {
             return this.translate({
@@ -579,6 +535,7 @@ function workspaceOnboarding(options = {}) {
             if (!preferenceResponse.ok) {
                 throw new Error(preference.detail || 'Your explanation preference could not be saved.');
             }
+            this.guidanceDepth = preference.depth || this.guidanceDepth;
             return preference;
         },
         async continueGoalInterview() {
@@ -605,7 +562,9 @@ function workspaceOnboarding(options = {}) {
             else delete context.symptom_first_observed;
             return context;
         },
-        async saveWorkspaceGuidanceProfile(throwOnFailure = false, completed = this.guidanceInterviewCompleted) {
+        async saveWorkspaceGuidanceProfile(throwOnFailure, completed) {
+            throwOnFailure = throwOnFailure === true;
+            if (typeof completed !== 'boolean') completed = this.guidanceInterviewCompleted;
             if (!this.selectedGoal) return;
             const installationGoals = this.installationGoals.filter(goal => Boolean(this.guidanceUiGoals[goal]));
             if (!installationGoals.length) {
@@ -660,8 +619,7 @@ function workspaceOnboarding(options = {}) {
             this.goalError = '';
             try {
                 this.interviewStep = 4;
-                const preference = await this.savePersonalGuidancePreference();
-                this.guidanceDepth = preference.depth || this.guidanceDepth;
+                await this.savePersonalGuidancePreference();
                 await this.saveWorkspaceGuidanceProfile(true, true);
                 this.editingGuidance = false;
                 this.goalSaved = true;

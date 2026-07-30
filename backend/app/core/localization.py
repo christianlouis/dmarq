@@ -482,7 +482,7 @@ DE_TRANSLATIONS: Dict[str, str] = {
     "Blocked by": "Blockiert durch",
     "Preparing your next step...": "Dein nächster Schritt wird vorbereitet...",
     "Your next step could not be loaded": "Dein nächster Schritt konnte nicht geladen werden",
-    "Try again": "Erneut versuchen",
+    "Step {step} of 4": "Schritt {step} von 4",
     "System settings": "Systemeinstellungen",
     "These values are stored in the application settings.": "Diese Werte werden in den Anwendungseinstellungen gespeichert.",
     "Application name": "Anwendungsname",

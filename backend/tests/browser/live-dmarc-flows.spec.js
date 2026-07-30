@@ -1445,6 +1445,7 @@ test('onboarding persists the problem-first goal without losing existing mail co
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('group', {name: 'Does this domain intentionally send email?'}).getByRole('radio', {name: 'Yes'}).check();
   await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('Explanation detail').selectOption('expert');
   await page.getByLabel('Report data preference').selectOption('privacy_first');
   await page.getByRole('button', { name: 'Show my next step' }).click();
 
@@ -1452,7 +1453,7 @@ test('onboarding persists the problem-first goal without losing existing mail co
   await page.getByText('Why DMARQ chose this step').click();
   await expect(page.getByText('A report explains authentication, not individual delivery.')).toBeVisible();
   expect(savedPreference).toEqual({
-    depth: 'standard',
+    depth: 'expert',
     context: 'watch',
     teaching_hints_enabled: false,
   });
@@ -1537,11 +1538,11 @@ test('guided onboarding keeps the primary action visible on mobile and resumes p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 });
 
-test('guided onboarding presents the problem-first path in German', async ({page, context}) => {
+test('guided onboarding presents the problem-first path in German', async ({page, context, baseURL}) => {
   await context.addCookies([{
     name: 'dmarq_locale',
     value: 'de',
-    url: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:18080',
+    url: baseURL,
   }]);
   await page.route('**/api/v1/workspaces/guidance', async (route) => {
     await route.fulfill(json({

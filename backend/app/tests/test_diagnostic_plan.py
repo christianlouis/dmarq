@@ -122,6 +122,51 @@ def test_no_domain_starts_with_a_non_mutating_domain_action():
     assert plan["current_action"]["id"] == "add_domain"
     assert plan["current_action"]["href"] == "/domains"
     assert "does not change DNS" in plan["current_action"]["why"]
+    assert {step["id"] for step in plan["later_steps"]}.isdisjoint(
+        {"classify_senders", "open_evidence"}
+    )
+
+
+def test_requested_unmonitored_domain_is_not_replaced_with_an_existing_domain():
+    plan = build_diagnostic_plan(
+        _profile("continuous_monitoring", domains=["new.example"]),
+        DiagnosticEvidence(
+            domain_names=("existing.example",),
+            selected_domain=None,
+            has_dmarc=True,
+            dns_evidence_available=True,
+            report_count=3,
+        ),
+    )
+
+    assert plan["domain"] is None
+    assert plan["current_action"]["id"] == "add_domain"
+
+
+def test_missing_dns_evidence_is_not_treated_as_confirmed_missing_dmarc():
+    plan = build_diagnostic_plan(
+        _profile("continuous_monitoring", controls_dns=True),
+        DiagnosticEvidence(
+            domain_names=("unknown.example",),
+            selected_domain="unknown.example",
+            dns_evidence_available=False,
+        ),
+    )
+
+    assert plan["conclusion"]["code"] == "insufficient_evidence"
+    assert plan["current_action"]["id"] == "inspect_dns_evidence"
+
+
+def test_delivery_goal_uses_available_bounce_evidence_first():
+    plan = build_diagnostic_plan(
+        _profile("troubleshoot_delivery", bounce_available=True),
+        DiagnosticEvidence(
+            domain_names=("bounce.example",),
+            selected_domain="bounce.example",
+        ),
+    )
+
+    assert plan["current_action"]["id"] == "review_bounce_evidence"
 
 
 def test_delivery_problem_uses_bounce_evidence_when_the_interview_has_it():

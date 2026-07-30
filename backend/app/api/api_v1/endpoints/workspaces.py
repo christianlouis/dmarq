@@ -204,7 +204,11 @@ def _validated_interview_step(value: Dict[str, Any]) -> Optional[int]:
     interview_step = value.get("interview_step")
     if interview_step is None:
         return None
-    if not isinstance(interview_step, int) or not 1 <= interview_step <= 4:
+    if (
+        isinstance(interview_step, bool)
+        or not isinstance(interview_step, int)
+        or not 1 <= interview_step <= 4
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="interview_step must be between 1 and 4",
@@ -355,12 +359,16 @@ def _stored_report_evidence(
     if selected is None:
         return 0, 0, 0, None
     latest = (
-        db.query(DMARCReport.id)
+        db.query(DMARCReport.id, DMARCReport.end_date)
         .filter(DMARCReport.domain_id == selected.id)
         .order_by(DMARCReport.end_date.desc(), DMARCReport.id.desc())
         .first()
     )
+    if latest is None:
+        return 0, 0, 0, None
     total_messages = func.coalesce(func.sum(ReportRecord.count), 0)
+    # These are receiver policy-evaluated aligned DKIM/SPF outcomes. Passing
+    # either mechanism is the persisted DMARC authentication result.
     passed_messages = func.coalesce(
         func.sum(
             case(
@@ -380,21 +388,19 @@ def _stored_report_evidence(
         .filter(DMARCReport.domain_id == selected.id)
         .one()
     )
-    latest_failure_count = 0
-    if latest:
-        latest_messages, latest_passed = (
-            db.query(total_messages, passed_messages)
-            .select_from(DMARCReport)
-            .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.id == latest[0])
-            .one()
-        )
-        latest_failure_count = max(0, int(latest_messages or 0) - int(latest_passed or 0))
+    latest_messages, latest_passed = (
+        db.query(total_messages, passed_messages)
+        .select_from(DMARCReport)
+        .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(DMARCReport.id == latest.id)
+        .one()
+    )
+    failed_message_count = max(0, int(latest_messages or 0) - int(latest_passed or 0))
     return (
         int(aggregate[0] or 0),
         int(aggregate[1] or 0),
-        latest_failure_count,
-        int(latest[0]) if latest else None,
+        failed_message_count,
+        int(latest.id),
     )
 
 

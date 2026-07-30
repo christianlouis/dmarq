@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.core.database import get_db
-from app.core.security import require_admin_auth
 from app.api.api_v1.endpoints.workspaces import (
     _selected_diagnostic_domain,
     _stored_report_evidence,
 )
+from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -857,6 +857,17 @@ def test_workspace_interview_context_is_resumable_and_sanitized(
     )
     assert invalid.status_code == 422
 
+    boolean_step = authed_client.put(
+        "/api/v1/workspaces/guidance/workspace-profile",
+        headers=headers,
+        json={
+            "installation_goals": ["investigate_bounces"],
+            "mail_context": {"interview_step": True},
+            "interview_completed": False,
+        },
+    )
+    assert boolean_step.status_code == 422
+
     completed = authed_client.put(
         "/api/v1/workspaces/guidance/workspace-profile",
         headers=headers,
@@ -889,3 +900,72 @@ def test_diagnostic_plan_uses_german_copy_from_locale_cookie(
 
     assert response.status_code == 200
     assert response.json()["current_action"]["label"] == "Domain hinzufügen"
+
+
+def test_diagnostic_plan_uses_latest_report_for_current_failure_action(
+    authed_client: TestClient,
+    db_session,
+):
+    workspace = Workspace(
+        slug="diagnostic-window",
+        name="Diagnostic window",
+        guidance_installation_goals='["continuous_monitoring"]',
+    )
+    domain = Domain(
+        name="window.example",
+        workspace=workspace,
+        dmarc_policy="reject",
+    )
+    old_report = DMARCReport(
+        domain=domain,
+        report_id="old-failure",
+        org_name="Example Receiver",
+        begin_date=1,
+        end_date=100,
+        policy="reject",
+    )
+    latest_report = DMARCReport(
+        domain=domain,
+        report_id="latest-pass",
+        org_name="Example Receiver",
+        begin_date=2_999_000,
+        end_date=3_000_000,
+        policy="reject",
+    )
+    db_session.add_all(
+        [
+            workspace,
+            domain,
+            old_report,
+            latest_report,
+            ReportRecord(
+                report=old_report,
+                source_ip="192.0.2.1",
+                count=50,
+                disposition="reject",
+                dkim="fail",
+                spf="fail",
+            ),
+            ReportRecord(
+                report=latest_report,
+                source_ip="192.0.2.2",
+                count=25,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/workspaces/guidance/diagnostic-plan",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["evidence"]["report_count"] == 2
+    assert payload["evidence"]["message_count"] == 75
+    assert payload["evidence"]["failed_message_count"] == 0
+    assert payload["current_action"]["id"] == "open_domain"
