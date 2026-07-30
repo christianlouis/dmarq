@@ -125,11 +125,13 @@ delivery lookups.
 The `dmarq.mail_health_assessment.v2` response also compares the immediately
 preceding bounded evidence window. A legitimate source that previously passed
 and now fails is prioritized ahead of a larger anonymous failure count. Its
-machine-readable contract contains a stable assessment ID, outcome, impact,
-urgency and confidence bands, freshness, known facts, inferences, unknowns,
-one safe next action, verification condition, and aggregate-safe evidence
-references. Localized prose is presentation data, not the stored source of
-truth.
+machine-readable contract contains an assessment ID, outcome, impact, urgency
+and confidence bands, freshness, known facts, inferences, unknowns, one safe
+next action, verification condition, and aggregate-safe evidence references.
+The ID is stable for the exact workspace, domain, conclusion, evidence window,
+supporting signal set, and algorithm version; a new window or changed evidence
+produces a new ID. Localized prose is presentation data, not the stored source
+of truth.
 
 Operators can classify one exact domain/source-IP pair as `legitimate`,
 `unknown`, `unauthorized`, `expected_forwarding`, or `stale`. Each decision is

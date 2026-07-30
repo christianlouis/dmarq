@@ -173,6 +173,61 @@ def test_health_signals_keep_protocol_counts_identities_and_report_boundaries(db
     }
 
 
+def test_projection_reader_aggregates_daily_counters_and_compact_evidence(db_session):
+    workspace = Workspace(slug="guided-sql-aggregate", name="Guided SQL aggregate")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    first_day = int(datetime(2026, 7, 24, tzinfo=timezone.utc).timestamp())
+    second_day = int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp())
+    db_session.add_all(
+        [
+            _projection(
+                domain.id,
+                ip="203.0.113.10",
+                passed=3,
+                disposition_counts={"none": 3},
+                hostname="mta1.mtasv.net",
+                observed_at=first_day,
+                first_seen=first_day,
+                last_seen=first_day,
+                metadata={"dkim_selectors": ["first"]},
+            ),
+            _projection(
+                domain.id,
+                ip="203.0.113.10",
+                failed=2,
+                disposition_counts={"reject": 2},
+                hostname="mta1.mtasv.net",
+                observed_at=second_day,
+                first_seen=second_day,
+                last_seen=second_day,
+                metadata={"dkim_selectors": ["second"]},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = _assessment(db_session, workspace)
+    authentication = next(
+        signal
+        for signal in result["supporting_signals"]
+        if signal["family"] == "dmarc_authentication"
+    )
+    disposition = next(
+        signal
+        for signal in result["supporting_signals"]
+        if signal["family"] == "dmarc_reported_disposition"
+    )
+
+    assert authentication["payload"]["passed"] == 3
+    assert authentication["payload"]["failed"] == 2
+    assert authentication["payload"]["dkim_selectors"] == ["first", "second"]
+    assert authentication["window_start"] == first_day
+    assert authentication["window_end"] == second_day
+    assert disposition["payload"]["dispositions"] == {"none": 3, "reject": 2}
+
+
 def test_unknown_rejected_source_is_quietly_classified_as_likely_unauthorized_use(db_session):
     workspace = Workspace(slug="guided-unknown", name="Guided unknown")
     domain = Domain(name="example.test", workspace=workspace)
@@ -322,6 +377,8 @@ def test_operator_legitimate_sender_with_previous_passes_is_prioritized_as_regre
     assert result["outcome"] == "action_required"
     assert result["confidence_band"] == "high"
     assert "previous window" in " ".join(result["known_facts"])
+    assert "operator classified" in " ".join(result["confidence_reasons"]).lower()
+    assert "known provider" not in " ".join(result["confidence_reasons"]).lower()
     assert result["supporting_signals"][0]["payload"]["source_ip"] == "198.51.100.44"
 
 
@@ -422,6 +479,43 @@ def test_explicit_unauthorized_source_does_not_request_classification_again(db_s
     assert result["conclusion"]["key"] == "mail_health.confirmed_unauthorized_use_unprotected"
     assert "classif" not in result["next_action"]["label"].lower()
     assert any(claim["claim_level"] == "operator_reported" for claim in result["claims"])
+
+
+def test_unknown_unprotected_failure_outranks_confirmed_blocked_abuse(db_session):
+    workspace = Workspace(slug="guided-unauthorized-mixed", name="Guided unauthorized mixed")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add_all(
+        [
+            _projection(
+                domain.id,
+                ip="198.51.100.46",
+                failed=90,
+                disposition_counts={"reject": 90},
+            ),
+            _projection(
+                domain.id,
+                ip="198.51.100.47",
+                failed=2,
+                disposition_counts={"none": 2},
+            ),
+        ]
+    )
+    record_sender_classification(
+        db_session,
+        workspace=workspace,
+        domain="example.test",
+        source_ip="198.51.100.46",
+        classification="unauthorized",
+        reason="Confirmed abuse already blocked by receivers",
+        auth_context={"auth_type": "disabled"},
+    )
+
+    result = _assessment(db_session, workspace)
+
+    assert result["outcome"] == "investigation_required"
+    assert result["supporting_signals"][0]["payload"]["source_ip"] == "198.51.100.47"
 
 
 def test_ipv6_operator_classification_matches_noncanonical_projection_spelling(db_session):
@@ -537,3 +631,30 @@ def test_stale_report_evidence_limits_confidence(db_session):
     assert result["outcome"] == "healthy"
     assert result["freshness"] == "stale"
     assert result["confidence_band"] == "medium"
+    assert result["freshness_at"] == datetime.fromtimestamp(stale, tz=timezone.utc).isoformat()
+    assert {signal["freshness"] for signal in result["supporting_signals"]} == {"stale"}
+
+
+def test_assessment_id_identifies_the_exact_evidence_window(db_session):
+    workspace = Workspace(slug="guided-assessment-id", name="Guided assessment ID")
+    domain = Domain(name="example.test", workspace=workspace)
+    db_session.add_all([workspace, domain])
+    db_session.flush()
+    db_session.add(_projection(domain.id, ip="203.0.113.26", passed=12))
+    db_session.commit()
+    start = int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp())
+    first_end = int(datetime(2026, 7, 30, tzinfo=timezone.utc).timestamp())
+    second_end = int(datetime(2026, 7, 31, tzinfo=timezone.utc).timestamp())
+
+    first = build_workspace_mail_health_assessment(
+        db_session, workspace=workspace, start_ts=start, end_ts=first_end
+    )
+    repeated = build_workspace_mail_health_assessment(
+        db_session, workspace=workspace, start_ts=start, end_ts=first_end
+    )
+    shifted = build_workspace_mail_health_assessment(
+        db_session, workspace=workspace, start_ts=start, end_ts=second_end
+    )
+
+    assert first["assessment_id"] == repeated["assessment_id"]
+    assert first["assessment_id"] != shifted["assessment_id"]

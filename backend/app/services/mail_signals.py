@@ -180,6 +180,7 @@ def build_dmarc_source_signals(
         "observed_at": str(source.get("captured_at") or "") or None,
         "source_system": "dmarc_aggregate_report",
         "claim_level": "observed",
+        "freshness": str(source.get("freshness") or "current"),
         "privacy_classification": "aggregate",
         "evidence_refs": tuple(sorted({str(item) for item in evidence_refs if str(item)})),
     }

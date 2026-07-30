@@ -14,8 +14,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from functools import partial
 from ipaddress import ip_address
-from typing import Any, Callable, Dict, Iterable
+from typing import Any, Callable, Dict
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
@@ -99,79 +100,6 @@ def _canonical_source_ip(value: object) -> str:
         return raw_value
 
 
-def _merge_source_rows(
-    rows: Iterable[tuple[Domain, DomainSourceDailyProjection]],
-) -> Dict[str, Any]:
-    sources: Dict[tuple[str, str], Dict[str, Any]] = {}
-    for domain, row in rows:
-        normalized_ip = _canonical_source_ip(row.source_ip)
-        key = (domain.name, normalized_ip)
-        source = sources.setdefault(
-            key,
-            {
-                "domain": domain.name,
-                "source_ip": normalized_ip,
-                "spf_pass_count": 0,
-                "spf_fail_count": 0,
-                "dkim_pass_count": 0,
-                "dkim_fail_count": 0,
-                "dmarc_pass_count": 0,
-                "dmarc_fail_count": 0,
-                "disposition_counts": defaultdict(int),
-                "source_evidence": {},
-                "captured_at": "",
-                "workspace_id": domain.workspace_id,
-                "window_start": None,
-                "window_end": None,
-                "evidence_refs": [],
-                "report_generators": [],
-                "header_from_domains": [],
-                "envelope_from_domains": [],
-                "spf_domains": [],
-                "dkim_domains": [],
-                "dkim_selectors": [],
-            },
-        )
-        source["spf_pass_count"] += _count(row.spf_pass_count)
-        source["spf_fail_count"] += _count(row.spf_fail_count)
-        source["dkim_pass_count"] += _count(row.dkim_pass_count)
-        source["dkim_fail_count"] += _count(row.dkim_fail_count)
-        source["dmarc_pass_count"] += _count(row.dmarc_pass_count)
-        source["dmarc_fail_count"] += _count(row.dmarc_fail_count)
-        source["window_start"] = (
-            row.first_seen or row.observed_at
-            if source["window_start"] is None
-            else min(source["window_start"], row.first_seen or row.observed_at)
-        )
-        source["window_end"] = (
-            row.last_seen or row.observed_at
-            if source["window_end"] is None
-            else max(source["window_end"], row.last_seen or row.observed_at)
-        )
-        source["evidence_refs"].append(f"domain_source_daily_projection:{row.id}")
-        metadata = _as_dict(row.metadata_json)
-        for field in (
-            "report_generators",
-            "header_from_domains",
-            "envelope_from_domains",
-            "spf_domains",
-            "dkim_domains",
-            "dkim_selectors",
-        ):
-            for value in metadata.get(field) or []:
-                normalized = str(value).strip()
-                if normalized and normalized not in source[field]:
-                    source[field].append(normalized)
-        for disposition, count in _as_dict(row.disposition_counts).items():
-            source["disposition_counts"][str(disposition).lower()] += _count(count)
-        evidence = _as_dict(row.source_evidence)
-        captured_at = str(evidence.get("captured_at") or "")
-        if evidence and captured_at >= source["captured_at"]:
-            source["source_evidence"] = evidence
-            source["captured_at"] = captured_at
-    return sources
-
-
 def _source_signals(source: Dict[str, Any]) -> list[Dict[str, Any]]:
     return build_dmarc_source_signals(
         source,
@@ -209,6 +137,7 @@ def _assessment(
     window_start: int | None = None,
     window_end: int | None = None,
     freshness: str = "current",
+    freshness_at: int | None = None,
     conclusion_key: str | None = None,
 ) -> Dict[str, Any]:
     derived_fact_set = set(derived_facts or [])
@@ -233,8 +162,24 @@ def _assessment(
     unknown_claims = [
         {"claim_level": "unknown", "statement": statement} for statement in unknowns or []
     ]
-    assessment_scope = (
-        f"{workspace_id}:{domain or 'workspace'}:{outcome}:{ASSESSMENT_ALGORITHM_VERSION}"
+    resolved_conclusion_key = conclusion_key or f"mail_health.{outcome}"
+    assessment_scope = json.dumps(
+        {
+            "workspace_id": workspace_id,
+            "domain": domain,
+            "outcome": outcome,
+            "conclusion_key": resolved_conclusion_key,
+            "window_start": window_start,
+            "window_end": window_end,
+            "signal_ids": sorted(
+                str(signal.get("signal_id"))
+                for signal in supporting_signals or []
+                if signal.get("signal_id")
+            ),
+            "algorithm_version": ASSESSMENT_ALGORITHM_VERSION,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
     )
     assessment_id = hashlib.sha256(assessment_scope.encode("utf-8")).hexdigest()
     return {
@@ -261,10 +206,12 @@ def _assessment(
         "evidence_window": {"start": window_start, "end": window_end},
         "freshness": freshness,
         "freshness_at": (
-            datetime.fromtimestamp(window_end, tz=timezone.utc).isoformat() if window_end else None
+            datetime.fromtimestamp(freshness_at, tz=timezone.utc).isoformat()
+            if freshness_at
+            else None
         ),
         "conclusion": {
-            "key": conclusion_key or f"mail_health.{outcome}",
+            "key": resolved_conclusion_key,
             "parameters": {"domain": domain} if domain else {},
         },
         "known_facts": known_facts or [],
@@ -292,32 +239,167 @@ def _assessment(
     }
 
 
-def _projection_rows(
+def _aggregated_projection_sources(
     db: Session,
     *,
     workspace_id: int,
     start_ts: int,
     end_ts: int,
-    ordered: bool = False,
-) -> list[tuple[Domain, DomainSourceDailyProjection]]:
-    """Read one bounded projection window without enrichment side effects."""
-    query = (
-        db.query(Domain, DomainSourceDailyProjection)
-        .join(DomainSourceDailyProjection, DomainSourceDailyProjection.domain_id == Domain.id)
+) -> Dict[tuple[str, str], Dict[str, Any]]:
+    """Aggregate counters in SQL and load only compact evidence fields per day."""
+    projection = DomainSourceDailyProjection
+    grouped_rows = (
+        db.query(
+            Domain.name.label("domain_name"),
+            Domain.workspace_id.label("workspace_id"),
+            projection.source_ip.label("source_ip"),
+            func.sum(projection.spf_pass_count).label("spf_pass_count"),
+            func.sum(projection.spf_fail_count).label("spf_fail_count"),
+            func.sum(projection.dkim_pass_count).label("dkim_pass_count"),
+            func.sum(projection.dkim_fail_count).label("dkim_fail_count"),
+            func.sum(projection.dmarc_pass_count).label("dmarc_pass_count"),
+            func.sum(projection.dmarc_fail_count).label("dmarc_fail_count"),
+            func.min(func.coalesce(projection.first_seen, projection.observed_at)).label(
+                "window_start"
+            ),
+            func.max(func.coalesce(projection.last_seen, projection.observed_at)).label(
+                "window_end"
+            ),
+        )
+        .join(projection, projection.domain_id == Domain.id)
         .filter(
             Domain.workspace_id == workspace_id,
-            DomainSourceDailyProjection.observed_at >= start_ts,
-            DomainSourceDailyProjection.observed_at < end_ts,
+            projection.observed_at >= start_ts,
+            projection.observed_at < end_ts,
         )
+        .group_by(Domain.name, Domain.workspace_id, projection.source_ip)
+        .all()
     )
-    if ordered:
-        query = query.order_by(
-            Domain.name.asc(),
-            DomainSourceDailyProjection.source_ip.asc(),
-            DomainSourceDailyProjection.observed_at.asc(),
-            DomainSourceDailyProjection.id.asc(),
+    sources: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in grouped_rows:
+        normalized_ip = _canonical_source_ip(row.source_ip)
+        key = (row.domain_name, normalized_ip)
+        source = sources.setdefault(
+            key,
+            {
+                "domain": row.domain_name,
+                "source_ip": normalized_ip,
+                "spf_pass_count": 0,
+                "spf_fail_count": 0,
+                "dkim_pass_count": 0,
+                "dkim_fail_count": 0,
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 0,
+                "disposition_counts": defaultdict(int),
+                "source_evidence": {},
+                "captured_at": "",
+                "workspace_id": row.workspace_id,
+                "window_start": None,
+                "window_end": None,
+                "evidence_refs": [],
+                "report_generators": [],
+                "header_from_domains": [],
+                "envelope_from_domains": [],
+                "spf_domains": [],
+                "dkim_domains": [],
+                "dkim_selectors": [],
+            },
         )
-    return query.all()
+        for field in (
+            "spf_pass_count",
+            "spf_fail_count",
+            "dkim_pass_count",
+            "dkim_fail_count",
+            "dmarc_pass_count",
+            "dmarc_fail_count",
+        ):
+            source[field] += _count(getattr(row, field))
+        source["window_start"] = (
+            _count(row.window_start)
+            if source["window_start"] is None
+            else min(source["window_start"], _count(row.window_start))
+        )
+        source["window_end"] = max(
+            _count(source["window_end"]),
+            _count(row.window_end),
+        )
+
+    detail_rows = (
+        db.query(
+            Domain.name.label("domain_name"),
+            projection.source_ip.label("source_ip"),
+            projection.id.label("projection_id"),
+            projection.disposition_counts.label("disposition_counts"),
+            projection.metadata_json.label("metadata_json"),
+            projection.source_evidence.label("source_evidence"),
+        )
+        .join(projection, projection.domain_id == Domain.id)
+        .filter(
+            Domain.workspace_id == workspace_id,
+            projection.observed_at >= start_ts,
+            projection.observed_at < end_ts,
+        )
+        .all()
+    )
+    for row in detail_rows:
+        key = (row.domain_name, _canonical_source_ip(row.source_ip))
+        source = sources.get(key)
+        if source is None:
+            continue
+        source["evidence_refs"].append(f"domain_source_daily_projection:{row.projection_id}")
+        metadata = _as_dict(row.metadata_json)
+        for field in (
+            "report_generators",
+            "header_from_domains",
+            "envelope_from_domains",
+            "spf_domains",
+            "dkim_domains",
+            "dkim_selectors",
+        ):
+            for value in metadata.get(field) or []:
+                normalized = str(value).strip()
+                if normalized and normalized not in source[field]:
+                    source[field].append(normalized)
+        for disposition, count in _as_dict(row.disposition_counts).items():
+            source["disposition_counts"][str(disposition).lower()] += _count(count)
+        evidence = _as_dict(row.source_evidence)
+        captured_at = str(evidence.get("captured_at") or "")
+        if evidence and captured_at >= source["captured_at"]:
+            source["source_evidence"] = evidence
+            source["captured_at"] = captured_at
+    return sources
+
+
+def _previous_pass_counts(
+    db: Session,
+    *,
+    workspace_id: int,
+    start_ts: int,
+    end_ts: int,
+) -> Dict[tuple[str, str], Dict[str, int]]:
+    """Read only the previous-window pass counter used for regression detection."""
+    projection = DomainSourceDailyProjection
+    rows = (
+        db.query(
+            Domain.name.label("domain_name"),
+            projection.source_ip.label("source_ip"),
+            func.sum(projection.dmarc_pass_count).label("previous_pass_count"),
+        )
+        .join(projection, projection.domain_id == Domain.id)
+        .filter(
+            Domain.workspace_id == workspace_id,
+            projection.observed_at >= start_ts,
+            projection.observed_at < end_ts,
+        )
+        .group_by(Domain.name, projection.source_ip)
+        .all()
+    )
+    previous: Dict[tuple[str, str], Dict[str, int]] = {}
+    for row in rows:
+        key = (row.domain_name, _canonical_source_ip(row.source_ip))
+        target = previous.setdefault(key, {"dmarc_pass_count": 0})
+        target["dmarc_pass_count"] += _count(row.previous_pass_count)
+    return previous
 
 
 def _workspace_mail_context(workspace: Workspace) -> Dict[str, Any]:
@@ -442,7 +524,7 @@ def _priority_unauthorized_source(
     unknown: list[Dict[str, Any]],
 ) -> Dict[str, Any] | None:
     candidates = confirmed + protected
-    if not candidates or (not confirmed and unknown):
+    if not candidates or unknown:
         return None
     return max(
         candidates,
@@ -459,6 +541,7 @@ def _contextual_assessment(
     start_ts: int,
     end_ts: int,
     freshness: str,
+    freshness_at: int | None,
     **values: Any,
 ) -> Dict[str, Any]:
     """Apply shared scope and freshness rules to one deterministic conclusion."""
@@ -467,6 +550,7 @@ def _contextual_assessment(
             str(values.get("confidence") or ""), values.get("confidence")
         )
     values.setdefault("freshness", freshness)
+    values.setdefault("freshness_at", freshness_at)
     return _assessment(
         workspace_id=workspace_id,
         window_start=start_ts,
@@ -601,14 +685,12 @@ def build_workspace_mail_health_assessment(
 ) -> Dict[str, Any]:
     """Return one plain-language assessment from indexed aggregate-report facts."""
 
-    rows = _projection_rows(
+    sources = _aggregated_projection_sources(
         db,
         workspace_id=workspace.id,
         start_ts=start_ts,
         end_ts=end_ts,
-        ordered=True,
     )
-    sources = _merge_source_rows(rows)
     newest_evidence_at = max(
         (_count(source.get("window_end")) for source in sources.values()),
         default=0,
@@ -616,14 +698,15 @@ def build_workspace_mail_health_assessment(
     freshness = (
         "stale" if newest_evidence_at and end_ts - newest_evidence_at > 7 * 86_400 else "current"
     )
+    for source in sources.values():
+        source["freshness"] = freshness
     window_seconds = max(1, end_ts - start_ts)
-    previous_rows = _projection_rows(
+    previous_sources = _previous_pass_counts(
         db,
         workspace_id=workspace.id,
         start_ts=start_ts - window_seconds,
         end_ts=start_ts,
     )
-    previous_sources = _merge_source_rows(previous_rows)
     classifications = latest_sender_classifications(db, workspace=workspace)
     mail_context = _workspace_mail_context(workspace)
     enabled_source_count = (
@@ -644,6 +727,7 @@ def build_workspace_mail_health_assessment(
         start_ts=start_ts,
         end_ts=end_ts,
         freshness=freshness,
+        freshness_at=newest_evidence_at or None,
     )
 
     (
@@ -693,7 +777,11 @@ def build_workspace_mail_health_assessment(
             href=f"/domains/{source['domain']}#sending-sources",
             confidence="High" if previous_passes or (passed and operator_legitimate) else "Medium",
             reasons=[
-                "The sender matches a known provider or owned infrastructure profile.",
+                (
+                    "An operator classified this exact domain and source IP as legitimate."
+                    if operator_legitimate
+                    else "The sender matches a known provider or owned infrastructure profile."
+                ),
                 f"Aggregate reports recorded {_count(source['dmarc_fail_count'])} DMARC authentication failure(s).",
             ],
             evidence_scope=(

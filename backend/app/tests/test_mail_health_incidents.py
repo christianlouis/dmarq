@@ -220,6 +220,52 @@ def test_low_volume_waiting_state_is_not_persisted_or_notified(db_session):
     assert db_session.query(MailHealthIncident).count() == 0
 
 
+def test_waiting_state_does_not_resolve_an_existing_workspace_incident(db_session):
+    workspace = Workspace(slug="calm-wait-existing", name="Calm wait existing")
+    db_session.add(workspace)
+    db_session.commit()
+    created = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=_assessment("investigation_required", domain=None),
+    )
+    waiting = _assessment("monitor", domain=None)
+    waiting["supporting_signals"] = [
+        {"family": "intake_health", "outcome": "no_report_evidence_in_window"}
+    ]
+
+    result = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment=waiting,
+    )
+
+    assert result == {"incident": None, "notification_reason": None, "resolved": []}
+    assert created["incident"]["id"] == db_session.query(MailHealthIncident).one().id
+    assert db_session.query(MailHealthIncident).one().status == "open"
+
+
+def test_workspace_healthy_assessment_resolves_all_domain_incidents(db_session):
+    workspace = Workspace(slug="calm-workspace-healthy", name="Calm workspace healthy")
+    db_session.add(workspace)
+    db_session.commit()
+    for domain in ("one.test", "two.test"):
+        record_mail_health_assessment(
+            db_session,
+            workspace=workspace,
+            assessment=_assessment(domain=domain),
+        )
+
+    result = record_mail_health_assessment(
+        db_session,
+        workspace=workspace,
+        assessment={"outcome": "healthy", "domain": None},
+    )
+
+    assert len(result["resolved"]) == 2
+    assert {row.status for row in db_session.query(MailHealthIncident).all()} == {"resolved"}
+
+
 def test_new_outcome_resolves_the_previous_incident_for_one_domain(db_session):
     workspace = Workspace(slug="calm-supersede", name="Calm Supersede")
     db_session.add(workspace)

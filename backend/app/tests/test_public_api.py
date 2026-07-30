@@ -374,6 +374,10 @@ def test_public_export_catalog_lists_available_exports_and_token_usage(
     endpoint_by_key = {endpoint["key"]: endpoint for endpoint in body["public_endpoints"]}
     assert endpoint_by_key["domain_reports"]["available"] is True
     assert endpoint_by_key["health_evidence_export"]["available"] is True
+    assert endpoint_by_key["mail_health_assessment"]["available"] is True
+    assert endpoint_by_key["mail_health_assessment"]["path"] == (
+        "/api/v1/public/mail-health/assessment"
+    )
     assert endpoint_by_key["tls_report_summary"]["available"] is False
     assert body["domains"][0]["domain"] == DOMAIN
     assert (
@@ -383,6 +387,7 @@ def test_public_export_catalog_lists_available_exports_and_token_usage(
     assert body["mcp"]["available"] is False
     assert "export_catalog" in {tool["name"] for tool in body["mcp"]["tools"]}
     assert "workspace_usage" in {tool["name"] for tool in body["mcp"]["tools"]}
+    assert "mail_health_assessment" in {tool["name"] for tool in body["mcp"]["tools"]}
 
 
 def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(

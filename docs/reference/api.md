@@ -361,8 +361,8 @@ presentation separate from workspace-owned facts and never accept secrets.
 | `PUT /workspaces/guidance/workspace-profile` | Replace the validated workspace profile with write access; resumable drafts are quiet and completing the interview creates a sanitized audit event |
 | `GET /workspaces/guidance/diagnostic-plan` | With `reports:read`, build one localized next step from persisted workspace evidence without provider, DNS, or mailbox I/O |
 | `GET /workspaces/guidance/report-intake-recommendation` | With `reports:read`, rank supported intake paths and return localized data-flow, availability, first-report, and verification evidence without returning credentials or performing provider I/O |
-| `GET /workspaces/mail-health/sender-classifications` | List the latest auditable decision for each exact domain/source-IP scope |
-| `PUT /workspaces/mail-health/sender-classifications` | Append a `legitimate`, `unknown`, `unauthorized`, `expected_forwarding`, or `stale` decision; report history is never mutated |
+| `GET /workspaces/mail-health/sender-classifications` | With `reports:read`, list the latest auditable decision for each exact domain/source-IP scope |
+| `PUT /workspaces/mail-health/sender-classifications` | With `reports:write`, append a `legitimate`, `unknown`, `unauthorized`, `expected_forwarding`, or `stale` decision; report history is never mutated |
 
 The workspace profile accepts ordered values from the documented goal and
 sovereignty enums. The first installation goal is the primary goal used by the
