@@ -22,6 +22,7 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
+from app.services.sender_classifications import latest_sender_classifications
 from app.services.sender_intelligence import identify_sender, source_geo_for
 from app.services.source_evidence_prewarm import (
     network_from_source_evidence,
@@ -640,6 +641,7 @@ class ReportRecordDetail(BaseModel):
     next_steps: List[str] = Field(default_factory=list)
     source_details: Dict[str, Any] = Field(default_factory=dict)
     reputation: Optional[Dict[str, Any]] = None
+    operator_classification: Optional[str] = None
 
 
 class ReportPolicyDetail(BaseModel):
@@ -1208,6 +1210,12 @@ async def get_report_by_id(
 
     raw_records = list(report.get("records", []))
     source_rows = [_source_row_from_report_record(rec) for rec in raw_records]
+    report_domain = str(report.get("domain") or "")
+    classifications = latest_sender_classifications(
+        db,
+        workspace=workspace,
+        domain=report_domain,
+    )
     provider = get_default_provider(db)
     settings = get_settings()
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
@@ -1299,6 +1307,9 @@ async def get_report_by_id(
                     ptr_by_ip.get(ip),
                 ),
                 reputation=_source_reputation_dict(reputation) if reputation else None,
+                operator_classification=(
+                    classifications.get((report_domain, ip), {}).get("classification") or None
+                ),
                 **guidance,
             )
         )

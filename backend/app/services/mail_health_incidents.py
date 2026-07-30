@@ -119,6 +119,12 @@ def _should_notify(
         return "created"
     if materially_changed:
         return "material_change"
+    if (
+        outcome in ACTIONABLE_OUTCOMES
+        and row.last_notified_at is None
+        and str(row.last_notification_reason or "").startswith("failed:")
+    ):
+        return "pending_delivery"
     return None
 
 
@@ -316,9 +322,6 @@ def record_mail_health_assessment(
         now=now,
         row=row,
     )
-    if reason:
-        row.last_notified_at = now
-        row.last_notification_reason = reason
     db.commit()
     db.refresh(row)
     return {
@@ -326,6 +329,53 @@ def record_mail_health_assessment(
         "notification_reason": reason,
         "resolved": [],
     }
+
+
+def record_incident_notification_result(
+    db: Session,
+    *,
+    workspace: Workspace,
+    incident_id: int,
+    reason: str,
+    result: Dict[str, Any],
+    observed_at: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Persist delivery state only after a notification target accepted it."""
+    row = (
+        db.query(MailHealthIncident)
+        .filter(
+            MailHealthIncident.id == incident_id,
+            MailHealthIncident.workspace_id == workspace.id,
+        )
+        .one()
+    )
+    success = bool(result.get("success"))
+    if success:
+        row.last_notified_at = observed_at or datetime.now(timezone.utc).replace(tzinfo=None)
+        row.last_notification_reason = reason[:80]
+    elif result.get("skipped") and not result.get("rate_limited"):
+        row.last_notification_reason = f"skipped:{reason}"[:80]
+    else:
+        row.last_notification_reason = f"failed:{reason}"[:80]
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_health_incident_notification",
+        entity_type="mail_health_incident",
+        entity_id=row.id,
+        entity_name=row.domain,
+        details={
+            "success": success,
+            "skipped": bool(result.get("skipped")),
+            "rate_limited": bool(result.get("rate_limited")),
+            "reason": reason[:80],
+            "result": str(result.get("message") or "")[:300],
+        },
+        auth_context=None,
+    )
+    db.commit()
+    db.refresh(row)
+    return incident_to_dict(row)
 
 
 def list_mail_health_incidents(

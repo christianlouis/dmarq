@@ -19,12 +19,14 @@ from typing import Any, Callable, Dict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.delivery_event import DeliveryEvent
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DomainSourceDailyProjection
 from app.models.workspace import Workspace
 from app.services.mail_signals import (
     MAIL_SIGNAL_SCHEMA_VERSION,
+    build_delivery_event_signal,
     build_dmarc_source_signals,
     build_intake_window_signal,
 )
@@ -735,13 +737,6 @@ def build_workspace_mail_health_assessment(
         .filter(MailSource.workspace_id == workspace.id, MailSource.enabled.is_(True))
         .count()
     )
-    if not sources:
-        return _no_source_assessment(
-            workspace=workspace,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            low_volume_wait=bool(enabled_source_count and mail_context.get("low_volume")),
-        )
     assessment = partial(
         _contextual_assessment,
         workspace_id=workspace.id,
@@ -750,7 +745,80 @@ def build_workspace_mail_health_assessment(
         freshness=freshness,
         freshness_at=newest_evidence_at or None,
     )
+    delivery_event = (
+        db.query(DeliveryEvent)
+        .filter(
+            DeliveryEvent.workspace_id == workspace.id,
+            DeliveryEvent.occurred_at
+            >= datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None),
+            DeliveryEvent.occurred_at
+            <= datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None),
+            DeliveryEvent.normalized_event.in_(["bounced", "blocked", "dropped"]),
+        )
+        .order_by(DeliveryEvent.occurred_at.desc(), DeliveryEvent.id.desc())
+        .first()
+    )
+    if delivery_event is not None:
+        domain = delivery_event.domain
+        status_detail = " ".join(
+            item for item in (delivery_event.status_code, delivery_event.diagnostic_text) if item
+        )
+        return assessment(
+            outcome="action_required",
+            title="A sending system reported non-delivery",
+            summary=(
+                f"A {delivery_event.provider} delivery event reported "
+                f"{delivery_event.normalized_event}"
+                + (f" for {domain}" if domain else "")
+                + (f": {status_detail}" if status_detail else ".")
+            ),
+            next_step="Open the delivery evidence and follow the reported SMTP cause",
+            href=(f"/delivery-events?domain={domain}" if domain else "/delivery-events"),
+            confidence=delivery_event.correlation_confidence.capitalize(),
+            reasons=[
+                "A DSN or authenticated provider event reported a recipient delivery outcome.",
+                f"The normalized cause is {delivery_event.cause_family.replace('_', ' ')}.",
+            ],
+            evidence_scope=(
+                "This conclusion uses a DSN or authenticated provider event. It does not claim "
+                "inbox placement or that a recipient read the message."
+            ),
+            domain=domain,
+            intended_mail_impact="likely_affected",
+            urgency="timely",
+            known_facts=[
+                f"The sending system reported {delivery_event.normalized_event}.",
+                *(
+                    [f"SMTP status: {delivery_event.status_code}."]
+                    if delivery_event.status_code
+                    else []
+                ),
+                *(
+                    [f"Remote MTA: {delivery_event.remote_mta}."]
+                    if delivery_event.remote_mta
+                    else []
+                ),
+            ],
+            inferences=[
+                "At least one intended message may be affected if this event belongs to an approved sender."
+            ],
+            unknowns=[
+                "Inbox placement and whether the recipient read any accepted or delivered message."
+            ],
+            verification_condition="A retry or newer provider event reports acceptance or delivery after the cause is fixed.",
+            supporting_signals=[build_delivery_event_signal(delivery_event)],
+            conclusion_claim_level="observed",
+            delivery_certainty="non_delivery_reported",
+            conclusion_key=f"mail_health.delivery_event.{delivery_event.cause_family}",
+        )
 
+    if not sources:
+        return _no_source_assessment(
+            workspace=workspace,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            low_volume_wait=bool(enabled_source_count and mail_context.get("low_volume")),
+        )
     (
         known_failing,
         forwarding_failing,

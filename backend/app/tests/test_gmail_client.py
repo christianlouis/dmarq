@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.delivery_event import DeliveryEvent
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
@@ -26,6 +27,7 @@ from app.models.workspace import Workspace
 from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
+from app.tests.test_delivery_events import _dsn_bytes
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 # ---------------------------------------------------------------------------
@@ -1002,3 +1004,27 @@ class TestIngestedIdHelpers:
         ids = ["z", "a", "m"]
         dumped = GmailClient.dump_ingested_ids(ids)
         assert json.loads(dumped) == ["z", "a", "m"]
+
+
+def test_gmail_processes_dsn_as_delivery_evidence(db_session):
+    workspace = Workspace(slug="gmail-dsn", name="Gmail DSN")
+    db_session.add(workspace)
+    db_session.commit()
+    client = _make_client(db=db_session, workspace_id=workspace.id)
+    service = MagicMock()
+    service.users().messages().get().execute.return_value = {
+        "raw": base64.urlsafe_b64encode(_dsn_bytes()).decode("ascii")
+    }
+    stats = {"errors": [], "details": []}
+
+    imported = client._process_message(service, "gmail-dsn-1", stats)
+
+    assert imported == 1
+    assert stats["delivery_events_found"] == 1
+    assert db_session.query(DeliveryEvent).one().source_system == "gmail_dsn"
+
+
+def test_gmail_search_keeps_dsn_results_out_of_trash():
+    assert DMARC_GMAIL_QUERY.startswith("-in:trash (")
+    assert DMARC_GMAIL_QUERY.endswith(")")
+    assert 'subject:"Delivery Status Notification"' in DMARC_GMAIL_QUERY

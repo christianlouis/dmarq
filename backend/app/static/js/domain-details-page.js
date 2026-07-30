@@ -3,6 +3,9 @@ const VERIFIED_ITEMS_COMPACT_LIMIT = 4;
 function domainDetailsApp(domainId = '') {
     return {
         domainId: domainId,
+        guidanceDepth: 'guided',
+        guidanceContext: 'watch',
+        guidanceTeachingHints: true,
         stats: {
             complianceRate: '-',
             totalEmails: '-',
@@ -203,6 +206,9 @@ function domainDetailsApp(domainId = '') {
         sourcesError: '',
         sourceReputationRefreshing: false,
         sourceReputationRefreshError: '',
+        senderActionPending: '',
+        senderActionMessage: '',
+        senderActionMessageKey: '',
         sourceIntelligence: {
             regions: [],
             anomalies: [],
@@ -305,6 +311,7 @@ function domainDetailsApp(domainId = '') {
             }
 
             this.loadInitialData();
+            this.fetchGuidancePreference();
             this._hashChangeHandler = () => this.loadSectionForLocationHash();
             window.addEventListener('hashchange', this._hashChangeHandler);
             window.setTimeout(() => this.loadSectionForLocationHash(), 0);
@@ -391,6 +398,15 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-source-filter]')) {
                     event.preventDefault();
                     this.setSourceSummaryFilter(button.dataset.domainDetailSourceFilter || 'all');
+                } else if (button.matches('[data-domain-guidance-context]')) {
+                    event.preventDefault();
+                    this.updateGuidanceContext(button.dataset.domainGuidanceContext || 'watch');
+                } else if (button.matches('[data-domain-detail-sender-action]')) {
+                    event.preventDefault();
+                    const source = (this.sources || []).find(item => item.ip === button.dataset.sourceIp);
+                    if (source) {
+                        this.classifySourceSender(source, button.dataset.senderClassification || '');
+                    }
                 } else if (
                     button.matches('[data-domain-detail-remediation-retry]') ||
                     button.matches('[data-domain-detail-remediation-refresh]')
@@ -439,6 +455,43 @@ function domainDetailsApp(domainId = '') {
 
         findDnsPlan(planId) {
             return (this.dnsGuidance.change_plans || []).find(plan => String(plan.plan_id) === String(planId));
+        },
+
+        guidanceContextButtonClass(context) {
+            return this.guidanceContext === context ? 'btn-primary' : 'btn-ghost';
+        },
+
+        async fetchGuidancePreference() {
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/preferences');
+                if (!response.ok) return;
+                const profile = await response.json();
+                this.guidanceDepth = profile.depth || this.guidanceDepth;
+                this.guidanceContext = profile.context || this.guidanceContext;
+                this.guidanceTeachingHints = profile.teaching_hints_enabled !== false;
+            } catch (_error) {
+                // Watch remains the stable fallback when preference persistence is unavailable.
+            }
+        },
+
+        async updateGuidanceContext(context) {
+            if (!['watch', 'diagnose', 'evidence'].includes(context)) return;
+            const previous = this.guidanceContext;
+            this.guidanceContext = context;
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        depth: this.guidanceDepth,
+                        context,
+                        teaching_hints_enabled: this.guidanceTeachingHints,
+                    }),
+                });
+                if (!response.ok) throw new Error('Preference could not be saved.');
+            } catch (_error) {
+                this.guidanceContext = previous;
+            }
         },
 
         handleRemediationAction(button) {
@@ -2209,6 +2262,65 @@ function domainDetailsApp(domainId = '') {
             const hasAction = Array.isArray(source?.recommendations) && source.recommendations.length > 0;
             if (!hasAction || !['unknown', 'ambiguous', 'suspicious'].includes(status)) return '';
             return source?.sender?.remediation_hint || '';
+        },
+
+        sourceAuthorization(source) {
+            return source?.sender?.authorization || {};
+        },
+
+        senderActionKey(source) {
+            return `${this.domainId}|${source?.ip || ''}`;
+        },
+
+        senderDecisionSaved(source, classification) {
+            return Boolean(classification && source?.operator_classification === classification);
+        },
+
+        senderActionLabel(source, classification, fallback) {
+            return this.senderDecisionSaved(source, classification) ? 'Decision saved' : fallback;
+        },
+
+        async classifySourceSender(source, classification) {
+            const plan = this.sourceAuthorization(source);
+            if (!classification || !source?.ip) return;
+            const label = classification === 'unauthorized'
+                ? 'not an approved sender'
+                : classification === 'expected_forwarding'
+                    ? 'an expected forwarding path'
+                    : 'an intended sender';
+            if (!confirm(`Mark ${source.ip} as ${label} for ${this.domainId}?\n\nThis records your decision. It does not change DNS or rewrite historical evidence.`)) {
+                return;
+            }
+            const key = this.senderActionKey(source);
+            this.senderActionPending = key;
+            this.senderActionMessage = '';
+            this.senderActionMessageKey = key;
+            try {
+                const response = await fetch('/api/v1/workspaces/mail-health/sender-classifications', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: this.domainId,
+                        source_ip: source.ip,
+                        classification,
+                        reason: classification === 'expected_forwarding'
+                            ? 'Operator confirmed this forwarding path from domain sender detail.'
+                            : classification === 'unauthorized'
+                                ? 'Operator confirmed this source is not authorized.'
+                                : 'Operator confirmed this source is intentionally used.',
+                    }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload.detail || 'Sender decision could not be saved.');
+                source.operator_classification = payload.classification?.classification || classification;
+                this.senderActionMessage = classification === 'unauthorized'
+                    ? 'Decision saved. Keep this source blocked and monitor for new evidence.'
+                    : `Decision saved. Next: ${plan.verification || 'verify the next report before treating the sender as fixed.'}`;
+            } catch (error) {
+                this.senderActionMessage = error?.message || 'Sender decision could not be saved.';
+            } finally {
+                this.senderActionPending = '';
+            }
         },
 
         reputationStatusClass(status) {

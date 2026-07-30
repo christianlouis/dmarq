@@ -25,6 +25,7 @@ def retention_to_dict(workspace: Workspace) -> Dict[str, int]:
         "aggregate_reports_days": workspace.report_retention_days,
         "forensic_reports_days": workspace.forensic_retention_days,
         "tls_reports_days": workspace.tls_report_retention_days,
+        "delivery_events_days": workspace.delivery_event_retention_days,
     }
 
 

@@ -144,6 +144,7 @@ from app.services.report_persistence import (
 )
 from app.services.report_store import ReportStore
 from app.services.route53_dns import get_route53_dns_credentials
+from app.services.sender_classifications import latest_sender_classifications
 from app.services.sender_intelligence import (
     build_source_intelligence,
     identify_sender,
@@ -1993,6 +1994,7 @@ class SenderIdentity(BaseModel):
     evidence: List[str] = Field(default_factory=list)
     remediation_hint: str
     docs_url: Optional[str] = None
+    authorization: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceGeo(BaseModel):
@@ -2171,6 +2173,7 @@ class SourceEntry(BaseModel):
     spf_fix_hint: Optional[str] = None
     recommendations: List[SourceRecommendation] = Field(default_factory=list)
     mailflow: Optional[MailflowIdentity] = None
+    operator_classification: Optional[str] = None
 
 
 class DomainReportsResponse(BaseModel):
@@ -9088,6 +9091,11 @@ async def get_domain_sources(
     )
 
     source_days = days if days is not None else 30
+    classifications = latest_sender_classifications(
+        db,
+        workspace=workspace,
+        domain=domain_name,
+    )
     provider = get_default_provider(db)
     settings = get_settings()
 
@@ -9260,6 +9268,9 @@ async def get_domain_sources(
                 spf_fix_hint=spf_fix_hint,
                 recommendations=recommendations,
                 mailflow=mailflow_by_ip.get(str(ip)),
+                operator_classification=(
+                    classifications.get((domain_name, str(ip)), {}).get("classification") or None
+                ),
             )
         )
 

@@ -135,6 +135,7 @@ def _ensure_account_foundation(
     workspace.report_retention_days = account["entitlements"]["retention_days"]["used"]
     workspace.forensic_retention_days = min(workspace.report_retention_days, 90)
     workspace.tls_report_retention_days = workspace.report_retention_days
+    workspace.delivery_event_retention_days = min(workspace.report_retention_days, 400)
     subscription.plan_id = plan.id
     billing_status = account["billing"]["status"]
     subscription.status = {

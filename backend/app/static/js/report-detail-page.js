@@ -1,6 +1,9 @@
 function reportDetailApp(reportId = '') {
     return {
         reportId: reportId,
+        guidanceDepth: 'guided',
+        guidanceContext: 'watch',
+        guidanceTeachingHints: true,
         report: null,
         loading: true,
         error: null,
@@ -9,11 +12,14 @@ function reportDetailApp(reportId = '') {
         enrichmentHydrating: false,
         recordRiskFilter: 'all',
         recordPageSize: 25,
+        senderActionPending: '',
+        senderActionMessage: '',
+        senderActionMessageKey: '',
 
         async init() {
             this.reportId = this.$el?.dataset?.reportId || this.reportId;
             this.bindPageControls();
-            await this.fetchReport();
+            await Promise.all([this.fetchReport(), this.fetchGuidancePreference()]);
         },
 
         bindPageControls() {
@@ -49,6 +55,22 @@ function reportDetailApp(reportId = '') {
                 const showMoreButton = event.target.closest('[data-report-show-more-records]');
                 if (showMoreButton && root.contains(showMoreButton)) {
                     this.recordPageSize += 25;
+                    return;
+                }
+
+                const senderAction = event.target.closest('[data-report-sender-action]');
+                if (senderAction && root.contains(senderAction)) {
+                    const sourceIp = senderAction.dataset.reportSourceIp || '';
+                    const record = this.visibleFilteredRecords.find(item => item.source_ip === sourceIp);
+                    if (record) {
+                        this.classifySender(record, senderAction.dataset.reportSenderAction || '');
+                    }
+                    return;
+                }
+
+                const guidanceContext = event.target.closest('[data-report-guidance-context]');
+                if (guidanceContext && root.contains(guidanceContext)) {
+                    this.updateGuidanceContext(guidanceContext.dataset.reportGuidanceContext || 'watch');
                     return;
                 }
 
@@ -478,6 +500,102 @@ function reportDetailApp(reportId = '') {
 
         recordSenderRemediationHint(record) {
             return this.recordSender(record).remediation_hint || '';
+        },
+
+        recordAuthorization(record) {
+            return this.recordSender(record).authorization || {};
+        },
+
+        guidanceContextButtonClass(context) {
+            return this.guidanceContext === context ? 'btn-primary' : 'btn-ghost';
+        },
+
+        async fetchGuidancePreference() {
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/preferences');
+                if (!response.ok) return;
+                const profile = await response.json();
+                this.guidanceDepth = profile.depth || this.guidanceDepth;
+                this.guidanceContext = profile.context || this.guidanceContext;
+                this.guidanceTeachingHints = profile.teaching_hints_enabled !== false;
+            } catch (_error) {
+                // Watch remains the stable fallback when preference persistence is unavailable.
+            }
+        },
+
+        async updateGuidanceContext(context) {
+            if (!['watch', 'diagnose', 'evidence'].includes(context)) return;
+            const previous = this.guidanceContext;
+            this.guidanceContext = context;
+            try {
+                const response = await fetch('/api/v1/workspaces/guidance/preferences', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        depth: this.guidanceDepth,
+                        context,
+                        teaching_hints_enabled: this.guidanceTeachingHints,
+                    }),
+                });
+                if (!response.ok) throw new Error('Preference could not be saved.');
+            } catch (_error) {
+                this.guidanceContext = previous;
+            }
+        },
+
+        senderActionKey(record) {
+            return `${this.report?.domain || ''}|${record?.source_ip || ''}`;
+        },
+
+        senderDecisionSaved(record, classification) {
+            return Boolean(classification && record?.operator_classification === classification);
+        },
+
+        senderActionLabel(record, classification, fallback) {
+            return this.senderDecisionSaved(record, classification) ? 'Decision saved' : fallback;
+        },
+
+        async classifySender(record, classification) {
+            const plan = this.recordAuthorization(record);
+            if (!classification || !record?.source_ip || !this.report?.domain) return;
+            const label = classification === 'unauthorized'
+                ? 'not an approved sender'
+                : classification === 'expected_forwarding'
+                    ? 'an expected forwarding path'
+                    : 'an intended sender';
+            if (!confirm(`Mark ${record.source_ip} as ${label} for ${this.report.domain}?\n\nThis records your decision. It does not change DNS or rewrite historical report evidence.`)) {
+                return;
+            }
+            const key = this.senderActionKey(record);
+            this.senderActionPending = key;
+            this.senderActionMessage = '';
+            this.senderActionMessageKey = key;
+            try {
+                const response = await fetch('/api/v1/workspaces/mail-health/sender-classifications', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: this.report.domain,
+                        source_ip: record.source_ip,
+                        classification,
+                        reason: classification === 'expected_forwarding'
+                            ? 'Operator confirmed this forwarding path from report detail.'
+                            : classification === 'unauthorized'
+                                ? 'Operator confirmed this source is not authorized.'
+                                : 'Operator confirmed this source is intentionally used.',
+                    }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload.detail || 'Sender decision could not be saved.');
+                record.operator_classification = payload.classification?.classification || classification;
+                this.senderActionMessage = classification === 'unauthorized'
+                    ? 'Decision saved. Keep this source blocked and monitor for new evidence.'
+                    : `Decision saved. Next: ${plan.verification || 'verify the next report before treating the sender as fixed.'}`;
+            } catch (error) {
+                this.senderActionMessage = error?.message || 'Sender decision could not be saved.';
+            } finally {
+                this.senderActionPending = '';
+            }
         },
 
         sourceLocation(record) {

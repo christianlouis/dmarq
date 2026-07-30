@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
 import app.models.api_token  # noqa: F401 – ensure APIToken table is registered
+import app.models.delivery_event  # noqa: F401 – ensure delivery evidence table is registered
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
 import app.models.dns_posture_snapshot  # noqa: F401 – ensure DNS posture tables are registered
 import app.models.dns_zone_baseline  # noqa: F401 – ensure imported DNS evidence table is registered
@@ -46,11 +47,13 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
+from app.services.calm_watch import evaluate_and_send_calm_watch
+from app.services.delivery_events import purge_expired_delivery_events
 from app.services.demo_data import build_demo_mail_sources
-from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.dns_posture_refresh import scheduled_dns_posture_refresh
-from app.services.health_snapshot_refresh import scheduled_health_snapshot_refresh
+from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.gmail_client import GmailClient
+from app.services.health_snapshot_refresh import scheduled_health_snapshot_refresh
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.mail_connector import initial_import_stats
@@ -392,6 +395,19 @@ def _run_due_mail_source_backfills() -> int:
         db.close()
 
 
+def _run_calm_watch_cycle() -> Dict[str, Any]:
+    """Evaluate incident state and purge expired delivery evidence in one bounded session."""
+    db = SessionLocal()
+    try:
+        result = evaluate_and_send_calm_watch(db)
+        purged = purge_expired_delivery_events(db)
+        if purged:
+            logger.info("Purged %d expired delivery event(s)", purged)
+        return result
+    finally:
+        db.close()
+
+
 def _next_sleep_seconds(
     min_sleep: int = 60, enabled_sources: Optional[List[MailSource]] = None
 ) -> int:
@@ -415,6 +431,9 @@ def _run_mailbox_scheduler_cycle() -> List[MailSource]:
     """Run blocking mailbox and delivery work outside the application event loop."""
     enabled_sources = _poll_all_enabled_sources()
     _run_due_mail_source_backfills()
+    calm_watch = _run_calm_watch_cycle()
+    if calm_watch["sent"]:
+        logger.info("Calm Watch sent %d incident notification(s)", len(calm_watch["sent"]))
     _send_due_summary_notifications()
     _deliver_due_webhook_events()
     return enabled_sources
@@ -838,7 +857,9 @@ async def domain_details(request: Request, domain_id: str):
         if stored_domain is None and domain_id.isdigit():
             stored_domain = db.get(Domain, int(domain_id))
         source_window_setting = db.get(Setting, "general.source_date_window_days")
-        source_window_days = str(source_window_setting.value or "30") if source_window_setting else "30"
+        source_window_days = (
+            str(source_window_setting.value or "30") if source_window_setting else "30"
+        )
         if source_window_days not in {"7", "30", "90"}:
             source_window_days = "30"
     finally:
@@ -881,6 +902,12 @@ async def reports(request: Request):
 async def report_detail(request: Request, report_id: str):
     """View detailed information for a specific DMARC report"""
     return templates.TemplateResponse(request, "report_detail.html", {"report_id": report_id})
+
+
+@app.get("/delivery-events", response_class=HTMLResponse)
+async def delivery_events_page(request: Request):
+    """View privacy-minimized DSN and provider delivery evidence."""
+    return templates.TemplateResponse(request, "delivery_events.html")
 
 
 @app.get("/forensics", response_class=HTMLResponse)

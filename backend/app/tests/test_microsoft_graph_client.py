@@ -8,7 +8,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport
+from app.models.workspace import Workspace
 from app.services.mail_connector import initial_import_stats
 from app.services.microsoft_graph_client import (
     M365_APPLICATION_SCOPE,
@@ -19,6 +21,7 @@ from app.services.microsoft_graph_client import (
     m365_source_can_authenticate,
 )
 from app.tests.test_data import SAMPLE_XML
+from app.tests.test_delivery_events import _dsn_bytes
 
 
 def _zip_xml(xml: str = SAMPLE_XML, name: str = "report.xml") -> bytes:
@@ -726,3 +729,22 @@ class TestMicrosoftGraphFetchReports:
         assert result["success"] is False
         assert result["error"] == "Failed to list Microsoft Graph messages."
         assert "TooManyRequests" not in str(result)
+
+
+def test_microsoft_graph_processes_dsn_as_delivery_evidence(db_session, monkeypatch):
+    workspace = Workspace(slug="m365-dsn", name="M365 DSN")
+    db_session.add(workspace)
+    db_session.commit()
+    client = _make_client(db=db_session)
+    client.workspace_id = workspace.id
+    monkeypatch.setattr(client, "_request_bytes", lambda _url: _dsn_bytes())
+    stats = {"errors": [], "details": []}
+
+    imported = client._process_message(
+        {"id": "m365-dsn-1", "subject": "Delivery Status Notification (Failure)"},
+        stats,
+    )
+
+    assert imported == 1
+    assert stats["delivery_events_found"] == 1
+    assert db_session.query(DeliveryEvent).one().source_system == "m365_dsn"

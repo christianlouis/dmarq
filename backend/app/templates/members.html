@@ -95,7 +95,7 @@
                                     <div class="flex items-start justify-between gap-3">
                                         <span x-text="seatLimitWarning().message"></span>
                                         <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold"
-                                              x-text="`${seatLimitWarning().remaining} left`"></span>
+                                              x-text="seatLimitWarning().remaining + ' left'"></span>
                                     </div>
                                 </div>
                             </template>
@@ -150,7 +150,7 @@
                             <p class="text-xs font-semibold uppercase text-[#5f5c78]">Plan</p>
                             <p class="mt-2 font-semibold text-[#120d36]" x-text="currentBillingOwner().plan_name || 'No plan configured'"></p>
                             <p class="mt-1 text-sm text-[#5f5c78]"
-                               x-text="currentBillingOwner().subscription_status ? `Subscription ${currentBillingOwner().subscription_status}` : 'No subscription state available'"></p>
+                               x-text="currentBillingOwner().subscription_status ? 'Subscription ' + currentBillingOwner().subscription_status : 'No subscription state available'"></p>
                         </div>
 
                         <template x-if="isAccountRestricted()">
@@ -163,7 +163,7 @@
                         <div>
                             <div class="mb-3 flex items-center justify-between">
                                 <p class="text-xs font-semibold uppercase text-[#5f5c78]">Plan limits</p>
-                                <span class="text-xs text-[#5f5c78]" x-text="`${planLimitRows().length} tracked`"></span>
+                                <span class="text-xs text-[#5f5c78]" x-text="planLimitRows().length + ' tracked'"></span>
                             </div>
                             <template x-if="planLimitRows().length === 0">
                                 <div class="rounded-lg border border-dashed border-[#d8d5d0] bg-[#f9f8f6] p-4 text-sm text-[#5f5c78]">

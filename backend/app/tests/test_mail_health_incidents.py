@@ -7,6 +7,7 @@ from app.models.workspace import Workspace
 from app.services.mail_health_incidents import (
     incident_to_dict,
     list_mail_health_incidents,
+    record_incident_notification_result,
     record_mail_health_assessment,
     update_incident_operator_state,
 )
@@ -95,6 +96,56 @@ def test_rolling_evidence_row_ids_do_not_trigger_a_material_notification(db_sess
 
     assert first["notification_reason"] == "created"
     assert repeated["notification_reason"] is None
+
+
+def test_failed_notification_is_retried_without_repeating_success(db_session):
+    workspace = Workspace(slug="calm-retry", name="Calm retry")
+    db_session.add(workspace)
+    db_session.commit()
+
+    first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    record_incident_notification_result(
+        db_session,
+        workspace=workspace,
+        incident_id=first["incident"]["id"],
+        reason="created",
+        result={"success": False, "message": "target unavailable"},
+    )
+    retry = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    record_incident_notification_result(
+        db_session,
+        workspace=workspace,
+        incident_id=first["incident"]["id"],
+        reason="pending_delivery",
+        result={"success": True, "message": "sent"},
+    )
+    settled = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
+
+    assert retry["notification_reason"] == "pending_delivery"
+    assert settled["notification_reason"] is None
+
+
+def test_disabled_notification_channel_is_not_retried_as_a_delivery_failure(db_session):
+    workspace = Workspace(slug="calm-disabled", name="Calm disabled")
+    db_session.add(workspace)
+    db_session.commit()
+
+    first = record_mail_health_assessment(db_session, workspace=workspace, assessment=_assessment())
+    record_incident_notification_result(
+        db_session,
+        workspace=workspace,
+        incident_id=first["incident"]["id"],
+        reason="created",
+        result={"success": False, "skipped": True, "message": "Notifications are disabled."},
+    )
+    repeated = record_mail_health_assessment(
+        db_session, workspace=workspace, assessment=_assessment()
+    )
+
+    assert repeated["notification_reason"] is None
+    assert repeated["incident"]["last_notification_reason"] == "skipped:created"
 
 
 def test_protected_unknown_use_is_persisted_but_suppressed_by_default(db_session):

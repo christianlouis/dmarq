@@ -18,10 +18,13 @@ from zipfile import ZipFile
 
 import pytest
 
+from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
+from app.models.workspace import Workspace
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
+from app.tests.test_delivery_events import _dsn_bytes
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 # ---------------------------------------------------------------------------
@@ -1111,3 +1114,26 @@ class TestFetchReports:
         assert stats["errors"] == ["Error processing one mailbox message."]
         assert "super-secret" not in str(stats)
         assert stats["details"][0]["reason"] == "message_processing_failed"
+
+
+def test_imap_processes_dsn_as_delivery_evidence(db_session):
+    workspace = Workspace(slug="imap-dsn", name="IMAP DSN")
+    db_session.add(workspace)
+    db_session.commit()
+    client = IMAPClient(
+        server="imap.example.com",
+        port=993,
+        username="user",
+        password="password",
+        db=db_session,
+        workspace_id=workspace.id,
+    )
+    mail = MagicMock()
+    mail.fetch.return_value = ("OK", [(b"1 (RFC822)", _dsn_bytes())])
+    stats = {"processed": 0, "reports_found": 0, "errors": [], "details": []}
+
+    client._process_single_email(mail, b"1", stats)
+
+    assert stats["delivery_events_found"] == 1
+    assert db_session.query(DeliveryEvent).one().source_system == "imap_dsn"
+    mail.store.assert_called_with(b"1", "+FLAGS", "\\Seen")

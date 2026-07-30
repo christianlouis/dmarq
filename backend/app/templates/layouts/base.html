@@ -145,6 +145,7 @@
                             <li class="menu-title mt-1 px-2 py-1"><span>Advanced tools</span></li>
                             <li><a href="/forensics">Forensic reports</a></li>
                             <li><a href="/tls-reports">TLS reports</a></li>
+                            <li><a href="/delivery-events">Bounces and delivery events</a></li>
                             <li><a href="/onboarding">Setup assistant</a></li>
                             <li>
                                 <button type="button"
@@ -232,7 +233,7 @@
         </a>
         {% endif %}
         <details class="group relative mt-auto w-24">
-            <summary class="flex cursor-pointer list-none flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/forensics') or current_path.startswith('/tls-reports') or current_path.startswith('/onboarding') else 'text-white/65' }}"
+            <summary class="flex cursor-pointer list-none flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/forensics') or current_path.startswith('/tls-reports') or current_path.startswith('/delivery-events') or current_path.startswith('/onboarding') else 'text-white/65' }}"
                      aria-label="More tools" title="More tools">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
                 <span class="text-[11px] font-semibold leading-tight">More</span>
@@ -241,6 +242,7 @@
                 <p class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Specialized tools</p>
                 <a href="/forensics" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-base-200">Forensic reports</a>
                 <a href="/tls-reports" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-base-200">TLS reports</a>
+                <a href="/delivery-events" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-base-200">Bounces and delivery events</a>
                 <a href="/onboarding" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-base-200">Setup assistant</a>
             </div>
         </details>

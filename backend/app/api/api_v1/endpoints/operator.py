@@ -55,6 +55,7 @@ class WorkspaceRetentionUpdate(BaseModel):
     aggregate_reports_days: int = Field(..., ge=1, le=3650)
     forensic_reports_days: int = Field(..., ge=1, le=3650)
     tls_reports_days: int = Field(..., ge=1, le=3650)
+    delivery_events_days: Optional[int] = Field(default=None, ge=1, le=400)
 
 
 class WorkspaceRetentionResponse(BaseModel):
@@ -482,6 +483,7 @@ async def update_workspace_retention(
                     payload.aggregate_reports_days,
                     payload.forensic_reports_days,
                     payload.tls_reports_days,
+                    payload.delivery_events_days or workspace.delivery_event_retention_days,
                 ),
             )
         except OrganizationPlanLimitError as exc:
@@ -490,6 +492,8 @@ async def update_workspace_retention(
     workspace.report_retention_days = payload.aggregate_reports_days
     workspace.forensic_retention_days = payload.forensic_reports_days
     workspace.tls_report_retention_days = payload.tls_reports_days
+    if payload.delivery_events_days is not None:
+        workspace.delivery_event_retention_days = payload.delivery_events_days
     new_retention = retention_to_dict(workspace)
     record_workspace_audit_log(
         db,

@@ -19,7 +19,9 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
+from app.services.dsn_parser import is_dsn_message
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
@@ -57,12 +59,14 @@ GMAIL_SCOPES = [
 # ---------------------------------------------------------------------------
 
 DMARC_GMAIL_QUERY = (
-    "-in:trash ((has:attachment (filename:zip OR filename:gz OR filename:xml)) "
+    "-in:trash (((has:attachment (filename:zip OR filename:gz OR filename:xml)) "
     'OR subject:"DMARC failure" OR subject:"failure report" OR subject:forensic OR subject:ruf) '
     "(subject:dmarc OR subject:report OR subject:rua OR subject:submitter "
     'OR subject:"aggregate report" OR subject:"domain report" '
     'OR subject:"report domain" OR from:dmarc OR from:dmarc-noreply '
-    "OR from:noreply-dmarc-support OR from:reports OR from:postmaster)"
+    "OR from:noreply-dmarc-support OR from:reports OR from:postmaster) "
+    'OR subject:"Delivery Status Notification" OR subject:Undeliverable '
+    'OR subject:"Returned mail" OR subject:"Mail delivery failed")'
 )
 
 # How many message results to fetch per API page
@@ -373,6 +377,21 @@ class GmailClient:
 
         raw_bytes = base64.urlsafe_b64decode(msg_data.get("raw", ""))
         msg = email.message_from_bytes(raw_bytes)
+        if is_dsn_message(msg) and self.db is not None:
+            result = ingest_dsn_email(
+                self.db,
+                raw_bytes,
+                workspace_id=self.workspace_id,
+                source_system="gmail_dsn",
+                source_event_id=msg_id,
+            )
+            stats["delivery_events_found"] = stats.get("delivery_events_found", 0) + len(
+                result["accepted"]
+            )
+            stats["duplicate_delivery_events"] = stats.get("duplicate_delivery_events", 0) + len(
+                result["duplicates"]
+            )
+            return len(result["accepted"])
         if ForensicParser.is_forensic_report(msg):
             return self._process_forensic_message(raw_bytes, stats, message_id=msg_id)
         return self._process_attachments(msg, stats, message_id=msg_id)

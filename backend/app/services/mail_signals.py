@@ -256,6 +256,63 @@ def build_intake_window_signal(
     ).to_dict()
 
 
+def build_delivery_event_signal(event: Any) -> dict[str, Any]:
+    """Build a privacy-minimized signal from one persisted delivery event."""
+    outcome = str(getattr(event, "normalized_event", None) or "unknown")
+    source_system = str(getattr(event, "source_system", None) or "provider_webhook")
+    family = (
+        "dsn_delivery_status"
+        if source_system.startswith(("imap", "gmail", "m365", "webhook", "smtp"))
+        else "provider_delivery_event"
+    )
+    if outcome in {"bounced", "blocked", "dropped"}:
+        certainty = "non_delivery_reported"
+    elif outcome == "delivered":
+        certainty = "delivery_reported"
+    elif outcome == "deferred":
+        certainty = "transport_failure_reported"
+    else:
+        certainty = "inferred_only"
+    event_id = str(getattr(event, "event_id", None) or "")
+    evidence_id = getattr(event, "id", None)
+    correlation_reasons = getattr(event, "correlation_reasons", None)
+    try:
+        parsed_reasons = json.loads(correlation_reasons or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed_reasons = []
+    return make_mail_signal(
+        family=family,
+        signal_type="recipient_delivery_status",
+        outcome=outcome,
+        claim_level="observed",
+        delivery_certainty=certainty,
+        source_system=source_system,
+        workspace_id=getattr(event, "workspace_id", None),
+        domain=getattr(event, "domain", None),
+        correlation_key=event_id,
+        observed_at=(
+            getattr(event, "occurred_at", None).isoformat()
+            if getattr(event, "occurred_at", None)
+            else None
+        ),
+        reason_code=str(getattr(event, "cause_family", None) or "unknown_other"),
+        count=1,
+        confidence=str(getattr(event, "correlation_confidence", None) or "low"),
+        confidence_reasons=tuple(str(item) for item in parsed_reasons if str(item)),
+        freshness="current",
+        privacy_classification="redacted",
+        evidence_refs=((f"delivery_event:{evidence_id}",) if evidence_id is not None else ()),
+        guidance_key=f"mail_signal.{family}.{outcome}",
+        payload={
+            "provider": str(getattr(event, "provider", None) or "smtp"),
+            "status_code": getattr(event, "status_code", None),
+            "cause_family": str(getattr(event, "cause_family", None) or "unknown_other"),
+            "recipient_domain": getattr(event, "recipient_domain", None),
+            "remote_mta": getattr(event, "remote_mta", None),
+        },
+    ).to_dict()
+
+
 def _dmarc_signal_statement(family: str, outcome: str) -> str | None:
     authentication = {
         "pass": "The receiver recognized this use of the domain as authenticated.",

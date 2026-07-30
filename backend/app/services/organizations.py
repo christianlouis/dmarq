@@ -508,6 +508,7 @@ def _workspace_to_dict(workspace: Workspace) -> Dict[str, Any]:
         "report_retention_days": workspace.report_retention_days,
         "forensic_retention_days": workspace.forensic_retention_days,
         "tls_report_retention_days": workspace.tls_report_retention_days,
+        "delivery_event_retention_days": workspace.delivery_event_retention_days,
     }
 
 
@@ -1064,6 +1065,7 @@ def _plan_limits_for_organization(
                     workspace.report_retention_days,
                     workspace.forensic_retention_days,
                     workspace.tls_report_retention_days,
+                    workspace.delivery_event_retention_days,
                 )
             ]
             or [0]
@@ -1808,6 +1810,7 @@ def _batched_plan_limit_current_values(
                             workspace.report_retention_days,
                             workspace.forensic_retention_days,
                             workspace.tls_report_retention_days,
+                            workspace.delivery_event_retention_days,
                         )
                     ]
                     or [0]

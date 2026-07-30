@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Every recognized or unknown sending source now includes a verification-first
+  authorization plan in domain and report detail views. Operators can record
+  an exact domain/IP pair as intended, expected forwarding, or unauthorized
+  with one click; DMARQ then explains the provider-specific repair and waits
+  for a newer aligned pass before treating it as fixed. Forwarding services,
+  including Cloudflare Email Routing, explicitly warn against adding shared
+  relay IPs to SPF.
+- DMARQ now ingests RFC delivery-status notifications from IMAP, Gmail,
+  Microsoft 365, the raw-email webhook, and manual upload, plus authenticated
+  provider-neutral delivery webhooks. Recipient addresses and correlation IDs
+  are keyed hashes, message bodies are discarded, retention is workspace
+  bounded, duplicate events are idempotent, and actual non-delivery evidence
+  is kept separate from aggregate DMARC authentication evidence.
+- Calm Watch now evaluates persisted mail-health assessments during scheduled
+  cycles, maintains one workspace-scoped incident through its lifecycle, and
+  sends notifications only when an actionable incident is new, materially
+  changed, or a previous notification delivery failed. Stable versioned
+  webhook events cover created, changed, and resolved incidents.
+- Domain and report detail pages now share the saved Watch, Diagnose, and
+  Evidence context. Primary conclusions, warnings, and sender decisions remain
+  visible in every context while troubleshooting steps and raw evidence use
+  progressive disclosure.
 - DNS provider operations now use native, credential-consistent Route 53 and
   Hetzner record reads for human-approved TXT/CNAME preview, apply, and
   provider readback. OVHcloud adds strictly read-only zone discovery/export.

@@ -6,6 +6,7 @@ from app.api.api_v1.endpoints import (
     audit,
     auth,
     billing,
+    delivery_events,
     domains,
     forensics,
     health,
@@ -42,6 +43,9 @@ api_router.include_router(health.router, tags=["health"])
 api_router.include_router(public.router, prefix="/public", tags=["public-api"])
 api_router.include_router(scim.router, prefix="/scim/v2", tags=["scim"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
+api_router.include_router(
+    delivery_events.router, prefix="/delivery-events", tags=["delivery-events"]
+)
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(forensics.router, prefix="/forensics", tags=["forensics"])
 api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
