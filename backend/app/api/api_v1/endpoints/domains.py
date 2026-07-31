@@ -6834,7 +6834,7 @@ def _dns_write_rollback_guidance(plan: Dict[str, Any], result: Any) -> Dict[str,
 
 
 @router.post("/{domain_id}/dns/change-plan/apply", response_model=DNSWriteResultResponse)
-async def apply_domain_dns_change_plan(
+async def apply_domain_dns_change_plan(  # noqa: C901 - orchestration keeps preview/apply audit semantics together
     request: Request,
     payload: DNSWriteApplyRequest,
     domain_id: str = Path(..., title="The domain ID or name"),
