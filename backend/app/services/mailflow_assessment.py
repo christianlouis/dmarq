@@ -39,7 +39,7 @@ def _alignment_status(pass_count: int, fail_count: int) -> str:
     return "unknown"
 
 
-def _flow(
+def _flow(  # noqa: C901
     source: Dict[str, Any],
     sender: Dict[str, Any],
     *,

@@ -8826,7 +8826,7 @@ def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[str, Any]:
+def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[str, Any]:  # noqa: C901
     """Return one canonical, versioned source view for rows and summary chips.
 
     The UI may filter the returned rows locally, but it must not derive headline

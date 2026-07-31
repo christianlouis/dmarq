@@ -384,7 +384,7 @@ class TestSettingsAPI:
                 "settings": {
                     "dmarc.default_policy": "quarantine",
                     "dmarc.default_percentage": "80",
-        }
+                }
             },
         )
         assert res.status_code == 200
