@@ -158,9 +158,7 @@ def test_expected_forwarding_classification_is_used_by_domain_mailflow_view():
         "example.com",
         [_source(spf_pass_count=0, spf_fail_count=12, dkim_pass_count=12, dkim_fail_count=0)],
         {"192.0.2.10": {"name": "Cloudflare Email Routing", "status": "known"}},
-        classifications={
-            ("example.com", "192.0.2.10"): {"classification": "expected_forwarding"}
-        },
+        classifications={("example.com", "192.0.2.10"): {"classification": "expected_forwarding"}},
     )
 
     assert result["status"] == "investigation_required"
@@ -168,6 +166,19 @@ def test_expected_forwarding_classification_is_used_by_domain_mailflow_view():
     assert result["flows"][0]["status"] == "expected_forwarding"
     assert result["flows"][0]["operator_classification"] == "expected_forwarding"
     assert "Do not add its shared relay IP" in result["summary"]
+
+
+def test_unauthorized_classification_is_explained_without_dns_authorization():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [_source(spf_pass_count=0, spf_fail_count=12, dmarc_pass_count=0, dmarc_fail_count=12)],
+        {"192.0.2.10": {"name": "Unknown sender", "status": "unknown"}},
+        classifications={("example.com", "192.0.2.10"): {"classification": "unauthorized"}},
+    )
+
+    assert result["flows"][0]["status"] == "likely_unauthorized"
+    assert result["flows"][0]["operator_classification"] == "unauthorized"
+    assert result["flows"][0]["next_step"] == "No DNS authorization; keep monitoring for recurrence"
 
 
 def test_zero_traffic_is_ignored():
