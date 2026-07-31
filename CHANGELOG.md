@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Remediation queues now keep core DMARC and mail-health actions ahead of optional
+  MTA-STS, TLS-RPT, BIMI, and DANE hardening, and label the scope in the primary
+  domain action so the next step is unambiguous.
+- DNS provider previews now explicitly state that they are read-only, show the
+  exact Before/After review step, and confirm that no live DNS change occurred
+  until the final apply action.
 - Remediation queue entries now expose one clear primary action for the current finding; lifecycle, notification, readiness, and provider internals remain available in the evidence details.
 - Mail source cards now surface the latest import diagnosis and direct operators to the affected import history when a report attachment cannot be parsed.
 - DNS repair previews now report progress and failures inside the affected

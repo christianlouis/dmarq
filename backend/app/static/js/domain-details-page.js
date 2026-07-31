@@ -924,12 +924,21 @@ function domainDetailsApp(domainId = '') {
         },
 
         get primaryRemediationScopeNote() {
+            if (this.primaryRemediationItem?.priority_reason) {
+                return this.primaryRemediationItem.priority_reason;
+            }
             const itemId = String(this.primaryRemediationItem?.id || '').toLowerCase();
             const optionalPosture = ['bimi', 'mta_sts', 'mta-sts', 'tls_rpt', 'tls-rpt'];
             if (optionalPosture.some(token => itemId.includes(token))) {
                 return 'No higher-priority DMARC authentication blocker is active. This is an optional posture improvement.';
             }
             return 'DMARQ prioritizes active DMARC failures, sender alignment, and enforcement blockers before optional posture work.';
+        },
+
+        get primaryRemediationScopeLabel() {
+            return this.primaryRemediationItem?.scope === 'optional_hardening'
+                ? 'Optional hardening'
+                : 'Core mail health';
         },
 
         get primaryRemediationReadinessContext() {
@@ -2885,7 +2894,7 @@ function domainDetailsApp(domainId = '') {
             this.dnsWrite.error = '';
             this.dnsWrite.message = apply
                 ? `Applying this change to ${this.providerName(this.dnsWrite.provider)}...`
-                : `Preparing a ${this.providerName(this.dnsWrite.provider)} preview...`;
+                : `Preparing the exact ${this.providerName(this.dnsWrite.provider)} preview...`;
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns/change-plan/apply`, {
                     method: 'POST',
@@ -2923,7 +2932,7 @@ function domainDetailsApp(domainId = '') {
                     ? (data.verification?.verified
                         ? 'DNS change verified by the provider. Refreshing DNS evidence now.'
                         : 'DNS change submitted, but provider verification is not complete. Review the verification details before treating it as repaired.')
-                    : 'Preview ready. Review the provider mutation before applying.';
+                    : 'Preview ready. Review the Before/After change below. No live DNS change has been made.';
                 if (apply) {
                     await this.refreshDNSData();
                 }

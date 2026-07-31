@@ -26,6 +26,17 @@ STATE_PRIORITY = {
     "investigate": 20,
     "informational": 10,
 }
+OPTIONAL_HARDENING_CODES = {
+    "mta_sts_missing",
+    "mta_sts_review",
+    "tls_rpt_missing",
+    "tls_rpt_multiple_records",
+    "tls_rpt_rua_missing",
+    "bimi_missing",
+    "bimi_dmarc_not_enforced",
+    "dane_missing",
+    "dane_review",
+}
 TRACKS = (
     "provider_preview",
     "manual_dns",
@@ -454,6 +465,17 @@ def _priority_score(item: Dict[str, Any]) -> int:
     return severity + state + automation + min(impact, 50)
 
 
+def _is_optional_hardening_item(item: Dict[str, Any]) -> bool:
+    """Keep optional transport/brand hardening behind core mail-health work."""
+    if str(item.get("source") or "") != "dns_lint":
+        return False
+    finding_code = str(item.get("finding_code") or "").lower()
+    item_id = str(item.get("id") or "").lower()
+    return finding_code in OPTIONAL_HARDENING_CODES or any(
+        token in item_id for token in ("mta-sts", "tls-rpt", "bimi", "dane")
+    )
+
+
 def _priority_band(item: Dict[str, Any], *, score: Optional[int] = None) -> str:
     if score is None:
         score = int(item.get("priority_score") or _priority_score(item))
@@ -822,6 +844,14 @@ def _evidence_refresh_for_item(domain: str, item: Dict[str, Any]) -> Dict[str, A
 
 def _apply_loop_metadata(domain: str, items: List[Dict[str, Any]]) -> None:
     for item in items:
+        optional_hardening = _is_optional_hardening_item(item)
+        item["scope"] = "optional_hardening" if optional_hardening else "core_mail_health"
+        item["priority_group"] = "optional_hardening" if optional_hardening else "core_mail_health"
+        item["priority_reason"] = (
+            "Optional transport, brand, or DNS hardening is shown after active DMARC mail-health blockers."
+            if optional_hardening
+            else "Active mail-health and DMARC evidence takes priority over optional hardening."
+        )
         item["incident_type"] = _incident_type_for_item(item)
         item["loop_state"] = _loop_state_for_item(item)
         item["remediation_track"] = _remediation_track(item)
@@ -1188,6 +1218,7 @@ def _dns_item(
         "blast_radius": f"DNS record {plan.get('name')} ({plan.get('record_type')})",
         "prerequisites": prerequisites,
         "expected_health_score_impact": str(plan.get("expected_health_impact") or ""),
+        "finding_code": str(plan.get("finding_code") or ""),
         "automation": {
             "eligible": automation_ready,
             "requires_approval": True,
@@ -1366,6 +1397,7 @@ def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
         "prerequisites": playbook["prerequisites"],
         "completion_criteria": playbook["completion_criteria"],
         "expected_health_score_impact": str(action.get("score_impact") or 0),
+        "finding_code": str(action.get("type") or ""),
         "automation": {
             "eligible": False,
             "requires_approval": True,
@@ -1703,6 +1735,7 @@ def build_remediation_queue(
     _attach_notification_profiles(domain, items)
     items.sort(
         key=lambda item: (
+            item.get("priority_group") != "core_mail_health",
             item["state"] != "approval_ready",
             -SEVERITY_RANK.get(item["severity"], 0),
             -int(item.get("priority_score") or 0),
