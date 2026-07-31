@@ -1901,6 +1901,7 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await page.goto('/domains/cklnet.com');
 
   await expect(page.getByRole('heading', { name: 'cklnet.com' })).toBeVisible();
+  await page.getByRole('button', { name: 'Evidence' }).click();
   const dnsEvidence = page.locator('details', {
     has: page.locator('summary', { hasText: 'Email authentication and DNS fixes' }),
   });
@@ -1950,9 +1951,9 @@ test('DNS preview gives card-local progress and review feedback', async ({ page 
   }).first();
   await expect(plan.getByRole('button', { name: '1. Preview change' })).toBeVisible();
   await plan.getByRole('button', { name: '1. Preview change' }).click();
-  await expect(plan.getByText('Preparing a Cloudflare preview...')).toBeVisible();
+  await expect(plan.getByText('Preparing the exact Cloudflare preview...')).toBeVisible();
   await expect(plan.getByText('2. Review before applying')).toBeVisible();
-  await expect(plan.getByText('Preview ready. Review the provider mutation before applying.')).toBeVisible();
+  await expect(plan.getByText('Preview ready. Review the Before/After change below. No live DNS change has been made.')).toBeVisible();
   await expect(plan.getByRole('button', { name: /3\. Apply to Cloudflare/ })).toBeEnabled();
 });
 

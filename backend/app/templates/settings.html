@@ -54,7 +54,8 @@
                 <template x-for="item in setupState.checklist" :key="item.key">
                     <a x-show="item.status === 'Next'" :href="item.href" class="btn btn-primary btn-md" x-text="item.action"></a>
                 </template>
-                <a href="/domains" class="btn btn-outline btn-md">Review domains</a>
+                <a href="/mail-sources" class="btn btn-outline btn-md">Connect report mailbox</a>
+                <a href="/domains" class="btn btn-outline btn-md">Add or review domains</a>
             </div>
         </div>
         <ol class="mt-5 grid gap-2 border-t border-[#e6e3e1] pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
