@@ -123,18 +123,18 @@ def _recommended_action(
     report_count: int,
 ) -> str:
     if not domains:
-        return "Erste Versanddomain anlegen und den DNS-Besitz bestätigen."
+        return "Add the first sending domain and confirm DNS ownership."
     if report_count == 0:
-        return "Report-Mailbox verbinden und den ersten DMARC-Report importieren."
+        return "Connect the report mailbox and import the first DMARC report."
     if health == "critical":
         return (
-            "Fehlgeschlagene Sender priorisieren und DKIM/SPF vor einer Policy-Änderung reparieren."
+            "Prioritize failing senders and repair DKIM/SPF before changing policy."
         )
     if any((domain.dmarc_policy or "none") == "none" for domain in domains):
-        return "Unbekannte Sender klären und anschließend die DMARC-Policy verschärfen."
+        return "Classify unknown senders, then strengthen the DMARC policy."
     if any((domain.dmarc_policy or "none") != "reject" for domain in domains):
-        return "Reject-Rollout vorbereiten und nach der Änderung sieben Tage überwachen."
-    return "Aktuelle Policy beibehalten und neue Senderabweichungen überwachen."
+        return "Prepare the reject rollout and monitor for seven days after the change."
+    return "Keep the current policy and monitor for new sender changes."
 
 
 def _user_rows(
@@ -209,15 +209,15 @@ def _domain_rows(
         )
         findings: List[str] = []
         if not domain.verified:
-            findings.append("DNS-Besitz ist noch nicht bestätigt.")
+            findings.append("DNS ownership has not been confirmed yet.")
         if messages == 0:
-            findings.append("Für die letzten 30 Tage liegen keine Reports vor.")
+            findings.append("No reports were received in the last 30 days.")
         elif compliance_rate < 95:
-            findings.append("Authentifizierungsquote liegt unter 95 %.")
+            findings.append("Authentication rate is below 95%.")
         if (domain.dmarc_policy or "none") == "none":
-            findings.append("DMARC befindet sich noch im Monitoring-Modus.")
+            findings.append("DMARC is still in monitoring mode.")
         if not findings:
-            findings.append("Keine akuten Findings; Policy und neue Sender weiter überwachen.")
+            findings.append("No urgent findings; continue monitoring policy and new senders.")
         last_report = max(
             (report.processed_at for report in reports if report.processed_at), default=None
         )
@@ -324,7 +324,7 @@ def _account_payload(  # pylint: disable=too-many-locals
     primary_contact = next(
         (user for user in users if user["role"] in {"organization_owner", "workspace_owner"}),
         users[0] if users else None,
-    ) or {"name": "Nicht zugewiesen", "email": "Nicht zugewiesen"}
+        ) or {"name": "Unassigned", "email": "Unassigned"}
     subscriptions = sorted(
         organization.subscriptions,
         key=lambda subscription: (subscription.created_at or datetime.min, subscription.id),
@@ -362,13 +362,13 @@ def _account_payload(  # pylint: disable=too-many-locals
         "status": account_status,
         "health": health,
         "plan_code": plan.code if plan is not None else "unconfigured",
-        "plan_label": plan.name if plan is not None else "Kein Plan",
+        "plan_label": plan.name if plan is not None else "No plan configured",
         "created_at": _iso(organization.created_at),
         "last_activity_at": _iso(max((report.processed_at for report in reports), default=None)),
         "primary_contact": {
             "name": primary_contact["name"],
             "email": primary_contact["email"],
-            "phone": "Im Identity Provider verwaltet",
+            "phone": "Managed in the identity provider",
         },
         "billing": {
             "status": _billing_status(subscription),
@@ -385,7 +385,7 @@ def _account_payload(  # pylint: disable=too-many-locals
                 else (
                     billing_account.external_customer_id
                     if billing_account
-                    else "Nicht konfiguriert"
+                    else "Not configured"
                 )
             ),
             "billing_contact": (
@@ -441,7 +441,7 @@ def _account_payload(  # pylint: disable=too-many-locals
         "settings": {
             "report_mailbox": next(
                 (domain.dmarc_report_mailbox for domain in domains if domain.dmarc_report_mailbox),
-                "Nicht konfiguriert",
+                "Not configured",
             ),
             "timezone": "Europe/Berlin",
             "weekly_digest": True,
@@ -572,7 +572,7 @@ def build_provider_console(
     operator = operator or {
         "id": "site-manager",
         "name": "Site Manager",
-        "email": "Aktuelle Sitzung",
+        "email": "Current session",
         "role": "site_manager",
     }
     monthly_messages = sum(account["usage"]["messages_30d"] for account in accounts)
@@ -642,13 +642,13 @@ def build_provider_console(
         "support_access_demo": {
             "mode": "audited_workspace_session",
             "operator": operator,
-            "reason": "Kundensupport und Konfigurationsprüfung",
+            "reason": "Customer support and configuration review",
             "allowed_targets": allowed_targets,
             "safeguards": [
-                "Zeitlich begrenzte, signierte Sitzung",
-                "Operator, Zielbenutzer, Workspace und Grund werden protokolliert",
-                "Die API-Berechtigungen entsprechen der Rolle des Zielbenutzers",
-                "Die Sitzung ist fest an genau einen Kunden-Workspace gebunden",
+                "Time-limited, signed session",
+                "Operator, target user, workspace, and reason are logged",
+                "API permissions match the target user's role",
+                "The session is bound to exactly one customer workspace",
             ],
             "audit_events": [],
         },

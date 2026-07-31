@@ -6,6 +6,8 @@ labels: 'enhancement'
 assignees: ''
 ---
 
+Please describe the request in English so it can be triaged consistently.
+
 ## Feature Description
 A clear and concise description of the feature you'd like to see.
 
