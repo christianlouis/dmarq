@@ -45,6 +45,7 @@ def _flow(
     *,
     workspace_id: int | None,
     domain: str,
+    operator_classification: str = "",
 ) -> Dict[str, Any]:
     messages = _count(source.get("count"))
     spf_pass = _count(source.get("spf_pass_count"))
@@ -57,7 +58,25 @@ def _flow(
         messages > 0 and spf_pass == messages and dkim_pass == 0 and dkim_fail == messages
     )
 
-    if fully_spf_aligned_without_dkim:
+    if operator_classification == "expected_forwarding":
+        status = "expected_forwarding"
+        label = "Expected forwarding path"
+        intended_mail_impact = "likely_affected" if dmarc_fail else "fragile"
+        detail = (
+            "An operator classified this exact source as expected forwarding. "
+            "Forwarding commonly breaks SPF; preserve aligned DKIM on the original sender."
+        )
+        next_step = "Review the forwarding rule and verify aligned DKIM in a newer report"
+    elif operator_classification == "unauthorized":
+        status = "likely_unauthorized"
+        label = "Marked unauthorized"
+        intended_mail_impact = "likely_not_affected"
+        detail = (
+            "An operator classified this exact source as unauthorized. Keep it outside SPF "
+            "and monitor the receiver disposition in newer reports."
+        )
+        next_step = "No DNS authorization; keep monitoring for recurrence"
+    elif fully_spf_aligned_without_dkim:
         status = "aligned_dkim_not_observed"
         label = "Aligned DKIM not observed"
         intended_mail_impact = "likely_affected" if dmarc_fail else "fragile"
@@ -136,6 +155,7 @@ def _flow(
         "source_ip": str(source.get("source_ip") or "unknown"),
         "sender_name": str(sender.get("name") or "Unknown sender"),
         "sender_status": str(sender.get("status") or "unknown"),
+        "operator_classification": operator_classification or None,
         "status": status,
         "label": label,
         "detail": detail,
@@ -172,6 +192,7 @@ def build_domain_mailflow_assessment(
     sender_by_ip: Dict[str, Dict[str, Any]],
     *,
     workspace_id: int | None = None,
+    classifications: Dict[tuple[str, str], Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     """Build one domain summary plus per-source mailflow identity facts."""
     flows = [
@@ -180,12 +201,19 @@ def build_domain_mailflow_assessment(
             sender_by_ip.get(str(source.get("source_ip") or "unknown"), {}),
             workspace_id=workspace_id,
             domain=domain,
+            operator_classification=str(
+                (classifications or {}).get(
+                    (domain, str(source.get("source_ip") or "unknown")), {}
+                ).get("classification")
+                or ""
+            ),
         )
         for source in sources
         if _count(source.get("count")) > 0
     ]
     priority = {
         "aligned_dkim_not_observed": 0,
+        "expected_forwarding": 1,
         "intermittent_dkim_alignment": 1,
         "investigate_alignment": 2,
         "investigate_source": 3,
@@ -223,6 +251,16 @@ def build_domain_mailflow_assessment(
         )
         next_step = primary["next_step"]
         confidence = "Medium"
+    elif flows and counts["expected_forwarding"]:
+        primary = next(flow for flow in flows if flow["status"] == "expected_forwarding")
+        status = "investigation_required"
+        title = "Review an expected forwarding path"
+        summary = (
+            "This source is marked as expected forwarding. Do not add its shared relay IP "
+            "to SPF; verify aligned DKIM on the original sender instead."
+        )
+        next_step = primary["next_step"]
+        confidence = "High"
     elif flows and counts["healthy"]:
         primary = next(flow for flow in flows if flow["status"] == "healthy")
         status = "healthy"

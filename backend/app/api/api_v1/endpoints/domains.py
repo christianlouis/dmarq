@@ -9402,6 +9402,7 @@ async def get_domain_sources(
         sources,
         sender_by_ip,
         workspace_id=workspace.id,
+        classifications=classifications,
     )
     mailflow_by_ip = {
         str(flow.get("source_ip") or "unknown"): flow

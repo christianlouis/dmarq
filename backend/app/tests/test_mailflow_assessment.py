@@ -153,6 +153,23 @@ def test_known_sender_dmarc_failure_requests_alignment_review():
     assert result["unknowns"]
 
 
+def test_expected_forwarding_classification_is_used_by_domain_mailflow_view():
+    result = build_domain_mailflow_assessment(
+        "example.com",
+        [_source(spf_pass_count=0, spf_fail_count=12, dkim_pass_count=12, dkim_fail_count=0)],
+        {"192.0.2.10": {"name": "Cloudflare Email Routing", "status": "known"}},
+        classifications={
+            ("example.com", "192.0.2.10"): {"classification": "expected_forwarding"}
+        },
+    )
+
+    assert result["status"] == "investigation_required"
+    assert result["counts"]["expected_forwarding"] == 1
+    assert result["flows"][0]["status"] == "expected_forwarding"
+    assert result["flows"][0]["operator_classification"] == "expected_forwarding"
+    assert "Do not add its shared relay IP" in result["summary"]
+
+
 def test_zero_traffic_is_ignored():
     result = build_domain_mailflow_assessment(
         "example.com",
