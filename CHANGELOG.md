@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sender classifications now flow into the domain mailflow diagnosis as well as
   source rows and scheduled health assessment, so an expected forwarding path is
   treated consistently and never becomes an SPF authorization recommendation.
+- Settings setup guidance now reads the live domain, report-source, report, and
+  notification state, advances one actionable step at a time, and marks optional
+  notification setup separately from required intake prerequisites.
 - DMARQ now ingests RFC delivery-status notifications from IMAP, Gmail,
   Microsoft 365, the raw-email webhook, and manual upload, plus authenticated
   provider-neutral delivery webhooks. Recipient addresses and correlation IDs
