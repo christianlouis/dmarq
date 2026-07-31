@@ -870,6 +870,7 @@ async def _report_reputations_by_ip(
     refresh: bool,
     settings: Any,
     hydrate: bool = False,
+    allow_live: bool = False,
 ) -> tuple[Optional[DomainReputation], Dict[str, SourceReputation], str]:
     """Build reputation evidence with a hard detail-path timeout."""
     try:
@@ -883,6 +884,7 @@ async def _report_reputations_by_ip(
                 anomalies_by_ip={},
                 days=1,
                 refresh=refresh,
+                allow_live=allow_live,
             ),
             timeout=(
                 max(0.5, float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * 2)
@@ -1228,32 +1230,35 @@ async def get_report_by_id(
 
     missing_ptr_ips = [ip for ip in unique_ips if ip not in ptr_by_ip]
     missing_network_ips = [ip for ip in unique_ips if ip not in networks_by_ip]
-    ptr_task = asyncio.create_task(
-        _report_ptrs_by_ip(
-            provider,
-            missing_ptr_ips,
-            settings,
-            hydrate=hydrate_enrichment,
+    if hydrate_enrichment:
+        ptr_task = asyncio.create_task(
+            _report_ptrs_by_ip(
+                provider,
+                missing_ptr_ips,
+                settings,
+                hydrate=True,
+            )
         )
-    )
-    network_task = asyncio.create_task(
-        _report_networks_by_ip(
-            db,
-            provider,
-            missing_network_ips,
-            settings,
-            hydrate=hydrate_enrichment,
+        network_task = asyncio.create_task(
+            _report_networks_by_ip(
+                db,
+                provider,
+                missing_network_ips,
+                settings,
+                hydrate=True,
+            )
         )
-    )
-    (live_ptr, ptr_status), (live_networks, network_status) = await asyncio.gather(
-        ptr_task, network_task
-    )
-    ptr_by_ip.update(live_ptr)
-    networks_by_ip.update(live_networks)
-    if not missing_ptr_ips:
-        ptr_status = "complete"
-    if not missing_network_ips:
-        network_status = "complete"
+        (live_ptr, ptr_status), (live_networks, network_status) = await asyncio.gather(
+            ptr_task, network_task
+        )
+        ptr_by_ip.update(live_ptr)
+        networks_by_ip.update(live_networks)
+    else:
+        # Normal report reads are projection reads. Missing point-in-time
+        # enrichment is completed by the ingest/scheduler path, never by a
+        # synchronous page request.
+        ptr_status = "complete" if not missing_ptr_ips else "pending"
+        network_status = "complete" if not missing_network_ips else "pending"
     hostnames = [(ptr_by_ip.get(ip).hostname if ptr_by_ip.get(ip) else None) for ip in ips]
     if ptr_status == "complete":
         if any((ptr_by_ip.get(ip) and ptr_by_ip[ip].transient) for ip in unique_ips):
@@ -1280,6 +1285,7 @@ async def get_report_by_id(
         refresh=refresh_reputation,
         settings=settings,
         hydrate=hydrate_enrichment,
+        allow_live=hydrate_enrichment or refresh_reputation,
     )
 
     # Normalize records

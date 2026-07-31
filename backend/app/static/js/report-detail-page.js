@@ -46,6 +46,12 @@ function reportDetailApp(reportId = '') {
                     return;
                 }
 
+                const hydrateButton = event.target.closest('[data-report-hydrate-enrichment]');
+                if (hydrateButton && root.contains(hydrateButton)) {
+                    this.hydrateEnrichment();
+                    return;
+                }
+
                 const riskFilterButton = event.target.closest('[data-report-risk-filter]');
                 if (riskFilterButton && root.contains(riskFilterButton)) {
                     this.setRecordRiskFilter(riskFilterButton.dataset.reportRiskFilter || 'all');
@@ -118,9 +124,6 @@ function reportDetailApp(reportId = '') {
                     }
                     if (!refreshReputation) {
                         this.reputationRefreshError = '';
-                    }
-                    if (!refreshReputation && this.report?.enrichment?.pending) {
-                        this.hydrateEnrichment();
                     }
                 } else if (response.status === 404) {
                     if (!refreshReputation) {

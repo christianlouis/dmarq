@@ -88,6 +88,22 @@
                     <button type="button" class="btn btn-sm" :class="guidanceContextButtonClass('diagnose')" :aria-pressed="guidanceContext === 'diagnose'" data-report-guidance-context="diagnose">Diagnose</button>
                     <button type="button" class="btn btn-sm" :class="guidanceContextButtonClass('evidence')" :aria-pressed="guidanceContext === 'evidence'" data-report-guidance-context="evidence">Evidence</button>
                 </div>
+                <div x-show="report.enrichment && report.enrichment.pending"
+                     x-cloak
+                     class="mt-4 flex flex-col gap-3 rounded-md border border-[#d7eef0] bg-[#f1fbfc] p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                     role="status"
+                     aria-live="polite">
+                    <div>
+                        <p class="font-semibold text-[#120d36]">Some sender enrichment is not stored yet.</p>
+                        <p class="mt-1 text-xs text-[#5f5c78]">This report loaded from persisted evidence. Ask DMARQ to perform optional live enrichment only when you need it.</p>
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]"
+                            data-report-hydrate-enrichment
+                            :disabled="enrichmentHydrating">
+                        <span x-text="enrichmentHydrating ? 'Loading enrichment...' : 'Load missing enrichment'"></span>
+                    </button>
+                </div>
             </div>
 
             <section class="rounded-lg border border-[#d8edf0] bg-[#f3fbfc] p-5 shadow-sm"
