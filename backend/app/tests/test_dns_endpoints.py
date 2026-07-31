@@ -43,6 +43,7 @@ from app.services.dns_cache import (
     store_dns_cache_result,
 )
 from app.services.dns_provider_detection import detect_dns_provider
+from app.services.dns_provider_writes import DNSProviderWriteError
 from app.services.dns_resolver import (
     CloudflareDNSProvider,
     ConfiguredRecursiveDNSProvider,
@@ -892,6 +893,49 @@ def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestC
     assert plan["proposed_value"].startswith("v=DMARC1")
     assert plan["rollback"]
     assert plan["expected_health_impact"]
+
+
+@pytest.mark.asyncio
+async def test_dns_plan_prerequisite_rejects_unreachable_mta_sts_policy():
+    class FakeResponse:
+        text = ""
+
+        def raise_for_status(self):
+            raise domains_endpoint.httpx.ConnectError("host unavailable")
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def get(self, _url):
+            return FakeResponse()
+
+    plan = {
+        "finding_code": "missing_mta_sts",
+        "proposed_value": "v=STSv1; id=20260731",
+    }
+    with patch.object(domains_endpoint.httpx, "AsyncClient", return_value=FakeClient()):
+        with pytest.raises(DNSProviderWriteError, match="MTA-STS prerequisite failed"):
+            await domains_endpoint._validate_dns_plan_prerequisite(DOMAIN, plan)
+
+
+def test_dns_plan_write_state_explains_dependent_https_prerequisites():
+    plans = domains_endpoint._with_dns_plan_write_state(
+        [
+            {
+                "finding_code": "missing_bimi",
+                "operation": "create",
+                "record_type": "TXT",
+                "proposed_value": "v=BIMI1; l=https://example.com/logo.svg; a=",
+            }
+        ]
+    )
+
+    assert plans[0]["prerequisite_status"] == "blocked"
+    assert "HTTPS SVG logo" in plans[0]["prerequisite_summary"]
 
 
 def test_dns_change_plan_endpoint_includes_postmark_records(authed_client: TestClient):

@@ -3469,6 +3469,33 @@ def test_dns_change_plan_apply_rejects_unconfirmed_real_write(
     assert db_session.query(WorkspaceAuditLog).count() == 0
 
 
+def test_dns_change_plan_apply_rejects_stale_plan_version(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN, verified=True))
+    db_session.commit()
+    plan = _dns_plan()
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "confirm": True,
+                "dry_run": False,
+                "expected_plan_version": "stale-version",
+            },
+        )
+
+    assert response.status_code == 409
+    assert "stale" in response.json()["detail"]
+
+
 def test_dns_change_plan_apply_requires_verified_domain_for_live_write(
     authed_client: TestClient,
     db_session,

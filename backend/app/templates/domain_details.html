@@ -2392,12 +2392,6 @@
                                         </template>
                                     </ul>
                                 </template>
-                                <p x-show="dnsWrite.message"
-                                   class="mt-2 rounded bg-base-200 px-3 py-2 text-xs text-base-content/75"
-                                   x-text="dnsWrite.message"></p>
-                                <p x-show="dnsWrite.error"
-                                   class="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700"
-                                   x-text="dnsWrite.error"></p>
                                 <div class="mt-3 space-y-2">
                                     <template x-for="plan in dnsGuidance.change_plans" :key="plan.plan_id">
                                         <div class="rounded border border-base-300 p-3">
@@ -2470,6 +2464,7 @@
                                                     <span x-show="dnsWriteCanPreview(plan)">Use the three steps at right; only the final confirmation changes live DNS.</span>
                                                     <span x-show="!plan.provider_write_available">Manual-only until the value or operation is safe to automate.</span>
                                                     <span x-show="plan.provider_write_available && !dnsWriteProviderConfigured" x-text="dnsWritePreviewHint(plan)"></span>
+                                                    <span x-show="plan.prerequisite_status === 'blocked'" x-text="plan.prerequisite_summary"></span>
                                                     <ul x-show="plan.safety_notes && plan.safety_notes.length"
                                                         class="mt-1 list-disc space-y-0.5 pl-4">
                                                         <template x-for="note in plan.safety_notes" :key="note">
@@ -2484,7 +2479,11 @@
                                                         :data-dns-plan-id="plan.plan_id"
                                                         data-domain-detail-dns-action="preview"
                                                     >
-                                                        1. Preview change
+                                                        <span x-show="!(dnsWriteIsActive(plan) && dnsWrite.loading)">1. Preview change</span>
+                                                        <span x-show="dnsWriteIsActive(plan) && dnsWrite.loading" class="inline-flex items-center gap-1">
+                                                            <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+                                                            Preparing preview...
+                                                        </span>
                                                     </button>
                                                     <button
                                                         class="btn btn-xs bg-[#2f9da5] text-white hover:bg-[#272a5f]"
@@ -2495,6 +2494,35 @@
                                                         3. Apply to <span x-text="providerName(dnsWrite.provider)"></span>
                                                     </button>
                                                 </div>
+                                            </div>
+                                            <div x-show="dnsWriteIsActive(plan)"
+                                                 class="mt-3"
+                                                 role="status"
+                                                 aria-live="polite">
+                                                <p x-show="dnsWrite.message"
+                                                   class="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-[#243b5a]"
+                                                   x-text="dnsWrite.message"></p>
+                                                <div x-show="dnsWrite.error"
+                                                     class="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                                                     role="alert">
+                                                    <p x-text="dnsWrite.error"></p>
+                                                    <div class="mt-2 flex flex-wrap gap-2">
+                                                        <button type="button"
+                                                                class="btn btn-xs btn-outline"
+                                                                :disabled="dnsWrite.loading || !dnsWriteCanPreview(plan)"
+                                                                :data-dns-plan-id="plan.plan_id"
+                                                                data-domain-detail-dns-action="preview">
+                                                            Retry preview
+                                                        </button>
+                                                        <a class="btn btn-xs btn-ghost"
+                                                           :href="dnsWriteProviderSetupHref">
+                                                            Review provider connection
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                <p x-show="!dnsWrite.loading && !dnsWriteCanApply(plan) && !dnsWrite.error"
+                                                   class="mt-2 text-xs text-base-content/60"
+                                                   x-text="dnsWriteApplyHint(plan)"></p>
                                             </div>
                                             <template x-if="dnsWrite.preview && dnsWrite.preview.plan_id === plan.plan_id">
                                                 <div class="mt-3 rounded border border-[#2f9da5]/30 bg-[#2f9da5]/10 p-3 text-xs">

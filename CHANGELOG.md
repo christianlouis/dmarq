@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- DNS repair previews now report progress and failures inside the affected
+  plan card, carry a correlation ID into audit evidence, and include a stable
+  plan version so stale provider evidence is rejected before apply. BIMI and
+  MTA-STS changes now require a reachable, valid HTTPS asset or policy file
+  before a provider mutation can proceed.
 - Every recognized or unknown sending source now includes a verification-first
   authorization plan in domain and report detail views. Operators can record
   an exact domain/IP pair as intended, expected forwarding, or unauthorized

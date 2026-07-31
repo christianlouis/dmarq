@@ -766,6 +766,35 @@ async function installApiMocks(page) {
       return;
     }
 
+    if (method === 'POST' && path === '/api/v1/domains/cklnet.com/dns/change-plan/apply') {
+      const requestBody = route.request().postDataJSON();
+      await sleep(150);
+      await route.fulfill(
+        json({
+          plan_id: requestBody.plan_id,
+          provider: requestBody.provider,
+          dry_run: true,
+          applied: false,
+          mutation: {
+            operation: 'create',
+            record_type: 'TXT',
+            name: '_dmarc.cklnet.com',
+            content: 'v=DMARC1; p=none; rua=mailto:dmarc@cklnet.com',
+            ttl: 300,
+            provider: requestBody.provider,
+            zone_id: 'zone-browser-smoke',
+            zone_name: 'cklnet.com',
+            current_values: [],
+            applicable: true,
+          },
+          verification: { status: 'not_run', verified: false, message: '' },
+          rollback: { summary: 'Delete the created record.', steps: [] },
+          changes: [{ type: 'demo_preview', message: 'Preview ready.' }],
+        })
+      );
+      return;
+    }
+
     const responses = {
       '/api/v1/domains/summary': domainSummary,
       '/api/v1/stats/dashboard': dashboardStats,
@@ -804,11 +833,29 @@ async function installApiMocks(page) {
         dns_provider: { id: 'cloudflare', name: 'Cloudflare' },
         recommended_provider: { id: 'cloudflare', name: 'Cloudflare' },
         available_write_providers: [{ id: 'cloudflare', name: 'Cloudflare', status: 'ready' }],
-        change_plans: [],
+        change_plans: [{
+          plan_id: 'dmarc-missing-cklnet-com-txt',
+          finding_code: 'dmarc_missing',
+          severity: 'error',
+          operation: 'create',
+          record_type: 'TXT',
+          name: '_dmarc.cklnet.com',
+          proposed_value: 'v=DMARC1; p=none; rua=mailto:dmarc@cklnet.com',
+          current_values: [],
+          rationale: 'Publish a DMARC TXT record in monitoring mode.',
+          risk: 'Low delivery risk when starting with p=none.',
+          rollback: 'Delete the newly created TXT record.',
+          expected_health_impact: 'Expected to improve DNS health.',
+          manual_steps: ['Publish the planned TXT record.'],
+          provider_write_available: true,
+          provider_value_required: false,
+          changes: ['Create this record; no current value was observed.'],
+          safety_notes: ['Preview the provider mutation before applying this DNS change.'],
+        }],
         safety_notes: [],
       },
       '/api/v1/domains/dns/providers': {
-        providers: [{ id: 'cloudflare', name: 'Cloudflare', status: 'ready' }],
+        providers: [{ id: 'cloudflare', name: 'Cloudflare', status: 'ready', credentials_configured: true }],
       },
       '/api/v1/domains/cklnet.com/ownership': {
         verified: true,
@@ -1886,6 +1933,26 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await recentReports.locator(':scope > summary').click();
   await expect(recentReports.getByRole('heading', { name: 'Recent Reports' })).toBeVisible();
   await expect(recentReports.getByText('google.com').first()).toBeVisible();
+});
+
+test('DNS preview gives card-local progress and review feedback', async ({ page }) => {
+  await page.goto('/domains/cklnet.com#dns-records');
+
+  const dnsEvidence = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Email authentication and DNS fixes' }),
+  });
+  await expect(dnsEvidence.locator(':scope > summary')).toBeVisible();
+  await dnsEvidence.locator(':scope > summary').click();
+
+  const plan = page.locator('div.rounded.border.border-base-300.p-3').filter({
+    hasText: '_dmarc.cklnet.com',
+  }).first();
+  await expect(plan.getByRole('button', { name: '1. Preview change' })).toBeVisible();
+  await plan.getByRole('button', { name: '1. Preview change' }).click();
+  await expect(plan.getByText('Preparing a Cloudflare preview...')).toBeVisible();
+  await expect(plan.getByText('2. Review before applying')).toBeVisible();
+  await expect(plan.getByText('Preview ready. Review the provider mutation before applying.')).toBeVisible();
+  await expect(plan.getByRole('button', { name: /3\. Apply to Cloudflare/ })).toBeEnabled();
 });
 
 test('reports list and aggregate detail keep source evidence actionable', async ({ page }) => {

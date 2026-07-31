@@ -13,6 +13,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -115,7 +116,7 @@ from app.services.mail_service_imports import (
 from app.services.mail_signals import build_dmarc_source_signals
 from app.services.mailflow_assessment import build_domain_mailflow_assessment
 from app.services.migration_import import preview_migration_import
-from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
+from app.services.mta_sts import MTAStsResult, check_mta_sts_cached, parse_mta_sts_policy
 from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
@@ -633,6 +634,9 @@ class DNSChangePlanItemResponse(BaseModel):
     current_record_type: Optional[str] = None
     effective_value: Optional[str] = None
     shared_record_target: Optional[str] = None
+    plan_version: Optional[str] = None
+    prerequisite_status: str = "not_required"
+    prerequisite_summary: Optional[str] = None
 
 
 class DNSChangePlanResponse(BaseModel):
@@ -1078,10 +1082,29 @@ def _with_dns_plan_write_state(plans: List[Dict[str, Any]]) -> List[Dict[str, An
     annotated_plans = []
     for plan in plans:
         provider_write_available = _dns_plan_provider_write_available(plan)
+        prerequisite_status = "not_required"
+        prerequisite_summary = None
+        if plan.get("finding_code") in {
+            "missing_mta_sts",
+            "mta_sts_policy_unreachable",
+            "mta_sts_policy_invalid",
+        }:
+            prerequisite_status = "blocked"
+            prerequisite_summary = (
+                "Validate the HTTPS MTA-STS policy file before applying this DNS record."
+            )
+        elif plan.get("finding_code") in {"missing_bimi", "bimi_review"}:
+            prerequisite_status = "blocked"
+            prerequisite_summary = (
+                "Validate the proposed HTTPS SVG logo before applying this DNS record."
+            )
         annotated_plans.append(
             {
                 **plan,
+                "plan_version": _dns_plan_version(plan),
                 "provider_write_available": provider_write_available,
+                "prerequisite_status": prerequisite_status,
+                "prerequisite_summary": prerequisite_summary,
                 "safety_notes": _dns_plan_safety_notes(
                     plan,
                     provider_write_available=provider_write_available,
@@ -1089,6 +1112,89 @@ def _with_dns_plan_write_state(plans: List[Dict[str, Any]]) -> List[Dict[str, An
             }
         )
     return annotated_plans
+
+
+def _dns_plan_version(plan: Dict[str, Any]) -> str:
+    """Return a stable version for the exact evidence-backed plan contents."""
+    material = {
+        key: plan.get(key)
+        for key in (
+            "plan_id",
+            "finding_code",
+            "operation",
+            "record_type",
+            "name",
+            "proposed_value",
+            "current_values",
+            "current_record_type",
+            "effective_value",
+        )
+    }
+    encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+async def _validate_dns_plan_prerequisite(domain: str, plan: Dict[str, Any]) -> None:
+    """Fail closed when a DNS plan would publish a dependent HTTPS asset reference."""
+    finding_code = str(plan.get("finding_code") or "")
+    if (
+        finding_code
+        not in {
+            "missing_mta_sts",
+            "mta_sts_policy_unreachable",
+            "mta_sts_policy_invalid",
+            "missing_bimi",
+            "bimi_review",
+        }
+        or get_settings().DEMO_MODE
+    ):
+        return
+
+    proposed = str(plan.get("proposed_value") or "")
+    if finding_code.startswith("mta_sts") or finding_code == "missing_mta_sts":
+        url = f"https://mta-sts.{domain}/.well-known/mta-sts.txt"
+        try:
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            raise DNSProviderWriteError(
+                f"MTA-STS prerequisite failed: {url} is not reachable over HTTPS. "
+                "Publish and validate the policy file before changing the _mta-sts TXT record."
+            ) from exc
+        _, _, errors = parse_mta_sts_policy(response.text)
+        if errors:
+            raise DNSProviderWriteError(
+                f"MTA-STS prerequisite failed: {url} is not a valid policy file. "
+                + " ".join(errors)
+            )
+        return
+
+    tags = {
+        part.split("=", 1)[0].strip().lower(): part.split("=", 1)[1].strip()
+        for part in proposed.split(";")
+        if "=" in part
+    }
+    logo_url = tags.get("l")
+    if not logo_url or not logo_url.lower().startswith("https://"):
+        raise DNSProviderWriteError(
+            "BIMI prerequisite failed: the proposed record does not contain an HTTPS logo URL."
+        )
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            response = await client.get(logo_url)
+            response.raise_for_status()
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+        raise DNSProviderWriteError(
+            f"BIMI prerequisite failed: {logo_url} is not reachable over HTTPS. "
+            "Publish a reachable SVG logo before changing the BIMI TXT record."
+        ) from exc
+    content_type = response.headers.get("content-type", "").lower()
+    body = response.text.lstrip().lower()
+    if "svg" not in content_type and "<svg" not in body[:4096]:
+        raise DNSProviderWriteError(
+            f"BIMI prerequisite failed: {logo_url} did not return an SVG asset."
+        )
 
 
 def _dns_change_plan_safety_notes(
@@ -1158,6 +1264,7 @@ class DNSWriteApplyRequest(BaseModel):
     expected_current_values: Optional[List[str]] = None
     expected_record_id: Optional[str] = None
     expected_proposed_value: Optional[str] = None
+    expected_plan_version: Optional[str] = None
 
 
 class DNSWriteMutationResponse(BaseModel):
@@ -1213,6 +1320,9 @@ class DNSWriteResultResponse(BaseModel):
     changes: List[Dict[str, Any]] = Field(default_factory=list)
     verification: DNSWriteVerificationResponse
     rollback: DNSWriteRollbackResponse
+    plan_id: Optional[str] = None
+    plan_version: Optional[str] = None
+    correlation_id: Optional[str] = None
 
 
 class DNSGuidanceResponse(BaseModel):
@@ -6751,6 +6861,20 @@ async def apply_domain_dns_change_plan(
     guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
     plan = _find_dns_change_plan(guidance, payload.plan_id)
     resolved_domain = guidance["domain"]
+    plan_version = _dns_plan_version(plan)
+    if (
+        payload.confirm
+        and payload.expected_plan_version
+        and payload.expected_plan_version != plan_version
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This DNS plan is stale because the observed provider evidence changed. "
+                "Refresh DNS evidence and create a new preview before applying it."
+            ),
+        )
+    correlation_id = request.headers.get("X-DMARQ-Correlation-ID") or secrets.token_urlsafe(12)
     available_providers = _ready_dns_write_provider_ids()
     detected_provider = _detected_dns_provider_id(guidance.get("dns_provider"))
     recommended_provider = _recommended_dns_write_provider(
@@ -6770,6 +6894,7 @@ async def apply_domain_dns_change_plan(
             provider_match_target=provider_match_target,
             allow_mismatch=payload.allow_provider_mismatch,
         )
+        await _validate_dns_plan_prerequisite(resolved_domain, plan)
         if payload.dry_run or not payload.confirm:
             if get_settings().DEMO_MODE:
                 result = simulate_demo_dns_preview(
@@ -6803,6 +6928,29 @@ async def apply_domain_dns_change_plan(
                         "message": safety_note,
                     }
                 )
+            if payload.dry_run and not get_settings().DEMO_MODE:
+                record_workspace_audit_log(
+                    db,
+                    workspace=workspace,
+                    action="domain.dns_change_previewed",
+                    entity_type="domain",
+                    entity_name=domain_id,
+                    details={
+                        "provider": payload.provider,
+                        "plan_id": payload.plan_id,
+                        "plan_version": plan_version,
+                        "correlation_id": correlation_id,
+                        "dry_run": True,
+                        "mutation": result.mutation.to_dict(),
+                        "provider_read_completed": True,
+                    },
+                    auth_context=_auth,
+                    request=request,
+                    commit=True,
+                )
+            result_payload["plan_id"] = payload.plan_id
+            result_payload["plan_version"] = plan_version
+            result_payload["correlation_id"] = correlation_id
             return result_payload
 
         if get_settings().DEMO_MODE:
@@ -6864,6 +7012,8 @@ async def apply_domain_dns_change_plan(
         details={
             "provider": payload.provider,
             "plan_id": payload.plan_id,
+            "plan_version": plan_version,
+            "correlation_id": correlation_id,
             "mutation": result.mutation.to_dict(),
             "applied": result.applied,
             "verification": result.verification.to_dict(),
@@ -6876,6 +7026,9 @@ async def apply_domain_dns_change_plan(
     )
     result_payload = result.to_dict()
     result_payload["rollback"] = rollback
+    result_payload["plan_id"] = payload.plan_id
+    result_payload["plan_version"] = plan_version
+    result_payload["correlation_id"] = correlation_id
     return result_payload
 
 

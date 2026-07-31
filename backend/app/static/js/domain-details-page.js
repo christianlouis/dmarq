@@ -56,7 +56,9 @@ function domainDetailsApp(domainId = '') {
             loading: false,
             message: '',
             error: '',
-            preview: null
+            preview: null,
+            activePlanId: '',
+            status: ''
         },
         posture: {
             status: '',
@@ -534,7 +536,14 @@ function domainDetailsApp(domainId = '') {
 
         handleDnsPlanAction(action, planId) {
             const plan = this.findDnsPlan(planId);
-            if (!plan) return;
+            if (!plan) {
+                this.dnsWrite.activePlanId = String(planId || 'unknown');
+                this.dnsWrite.status = 'failed';
+                this.dnsWrite.loading = false;
+                this.dnsWrite.error = 'This DNS plan is no longer available. Refresh DNS evidence and preview the current plan.';
+                this.dnsWrite.message = '';
+                return;
+            }
             if (action === 'preview') {
                 this.previewDNSChange(plan);
             } else if (action === 'apply') {
@@ -1270,6 +1279,17 @@ function domainDetailsApp(domainId = '') {
 
         dnsWriteCanApply(plan) {
             return this.dnsWriteCanPreview(plan) && this.dnsWritePreviewMatches(plan);
+        },
+
+        dnsWriteIsActive(plan) {
+            return String(this.dnsWrite.activePlanId || '') === String(plan.plan_id || '');
+        },
+
+        dnsWriteApplyHint(plan) {
+            if (plan.prerequisite_status === 'blocked') {
+                return plan.prerequisite_summary || 'Complete the linked prerequisite before applying this DNS change.';
+            }
+            return this.dnsWritePreviewHint(plan);
         },
 
         dnsWritePreviewHint(plan) {
@@ -2821,13 +2841,26 @@ function domainDetailsApp(domainId = '') {
         },
 
         async submitDNSChange(plan, apply) {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+            const correlationId = window.crypto?.randomUUID
+                ? window.crypto.randomUUID()
+                : `dns-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            this.dnsWrite.activePlanId = String(plan.plan_id || '');
+            this.dnsWrite.status = apply ? 'applying' : 'preparing';
             this.dnsWrite.loading = true;
             this.dnsWrite.error = '';
-            this.dnsWrite.message = '';
+            this.dnsWrite.message = apply
+                ? `Applying this change to ${this.providerName(this.dnsWrite.provider)}...`
+                : `Preparing a ${this.providerName(this.dnsWrite.provider)} preview...`;
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns/change-plan/apply`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-DMARQ-Correlation-ID': correlationId,
+                    },
+                    signal: controller.signal,
                     body: JSON.stringify({
                         plan_id: plan.plan_id,
                         provider: this.dnsWrite.provider,
@@ -2837,16 +2870,22 @@ function domainDetailsApp(domainId = '') {
                         expected_record_type: apply ? this.dnsWrite.preview?.mutation?.current_record_type : null,
                         expected_current_values: apply ? this.dnsWrite.preview?.mutation?.current_values : null,
                         expected_record_id: apply ? this.dnsWrite.preview?.mutation?.record_id : null,
-                        expected_proposed_value: apply ? this.dnsWrite.preview?.mutation?.content : null
+                        expected_proposed_value: apply ? this.dnsWrite.preview?.mutation?.content : null,
+                        expected_plan_version: apply ? this.dnsWrite.preview?.plan_version : null
                     })
                 });
                 const data = await response.json();
                 if (!response.ok) {
+                    this.dnsWrite.status = response.status === 409 ? 'stale' : 'failed';
                     this.dnsWrite.error = this.dnsWriteErrorMessage(data.detail, apply);
+                    this.dnsWrite.message = '';
                     return;
                 }
-                data.plan_id = plan.plan_id;
+                data.plan_id = data.plan_id || plan.plan_id;
                 this.dnsWrite.preview = data;
+                this.dnsWrite.status = apply
+                    ? (data.verification?.verified ? 'verified' : 'verification_pending')
+                    : 'ready';
                 this.dnsWrite.message = apply
                     ? (data.verification?.verified
                         ? 'DNS change verified by the provider. Refreshing DNS evidence now.'
@@ -2857,10 +2896,15 @@ function domainDetailsApp(domainId = '') {
                 }
                 return data;
             } catch (error) {
-                this.dnsWrite.error = 'Network error — DNS change could not be prepared';
+                this.dnsWrite.status = error?.name === 'AbortError' ? 'timed_out' : 'failed';
+                this.dnsWrite.error = error?.name === 'AbortError'
+                    ? 'The provider preview timed out after 10 seconds. No DNS change was made. Retry or review the provider connection.'
+                    : 'Network error — DNS change could not be prepared';
+                this.dnsWrite.message = '';
                 console.error('Error submitting DNS change:', error);
                 return null;
             } finally {
+                window.clearTimeout(timeoutId);
                 this.dnsWrite.loading = false;
             }
         },
@@ -2878,6 +2922,8 @@ function domainDetailsApp(domainId = '') {
                 ? this.dnsWrite.preview
                 : null;
             if (!preview) {
+                this.dnsWrite.activePlanId = String(plan.plan_id || '');
+                this.dnsWrite.status = 'blocked';
                 this.dnsWrite.message = 'Start with “1. Preview change” so you can review the exact provider mutation before applying it.';
                 return null;
             }
