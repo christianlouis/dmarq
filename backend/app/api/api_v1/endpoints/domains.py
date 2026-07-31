@@ -91,6 +91,10 @@ from app.services.dns_zone_baselines import (
     preview_zone_baseline,
     save_zone_baseline,
 )
+from app.services.evidence_snapshot import (
+    build_domain_evidence_snapshot,
+    source_projection_version,
+)
 from app.services.health_score import build_health_summary, score_domain_health
 from app.services.health_score_snapshots import (
     aggregate_workspace_health_points,
@@ -1670,6 +1674,7 @@ class RemediationQueueResponse(BaseModel):
     domain: str
     status: str
     summary: Dict[str, int]
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
     loop: Dict[str, Any] = Field(default_factory=dict)
     completion: RemediationCompletionGate = Field(default_factory=RemediationCompletionGate)
     items: List[RemediationQueueItem]
@@ -7372,6 +7377,15 @@ async def _build_domain_remediation_queue_for_workspace(  # noqa: C901
         available_write_providers=available_providers,
         recommended_provider=recommended_provider,
     )
+    # Keep queue counters tied to the same persisted report projection used by
+    # the sender view. This is a read-only fingerprint; it never performs DNS
+    # or reputation work in the request path.
+    source_rows = store.get_domain_sources(domain_name, days=30)
+    queue["snapshot"] = build_domain_evidence_snapshot(
+        domain_health,
+        source_rows,
+        days=30,
+    )
     if guidance.get("enrichment_pending") or domain_health.get("enrichment_pending"):
         queue = {
             **queue,
@@ -8869,28 +8883,7 @@ def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[st
             counts["protective_action"] += 1
         elif status == "receiver_no_dmarc_action":
             counts["no_dmarc_action"] += 1
-    version_payload = {
-        "days": int(days),
-        "as_of": as_of,
-        "first_seen": first_seen,
-        "last_seen": last_seen,
-        "counts": counts,
-        "rows": [
-            {
-                "ip": row.get("ip"),
-                "count": row.get("count", 0),
-                "first_seen": row.get("first_seen"),
-                "last_seen": row.get("last_seen"),
-                "dmarc": row.get("dmarc"),
-                "authentication_status": row.get("authentication_status"),
-                "reputation": (row.get("reputation") or {}).get("status"),
-            }
-            for row in rows
-        ],
-    }
-    version = hashlib.sha256(
-        json.dumps(version_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:16]
+    version = source_projection_version(rows, days=days)
     return {
         "version": version,
         "period_days": int(days),
@@ -9518,10 +9511,28 @@ async def get_domain_sources(
             )
         )
 
+    source_snapshot = _source_snapshot(source_entries, days=source_days)
+    evidence_snapshot = build_domain_evidence_snapshot(
+        _persisted_domain_health(
+            db,
+            workspace_id=workspace.id,
+            domain_name=domain_name,
+        ),
+        source_entries,
+        days=source_days,
+    )
+    source_snapshot = {
+        **source_snapshot,
+        "version": evidence_snapshot["version"],
+        "source_version": evidence_snapshot["source_version"],
+        "health_version": evidence_snapshot["health_version"],
+        "captured_at": evidence_snapshot["captured_at"],
+        "stale": evidence_snapshot["stale"],
+    }
     return DomainSourcesResponse(
         sources=source_entries,
         mailflow_assessment=DomainMailflowAssessment(**mailflow_assessment),
-        snapshot=_source_snapshot(source_entries, days=source_days),
+        snapshot=source_snapshot,
     )
 
 

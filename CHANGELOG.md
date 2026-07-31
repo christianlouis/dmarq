@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - English is now documented as the canonical source language, issue templates
   request English, and CI checks new operator-facing source paths for accidental
   German literals while allowing explicit locale resources.
+- Domain remediation and sender projections now expose one deterministic evidence
+  version, period, and freshness state so filters, counters, score drivers, and
+  queue decisions can be traced to the same persisted report window.
 - DMARQ now ingests RFC delivery-status notifications from IMAP, Gmail,
   Microsoft 365, the raw-email webhook, and manual upload, plus authenticated
   provider-neutral delivery webhooks. Recipient addresses and correlation IDs

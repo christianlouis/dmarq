@@ -1203,6 +1203,9 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["summary"]["approval_ready"] == 1
     assert data["summary"]["investigate"] == 1
     assert data["summary"]["provider_fix_available"] == 1
+    assert data["snapshot"]["version"]
+    assert data["snapshot"]["source_version"]
+    assert data["snapshot"]["period_days"] == 30
     assert data["loop"]["status"] == "approval_required"
     assert data["loop"]["what_dmarq_can_fix"] == 1
     assert data["loop"]["what_needs_investigation"] == 1
