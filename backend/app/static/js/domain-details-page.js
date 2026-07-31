@@ -387,6 +387,10 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-remediation-action]')) {
                     event.preventDefault();
                     this.handleRemediationAction(button);
+                } else if (button.matches('[data-domain-detail-remediation-primary]')) {
+                    event.preventDefault();
+                    const item = this.findRemediationItem(button.dataset.remediationItemId);
+                    if (item) this.handleRemediationPrimaryAction(item);
                 } else if (button.matches('[data-domain-detail-remediation-refresh-evidence]')) {
                     event.preventDefault();
                     const item = this.findRemediationItem(button.dataset.remediationItemId);
@@ -1666,6 +1670,35 @@ function domainDetailsApp(domainId = '') {
         repairProgressionNextSafeAction(progression) {
             if (!progression) return 'Review the remediation queue before taking action.';
             return progression.next_safe_action || this.repairProgressionNextStep(progression);
+        },
+
+        remediationPrimaryAction(item) {
+            if (!item) return { label: 'Review remediation', action: 'anchor', href: '#remediation-queue' };
+            const plan = item.provider_repair_plan || {};
+            if (plan.kind === 'dns_provider_repair') {
+                return { label: 'Review DNS plan', action: 'anchor', href: '#dns-guidance' };
+            }
+            const refresh = item.evidence_refresh || {};
+            if (refresh.required && refresh.safe_to_run !== false) {
+                return { label: this.remediationEvidenceRefreshActionLabel(refresh), action: 'refresh_evidence' };
+            }
+            if (item.notification?.dispatch?.eligible) {
+                return { label: 'Dispatch follow-up', action: 'dispatch' };
+            }
+            if (String(item.remediation_track || '') === 'sender_investigation') {
+                return { label: 'Review sending source', action: 'anchor', href: '#sending-sources' };
+            }
+            return { label: 'Review evidence', action: 'anchor', href: '#remediation-queue' };
+        },
+
+        handleRemediationPrimaryAction(item) {
+            const action = this.remediationPrimaryAction(item);
+            if (!item || action.action === 'anchor') return;
+            if (action.action === 'refresh_evidence') {
+                this.refreshRemediationEvidence(item);
+                return;
+            }
+            if (action.action === 'dispatch') this.dispatchRemediationNotification(item);
         },
 
         repairReadinessReason(progression) {

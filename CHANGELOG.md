@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Remediation queue entries now expose one clear primary action for the current finding; lifecycle, notification, readiness, and provider internals remain available in the evidence details.
 - Mail source cards now surface the latest import diagnosis and direct operators to the affected import history when a report attachment cannot be parsed.
 - DNS repair previews now report progress and failures inside the affected
   plan card, carry a correlation ID into audit evidence, and include a stable

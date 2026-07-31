@@ -902,6 +902,7 @@ async function installApiMocks(page) {
             state: 'manual_action',
             severity: 'medium',
             source: 'source_intelligence',
+            remediation_track: 'sender_investigation',
             operator_decisions: ['acknowledged', 'snoozed', 'rejected'],
             next_steps: ['Enable DKIM signing on the owned mail host.'],
             blast_radius: 'single source',
@@ -1953,6 +1954,16 @@ test('DNS preview gives card-local progress and review feedback', async ({ page 
   await expect(plan.getByText('2. Review before applying')).toBeVisible();
   await expect(plan.getByText('Preview ready. Review the provider mutation before applying.')).toBeVisible();
   await expect(plan.getByRole('button', { name: /3\. Apply to Cloudflare/ })).toBeEnabled();
+});
+
+test('remediation queue exposes one clear primary action per finding', async ({ page }) => {
+  await page.goto('/domains/cklnet.com#remediation-queue');
+
+  const item = page.locator('#remediation-queue').locator('div.rounded-lg.border').filter({
+    hasText: 'Review owned infrastructure DKIM',
+  }).first();
+  await expect(item.getByRole('link', { name: 'Review sending source' })).toBeVisible();
+  await expect(item.getByText('One recommended action for this finding')).toBeVisible();
 });
 
 test('reports list and aggregate detail keep source evidence actionable', async ({ page }) => {
