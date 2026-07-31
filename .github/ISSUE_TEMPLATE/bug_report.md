@@ -6,6 +6,8 @@ labels: 'bug'
 assignees: ''
 ---
 
+Please describe the issue in English so it can be triaged consistently.
+
 ## Bug Description
 A clear and concise description of what the bug is.
 

@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Remediation queues now keep core DMARC and mail-health actions ahead of optional
+  MTA-STS, TLS-RPT, BIMI, and DANE hardening, and label the scope in the primary
+  domain action so the next step is unambiguous.
+- DNS provider previews now explicitly state that they are read-only, show the
+  exact Before/After review step, and confirm that no live DNS change occurred
+  until the final apply action.
+- Normal report-detail reads now use persisted report/source evidence only;
+  PTR, ASN/geo, and reputation enrichment runs during ingest or through an
+  explicit progressive-enrichment action instead of blocking the report view.
+- Report detail no longer starts progressive enrichment silently after load;
+  missing evidence is explained in the page and can be requested explicitly.
+- Domain sending-source counts now come from one versioned backend snapshot, so
+  filter chips and source rows share the same saved time window and reference clock.
 - Remediation queue entries now expose one clear primary action for the current finding; lifecycle, notification, readiness, and provider internals remain available in the evidence details.
 - Mail source cards now surface the latest import diagnosis and direct operators to the affected import history when a report attachment cannot be parsed.
 - DNS repair previews now report progress and failures inside the affected
@@ -22,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a newer aligned pass before treating it as fixed. Forwarding services,
   including Cloudflare Email Routing, explicitly warn against adding shared
   relay IPs to SPF.
+- Sender classifications now flow into the domain mailflow diagnosis as well as
+  source rows and scheduled health assessment, so an expected forwarding path is
+  treated consistently and never becomes an SPF authorization recommendation.
+- Settings setup guidance now reads the live domain, report-source, report, and
+  notification state, advances one actionable step at a time, and marks optional
+  notification setup separately from required intake prerequisites.
+- English is now documented as the canonical source language, issue templates
+  request English, and CI checks new operator-facing source paths for accidental
+  German literals while allowing explicit locale resources.
+- Domain remediation and sender projections now expose one deterministic evidence
+  version, period, and freshness state so filters, counters, score drivers, and
+  queue decisions can be traced to the same persisted report window.
 - DMARQ now ingests RFC delivery-status notifications from IMAP, Gmail,
   Microsoft 365, the raw-email webhook, and manual upload, plus authenticated
   provider-neutral delivery webhooks. Recipient addresses and correlation IDs

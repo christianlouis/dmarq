@@ -57,3 +57,47 @@ following occurs:
    exploit path.
 3. DMARQ begins invoking Perl in a supported runtime path.
 4. The review deadline is reached without a fresh documented assessment.
+
+## Debian `libsqlite3-0` in the Python runtime image
+
+| Field | Decision |
+| --- | --- |
+| Status | Temporarily accepted and tracked in [issue #805](https://github.com/christianlouis/dmarq/issues/805) |
+| Recorded | 2026-07-15 |
+| Review by | 2026-08-16, or the next base-image refresh, whichever comes first |
+| Affected image | Official `python:3.13-slim` runtime base on Debian 13 (trixie) |
+| Affected package | `libsqlite3-0` `3.46.1-7+deb13u1` |
+| Tracked CVEs | CVE-2026-50812, CVE-2026-50813 |
+| Owner | DMARQ maintainers |
+
+### Rationale
+
+- Snyk reported both findings as low severity in the inherited runtime package.
+- DMARQ uses SQLite through Python and SQLAlchemy for supported single-container
+  installations; removing SQLite would break the documented deployment mode.
+- A recheck of `ghcr.io/christianlouis/dmarq:docker-latest` on 2026-07-18
+  found the same installed version as Debian's current trixie candidate.
+- No fixed Debian trixie package or safe application-side remediation was
+  available at the last review. Mixing packages from another Debian suite
+  would create a larger, unsupported runtime dependency risk.
+
+### Required controls
+
+- Rebuild release images from the current official Python base so a fixed
+  package is inherited as soon as Debian publishes one.
+- Scan immutable release images during the release gate and record the
+  installed `libsqlite3-0` version against issue #805.
+- Keep the documented PostgreSQL deployment option available for operators
+  who require a database without the embedded SQLite runtime package.
+- Do not expose SQLite or arbitrary SQL execution through the HTTP surface.
+
+### Exit conditions
+
+End this acceptance and rebuild all published image tags when any of the
+following occurs:
+
+1. Debian trixie or the official Python slim image publishes a fixed package.
+2. A supported base image contains a fixed SQLite version without cross-suite
+   package mixing.
+3. A scanner raises the severity or shows an application-reachable exploit path.
+4. The review deadline is reached without a fresh documented assessment.

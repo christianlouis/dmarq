@@ -20,6 +20,17 @@ This project and everyone participating in it is governed by our Code of Conduct
 
 ## How Can I Contribute?
 
+### Canonical language
+
+English is DMARQ's canonical source language for issues, pull requests, source
+code, tests, API contracts, logs, documentation, and UI copy. German and future
+languages belong in explicit translation catalogs or language-specific
+documentation. Reason codes and API enum values must never be translated.
+
+Please write new issue and pull request content in English. The CI check
+python3 scripts/check-english-canonical.py rejects accidental German operator
+copy outside approved locale resources.
+
 ### Reporting Bugs
 
 Before creating bug reports, please check the existing issues list as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible:

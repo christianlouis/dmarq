@@ -1252,7 +1252,7 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
-    response = authed_client.get("/api/v1/reports/source-intel-report")
+    response = authed_client.get("/api/v1/reports/source-intel-report?hydrate_enrichment=true")
 
     assert response.status_code == 200
     record = response.json()["records"][0]
@@ -1661,7 +1661,9 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
     started = time.monotonic()
-    response = authed_client.get("/api/v1/reports/large-ptr-dedupe-report")
+    response = authed_client.get(
+        "/api/v1/reports/large-ptr-dedupe-report?hydrate_enrichment=true"
+    )
     elapsed = time.monotonic() - started
 
     assert response.status_code == 200
@@ -1736,6 +1738,45 @@ def test_report_detail_prefers_point_in_time_source_evidence(
     assert body["enrichment"]["network"] == "complete"
     assert body["records"][0]["source_details"]["hostname"] == "stored.example.net"
     assert body["records"][0]["source_details"]["asn"] == "AS64500"
+
+
+def test_default_report_detail_does_not_live_enrich_missing_projection_evidence(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A normal report read must remain a fast projection read."""
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="projection-only.example", report_id="projection-only-report"),
+        workspace_id=workspace.id,
+    )
+    calls = {"ptr": 0, "network": 0, "reputation": 0}
+
+    async def unexpected_ptr(*_args, **_kwargs):
+        calls["ptr"] += 1
+        raise AssertionError("default report reads must not resolve PTR live")
+
+    async def unexpected_network(*_args, **_kwargs):
+        calls["network"] += 1
+        raise AssertionError("default report reads must not resolve network data live")
+
+    async def cached_only_reputation(*_args, **kwargs):
+        calls["reputation"] += 1
+        assert kwargs["allow_live"] is False
+        raise AssertionError("cache-only reputation should not query feeds")
+
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", unexpected_ptr)
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", unexpected_network)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", cached_only_reputation)
+
+    response = authed_client.get("/api/v1/reports/projection-only-report")
+
+    assert response.status_code == 200
+    assert response.json()["enrichment"]["status"] == "partial"
+    assert response.json()["enrichment"]["pending"] is True
+    assert calls == {"ptr": 0, "network": 0, "reputation": 1}
 
 
 def test_report_ptr_enrichment_is_capped_and_preserves_completed_lookups(monkeypatch):
@@ -1849,14 +1890,14 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
     assert body["enrichment"]["pending"] is True
     assert body["enrichment"]["status"] == "partial"
     assert elapsed < 3.0
-    assert len(set(network_calls)) <= 40
-    assert network_timeouts == [1.0]
+    assert network_calls == []
+    assert network_timeouts == []
 
     hydrated = authed_client.get(
         "/api/v1/reports/large-network-timeout-report?hydrate_enrichment=true"
     )
     assert hydrated.status_code == 200
-    assert network_timeouts == [1.0, 4.0]
+    assert network_timeouts == [4.0]
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):

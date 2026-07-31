@@ -29,6 +29,9 @@ from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_en
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.models.domain import Domain
+from app.models.mail_source import MailSource
+from app.models.report import DMARCReport
 from app.services.account_milestone import build_account_milestone_readiness
 from app.services.dns_resolver import resolver_profile_status
 from app.services.ai_assistance import AI_DEFAULTS
@@ -871,6 +874,77 @@ async def list_settings(
         query = query.filter(Setting.category == category)
     rows = query.order_by(Setting.category, Setting.key).all()
     return [_row_to_dict(row) for row in rows]
+
+
+@router.get("/setup-state")
+async def get_setup_state(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> Dict[str, Any]:
+    """Return the smallest actionable setup checklist from current product state."""
+    _seed_defaults(db)
+    domain_count = db.query(Domain).filter(Domain.active.is_(True)).count()
+    source_count = db.query(MailSource).count()
+    enabled_source_count = db.query(MailSource).filter(MailSource.enabled.is_(True)).count()
+    report_count = db.query(DMARCReport).count()
+    notification_enabled = (
+        _setting_plain_or_default(db, "notifications.apprise_enabled") == "true"
+        and bool(_setting_plain_or_default(db, "notifications.apprise_urls").strip())
+    )
+    checklist = [
+        {
+            "key": "report_source",
+            "title": "Connect report intake",
+            "ready": enabled_source_count > 0,
+            "status": "Ready" if enabled_source_count else "Next",
+            "evidence": f"{enabled_source_count} enabled source(s)" if source_count else "No report mailbox configured",
+            "href": "/mail-sources",
+            "action": "Open mail sources",
+        },
+        {
+            "key": "domain",
+            "title": "Add a monitored domain",
+            "ready": domain_count > 0,
+            "status": "Ready" if domain_count else "Next",
+            "evidence": f"{domain_count} active domain(s)",
+            "href": "/domains",
+            "action": "Open domains",
+        },
+        {
+            "key": "reports",
+            "title": "Receive the first report",
+            "ready": report_count > 0,
+            "status": "Ready" if report_count else "Waiting",
+            "evidence": f"{report_count} report(s) stored" if report_count else "No reports stored yet",
+            "href": "/reports",
+            "action": "Open reports",
+        },
+        {
+            "key": "notifications",
+            "title": "Choose notifications",
+            "ready": notification_enabled,
+            "status": "Ready" if notification_enabled else "Optional",
+            "evidence": "A notification target is configured" if notification_enabled else "No notification target configured",
+            "href": "#notification-settings",
+            "action": "Configure notifications",
+        },
+    ]
+    next_item = next((item for item in checklist if not item["ready"] and item["status"] != "Optional"), None)
+    if next_item:
+        next_step = next_item["title"]
+    elif not notification_enabled:
+        next_step = "Notifications are optional; choose a target when you want alerts."
+    else:
+        next_step = "Foundational setup is complete. Review your domain health next."
+    return {
+        "domains": domain_count,
+        "sources": source_count,
+        "enabled_sources": enabled_source_count,
+        "reports": report_count,
+        "notifications_configured": notification_enabled,
+        "checklist": checklist,
+        "next_step": next_step,
+    }
 
 
 @router.post("/notifications/test", response_model=NotificationTestResponse)

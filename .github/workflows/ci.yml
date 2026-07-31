@@ -54,6 +54,9 @@ jobs:
           ./scripts/bootstrap-docker-env.sh
           ./scripts/verify-docker-compose.sh
 
+      - name: Enforce English canonical source language
+        run: python3 scripts/check-english-canonical.py
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:

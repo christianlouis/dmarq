@@ -2020,11 +2020,12 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "normalizeReport" in script
     assert "hydrateEnrichment" in script
     assert "enrichmentHydrating" in script
+    assert "data-report-hydrate-enrichment" in template
     assert "const controller = new AbortController();" in script
     assert "{ signal: controller.signal }" in script
     assert "source_details: next.records?.[index]?.source_details" in script
     assert "...next," not in script
-    assert "report?.enrichment?.pending" in script
+    assert "data-report-hydrate-enrichment" in script
     assert "reportDomainUrl" in script
     assert "?." not in template
     assert "??" not in template

@@ -13,6 +13,7 @@ from app.models.alert import AlertConfigurationAudit, AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.models.mail_source import MailSource
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.account_milestone import (
@@ -184,6 +185,35 @@ class TestSettingsAPI:
             "enterprise_identity",
             "support_access",
         }.issubset(keys)
+
+    def test_setup_state_is_derived_from_current_domains_sources_and_reports(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """The setup CTA advances only when the underlying product state is ready."""
+        response = authed_client.get("/api/v1/settings/setup-state")
+        assert response.status_code == 200
+        assert response.json()["checklist"][0]["status"] == "Next"
+
+        domain = _add_domain(db_session, "setup-state.example")
+        db_session.add(MailSource(name="Reports", method="IMAP", enabled=True))
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="setup-state-report",
+            days_ago=0,
+            source_ip="192.0.2.44",
+            count=1,
+        )
+        db_session.commit()
+
+        data = authed_client.get("/api/v1/settings/setup-state").json()
+        assert data["domains"] == 1
+        assert data["enabled_sources"] == 1
+        assert data["reports"] == 1
+        assert all(item["ready"] for item in data["checklist"][:3])
+        assert data["checklist"][3]["status"] == "Optional"
 
     def test_account_readiness_auth_mode_detection(self):
         """The milestone summary reflects each supported auth mode signal."""

@@ -47,19 +47,27 @@
                 <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Recommended setup</p>
                 <h1 class="mt-1 text-2xl font-bold text-[#120d36]">Finish the next safe setup step</h1>
                 <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]">
-                    Connect the mailbox that receives DMARC reports first. Add domains and DNS automation only after report intake is working.
+                    <span x-text="setupState.next_step">Connect report intake first.</span>
                 </p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <a href="/mail-sources" class="btn btn-primary btn-md">Connect report mailbox</a>
+                <template x-for="item in setupState.checklist" :key="item.key">
+                    <a x-show="item.status === 'Next'" :href="item.href" class="btn btn-primary btn-md" x-text="item.action"></a>
+                </template>
+                <a href="/mail-sources" class="btn btn-outline btn-md">Connect report mailbox</a>
                 <a href="/domains" class="btn btn-outline btn-md">Add or review domains</a>
             </div>
         </div>
         <ol class="mt-5 grid gap-2 border-t border-[#e6e3e1] pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
-            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#272a5f] text-xs font-bold text-white">1</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="/mail-sources">Connect reports</a></li>
-            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">2</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="/domains">Add domains</a></li>
-            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">3</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="#provider-integrations">Review DNS</a></li>
-            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">4</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="#notification-settings">Choose notifications</a></li>
+            <template x-for="(item, index) in setupState.checklist" :key="item.key">
+                <li class="flex items-center gap-3">
+                    <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold"
+                          :class="item.ready ? 'bg-[#edf7f7] text-[#247982]' : (item.status === 'Next' ? 'bg-[#272a5f] text-white' : 'bg-[#f4f3f2] text-[#8a879e]')"
+                          x-text="index + 1"></span>
+                    <a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" :href="item.href" x-text="item.title"></a>
+                    <span class="text-xs text-[#8a879e]" x-text="item.status"></span>
+                </li>
+            </template>
         </ol>
     </header>
 

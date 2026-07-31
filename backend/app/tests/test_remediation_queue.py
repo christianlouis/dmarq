@@ -562,6 +562,57 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     ]
 
 
+def test_remediation_queue_keeps_optional_hardening_after_core_mail_health():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "low",
+                    "title": "Investigate failing sender",
+                    "detail": "A known sender is failing DMARC.",
+                    "score_impact": 2,
+                }
+            ]
+        },
+        dns_guidance={
+            "findings": [
+                {
+                    "code": "mta_sts_missing",
+                    "severity": "error",
+                    "title": "Publish MTA-STS",
+                    "detail": "MTA-STS is not configured.",
+                }
+            ],
+            "change_plans": [
+                {
+                    "plan_id": "mta-sts",
+                    "finding_code": "mta_sts_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_mta-sts.example.com",
+                    "proposed_value": "v=STSv1; id=20260731",
+                    "current_values": [],
+                    "rationale": "Publish an MTA-STS policy identifier.",
+                    "expected_health_impact": "Low",
+                }
+            ],
+        },
+        available_write_providers=["cloudflare"],
+        recommended_provider="cloudflare",
+    )
+
+    assert [item["id"] for item in queue["items"]] == [
+        "health:low_compliance",
+        "dns:mta-sts",
+    ]
+    assert queue["items"][0]["scope"] == "core_mail_health"
+    assert queue["items"][1]["scope"] == "optional_hardening"
+    assert "optional" in queue["items"][1]["priority_reason"].lower()
+
+
 def test_remediation_queue_keeps_placeholder_plan_manual():
     queue = build_remediation_queue(
         domain="example.com",

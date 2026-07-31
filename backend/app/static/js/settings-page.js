@@ -66,6 +66,10 @@ function settingsApp() {
         testingAIConnection: false,
         loadingAccountReadiness: false,
         accountReadiness: null,
+        setupState: {
+            checklist: [],
+            next_step: 'Loading setup state...'
+        },
         resolverStatus: null,
         aiProviderProfiles: [],
         aiConnectionResult: null,
@@ -232,6 +236,7 @@ function settingsApp() {
                 const map = {};
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
+                await this.loadSetupState(false);
                 this.applyCloudflareOAuthQueryState();
                 await this.loadResolverStatus(false);
                 await this.loadAlertHistory(false);
@@ -261,6 +266,16 @@ function settingsApp() {
                 if (showFlash) this.showFlash('Error loading account readiness: ' + err.message, false);
             } finally {
                 this.loadingAccountReadiness = false;
+            }
+        },
+
+        async loadSetupState(showFlash = true) {
+            try {
+                const res = await fetch('/api/v1/settings/setup-state', { headers: this.apiHeaders() });
+                if (!res.ok) throw new Error(res.statusText);
+                this.setupState = await res.json();
+            } catch (err) {
+                if (showFlash) this.showFlash('Error loading setup state: ' + err.message, false);
             }
         },
 
