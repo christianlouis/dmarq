@@ -101,6 +101,24 @@
                                             <p class="mt-1 text-xs text-muted-foreground"
                                                 x-show="source.connection_attention && source.connection_message"
                                                 x-text="source.connection_message"></p>
+                                            <div class="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+                                                x-show="source.latest_import && source.latest_import.diagnostic_category && source.latest_import.diagnostic_category !== 'ok'"
+                                                role="status">
+                                                <p class="font-medium" x-text="source.latest_import?.diagnostic_summary || 'The latest import needs attention.'"></p>
+                                                <p class="mt-1 text-xs text-muted-foreground">
+                                                    <span x-text="source.latest_import?.processed || 0"></span> messages checked ·
+                                                    <span x-text="source.latest_import?.reports_found || 0"></span> new reports ·
+                                                    <span x-text="source.latest_import?.error_count || 0"></span> errors
+                                                </p>
+                                                <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                    <button class="btn btn-outline btn-xs" :data-source-id="source.id" data-mail-source-history>
+                                                        Review import history
+                                                    </button>
+                                                    <span class="text-xs text-muted-foreground" x-show="source.latest_import?.diagnostic_category === 'parsing'">
+                                                        Check the affected attachment before retrying.
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
                                         <label class="flex shrink-0 items-center gap-2 text-xs font-medium">
                                             <span x-text="source.enabled ? 'Polling on' : 'Polling off'"></span>

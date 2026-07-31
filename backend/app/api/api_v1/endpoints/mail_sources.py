@@ -157,6 +157,7 @@ class MailSourceResponse(MailSourceBase):
     connection_message: Optional[str] = None
     connection_action_label: Optional[str] = None
     connection_diagnostic_category: Optional[str] = None
+    latest_import: Optional[Dict[str, Any]] = None
     # Microsoft 365: show the authorised account and token state, but not tokens
     m365_email: Optional[str] = None
     m365_connected: bool = False
@@ -654,6 +655,21 @@ def _source_to_response(
     """Convert ORM row to response schema, masking the stored password."""
     connection_state = _connection_state_for_source(source, latest_import)
     app_timezone = get_settings().APP_TIMEZONE
+    latest_import_summary = None
+    if latest_import is not None:
+        diagnostic = import_row_diagnostic(latest_import) or {}
+        latest_import_summary = {
+            "id": latest_import.id,
+            "status": latest_import.status,
+            "trigger": latest_import.trigger,
+            "processed": latest_import.processed,
+            "reports_found": latest_import.reports_found,
+            "duplicate_reports": latest_import.duplicate_reports,
+            "error_count": latest_import.error_count,
+            "diagnostic_category": diagnostic.get("category"),
+            "diagnostic_summary": diagnostic.get("summary"),
+            "recovery_steps": diagnostic.get("recovery_steps", []),
+        }
     return MailSourceResponse(
         id=source.id,
         name=source.name,
@@ -674,6 +690,7 @@ def _source_to_response(
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,
         gmail_connected=bool(source.gmail_access_token),
+        latest_import=latest_import_summary,
         **connection_state,
         m365_tenant_id=_safe_attr(source, "m365_tenant_id", "common") or "common",
         m365_auth_mode=_m365_auth_mode(source),

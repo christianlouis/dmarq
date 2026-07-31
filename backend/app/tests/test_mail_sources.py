@@ -1834,6 +1834,8 @@ class TestGmailAPIMailSource:
         assert response.connection_attention is True
         assert response.connection_diagnostic_category == "auth_expired"
         assert "expired" in response.connection_message
+        assert response.latest_import["diagnostic_category"] == "auth_expired"
+        assert response.latest_import["error_count"] == 1
 
     def test_create_gmail_api_source(self, authed_client: TestClient):
         payload = {
