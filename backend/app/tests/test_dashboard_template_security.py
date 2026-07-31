@@ -2437,7 +2437,7 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "providerContextCtaHref" in script
     assert "Apply one DNS change safely" in template
     assert "Configure provider access" in template
-    assert "1. Preview exact change" in template
+    assert "1. Preview change" in template
     assert "2. Review before applying" in template
     assert "3. Apply to" in template
     assert "dnsWriteCanApply(plan)" in template
