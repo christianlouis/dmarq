@@ -8826,13 +8826,7 @@ def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[str, Any]:  # noqa: C901
-    """Return one canonical, versioned source view for rows and summary chips.
-
-    The UI may filter the returned rows locally, but it must not derive headline
-    counts from a different clock or a different projection than the API.
-    """
-    rows = [entry.model_dump() for entry in source_entries]
+def _source_snapshot_bounds(rows: List[Dict[str, Any]]) -> Tuple[int, int, int]:
     timestamps = [
         int(value)
         for row in rows
@@ -8848,6 +8842,10 @@ def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[st
         (int(row["last_seen"]) for row in rows if str(row.get("last_seen", "")).isdigit()),
         default=0,
     )
+    return as_of, first_seen, last_seen
+
+
+def _source_snapshot_counts(rows: List[Dict[str, Any]], *, as_of: int) -> Dict[str, int]:
     counts = {
         "total": len(rows),
         "risky": 0,
@@ -8863,26 +8861,31 @@ def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[st
         reputation = row.get("reputation") or {}
         reputation_status = str(reputation.get("status") or "")
         risk_score = float(reputation.get("risk_score") or 0)
-        if reputation_status in {"listed", "critical", "suspicious"} or risk_score >= 50:
-            counts["risky"] += 1
-        if reputation_status == "listed":
-            counts["listed"] += 1
-        if not row.get("reputation"):
-            counts["unchecked"] += 1
-        if row.get("dmarc") in {"fail", "mixed"}:
-            counts["auth_review"] += 1
+        counts["risky"] += int(
+            reputation_status in {"listed", "critical", "suspicious"} or risk_score >= 50
+        )
+        counts["listed"] += int(reputation_status == "listed")
+        counts["unchecked"] += int(not row.get("reputation"))
+        counts["auth_review"] += int(row.get("dmarc") in {"fail", "mixed"})
         last = row.get("last_seen")
-        if as_of and str(last).isdigit():
-            age_days = max(0, (as_of - int(last)) // 86400)
-            if age_days <= 14:
-                counts["recent"] += 1
+        if as_of and str(last).isdigit() and (as_of - int(last)) // 86400 <= 14:
+            counts["recent"] += 1
         status = row.get("authentication_status")
-        if status == "authenticated":
-            counts["authenticated"] += 1
-        elif status == "receiver_protective_action":
-            counts["protective_action"] += 1
-        elif status == "receiver_no_dmarc_action":
-            counts["no_dmarc_action"] += 1
+        counts["authenticated"] += int(status == "authenticated")
+        counts["protective_action"] += int(status == "receiver_protective_action")
+        counts["no_dmarc_action"] += int(status == "receiver_no_dmarc_action")
+    return counts
+
+
+def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[str, Any]:
+    """Return one canonical, versioned source view for rows and summary chips.
+
+    The UI may filter the returned rows locally, but it must not derive headline
+    counts from a different clock or a different projection than the API.
+    """
+    rows = [entry.model_dump() for entry in source_entries]
+    as_of, first_seen, last_seen = _source_snapshot_bounds(rows)
+    counts = _source_snapshot_counts(rows, as_of=as_of)
     version = source_projection_version(rows, days=days)
     return {
         "version": version,
