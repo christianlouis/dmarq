@@ -2912,6 +2912,10 @@
                         <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
                     </button>
                 </div>
+                <p class="mb-4 text-xs text-muted-foreground" x-show="!sourcesLoading && !sourcesError && sourceSnapshot.version">
+                    Source snapshot <span class="font-mono" x-text="sourceSnapshot.version"></span>
+                    · counts and rows from the same saved window
+                </p>
                 <div class="sending-sources-list space-y-3" data-sending-sources-list>
                         <template x-if="sources.length === 0">
                             <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-center" data-sending-sources-empty>

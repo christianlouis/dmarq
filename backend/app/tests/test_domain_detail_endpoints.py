@@ -2756,6 +2756,9 @@ def test_get_domain_sources_returns_200(seeded_client: TestClient):
     assert source["mailflow"]["dkim_alignment"] == "pass"
     assert data["mailflow_assessment"]["status"] == "healthy"
     assert data["mailflow_assessment"]["flows"][0]["header_from_domains"] == [DOMAIN]
+    assert data["snapshot"]["version"]
+    assert data["snapshot"]["counts"]["total"] == 1
+    assert data["snapshot"]["counts"]["authenticated"] == 1
 
 
 def test_get_domain_sources_guides_dkim_repair_from_stored_report_facts(
@@ -3183,6 +3186,10 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     assert source["dmarc_fail_count"] == 6
     assert source["disposition_counts"] == {"none": 4, "quarantine": 6}
     assert source["first_seen"] == REPORT_DICT_POLICY["begin_timestamp"]
+    snapshot = response.json()["snapshot"]
+    assert snapshot["counts"]["total"] == 1
+    assert snapshot["counts"]["auth_review"] == 1
+    assert snapshot["period_days"] == 30
     assert source["last_seen"] == REPORT_DICT_POLICY["end_timestamp"]
     assert source["active_days"] == 1
     assert source["report_count"] == 1

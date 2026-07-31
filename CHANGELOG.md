@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicit progressive-enrichment action instead of blocking the report view.
 - Report detail no longer starts progressive enrichment silently after load;
   missing evidence is explained in the page and can be requested explicitly.
+- Domain sending-source counts now come from one versioned backend snapshot, so
+  filter chips and source rows share the same saved time window and reference clock.
 - Remediation queue entries now expose one clear primary action for the current finding; lifecycle, notification, readiness, and provider internals remain available in the evidence details.
 - Mail source cards now surface the latest import diagnosis and direct operators to the affected import history when a report attachment cannot be parsed.
 - DNS repair previews now report progress and failures inside the affected

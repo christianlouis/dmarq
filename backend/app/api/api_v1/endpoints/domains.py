@@ -2298,6 +2298,7 @@ class DomainSourcesResponse(BaseModel):
 
     sources: List[SourceEntry]
     mailflow_assessment: DomainMailflowAssessment
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceIntelligenceResponse(BaseModel):
@@ -8811,6 +8812,95 @@ def _source_delivery_status(source: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def _source_snapshot(source_entries: List[SourceEntry], *, days: int) -> Dict[str, Any]:
+    """Return one canonical, versioned source view for rows and summary chips.
+
+    The UI may filter the returned rows locally, but it must not derive headline
+    counts from a different clock or a different projection than the API.
+    """
+    rows = [entry.model_dump() for entry in source_entries]
+    timestamps = [
+        int(value)
+        for row in rows
+        for value in (row.get("last_seen"), row.get("first_seen"))
+        if value is not None and str(value).isdigit()
+    ]
+    as_of = max(timestamps, default=0)
+    first_seen = min(
+        (int(row["first_seen"]) for row in rows if str(row.get("first_seen", "")).isdigit()),
+        default=0,
+    )
+    last_seen = max(
+        (int(row["last_seen"]) for row in rows if str(row.get("last_seen", "")).isdigit()),
+        default=0,
+    )
+    counts = {
+        "total": len(rows),
+        "risky": 0,
+        "listed": 0,
+        "auth_review": 0,
+        "unchecked": 0,
+        "recent": 0,
+        "authenticated": 0,
+        "protective_action": 0,
+        "no_dmarc_action": 0,
+    }
+    for row in rows:
+        reputation = row.get("reputation") or {}
+        reputation_status = str(reputation.get("status") or "")
+        risk_score = float(reputation.get("risk_score") or 0)
+        if reputation_status in {"listed", "critical", "suspicious"} or risk_score >= 50:
+            counts["risky"] += 1
+        if reputation_status == "listed":
+            counts["listed"] += 1
+        if not row.get("reputation"):
+            counts["unchecked"] += 1
+        if row.get("dmarc") in {"fail", "mixed"}:
+            counts["auth_review"] += 1
+        last = row.get("last_seen")
+        if as_of and str(last).isdigit():
+            age_days = max(0, (as_of - int(last)) // 86400)
+            if age_days <= 14:
+                counts["recent"] += 1
+        status = row.get("authentication_status")
+        if status == "authenticated":
+            counts["authenticated"] += 1
+        elif status == "receiver_protective_action":
+            counts["protective_action"] += 1
+        elif status == "receiver_no_dmarc_action":
+            counts["no_dmarc_action"] += 1
+    version_payload = {
+        "days": int(days),
+        "as_of": as_of,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "counts": counts,
+        "rows": [
+            {
+                "ip": row.get("ip"),
+                "count": row.get("count", 0),
+                "first_seen": row.get("first_seen"),
+                "last_seen": row.get("last_seen"),
+                "dmarc": row.get("dmarc"),
+                "authentication_status": row.get("authentication_status"),
+                "reputation": (row.get("reputation") or {}).get("status"),
+            }
+            for row in rows
+        ],
+    }
+    version = hashlib.sha256(
+        json.dumps(version_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return {
+        "version": version,
+        "period_days": int(days),
+        "as_of": as_of,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "counts": counts,
+    }
+
+
 def _source_authentication_observation(source: Dict[str, Any]) -> Dict[str, str]:
     """Describe aggregate DMARC facts without inferring individual delivery."""
     passed = int(source.get("dmarc_pass_count") or 0)
@@ -9430,6 +9520,7 @@ async def get_domain_sources(
     return DomainSourcesResponse(
         sources=source_entries,
         mailflow_assessment=DomainMailflowAssessment(**mailflow_assessment),
+        snapshot=_source_snapshot(source_entries, days=source_days),
     )
 
 

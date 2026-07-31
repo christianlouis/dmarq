@@ -218,6 +218,12 @@ function domainDetailsApp(domainId = '') {
             loading: true,
             error: ''
         },
+        sourceSnapshot: {
+            version: '',
+            period_days: 30,
+            as_of: 0,
+            counts: {}
+        },
         sourceIntelligenceRefreshError: '',
         ownership: {
             loading: false,
@@ -737,6 +743,20 @@ function domainDetailsApp(domainId = '') {
         },
 
         get sourceRiskCounts() {
+            const snapshotCounts = this.sourceSnapshot?.counts || {};
+            if (Object.prototype.hasOwnProperty.call(snapshotCounts, 'total')) {
+                return {
+                    total: Number(snapshotCounts.total || 0),
+                    risky: Number(snapshotCounts.risky || 0),
+                    listed: Number(snapshotCounts.listed || 0),
+                    unchecked: Number(snapshotCounts.unchecked || 0),
+                    authReview: Number(snapshotCounts.auth_review || 0),
+                    recent: Number(snapshotCounts.recent || 0),
+                    authenticated: Number(snapshotCounts.authenticated || 0),
+                    protectiveAction: Number(snapshotCounts.protective_action || 0),
+                    noDmarcAction: Number(snapshotCounts.no_dmarc_action || 0)
+                };
+            }
             return (this.sources || []).reduce(
                 (counts, source) => {
                     counts.total += 1;
@@ -861,8 +881,9 @@ function domainDetailsApp(domainId = '') {
         sourceActivityBucket(source) {
             if (!source?.last_seen) return 'unknown';
             const date = new Date(Number(source.last_seen) * 1000);
-            if (Number.isNaN(date.getTime())) return 'unknown';
-            const diffDays = Math.floor((Date.now() - date.getTime()) / 86400000);
+            const asOf = Number(this.sourceSnapshot?.as_of || 0) * 1000;
+            if (Number.isNaN(date.getTime()) || !asOf) return 'unknown';
+            const diffDays = Math.floor((asOf - date.getTime()) / 86400000);
             if (diffDays <= 14) return 'recent';
             if (diffDays <= 90) return 'older';
             return 'stale';
@@ -3695,6 +3716,9 @@ function domainDetailsApp(domainId = '') {
                 const data = await response.json();
                 this.sources = (Array.isArray(data.sources) ? data.sources : [])
                     .map(source => this.normalizeSource(source));
+                this.sourceSnapshot = data.snapshot && typeof data.snapshot === 'object'
+                    ? data.snapshot
+                    : { version: '', period_days: this.sourceDateWindow(), as_of: 0, counts: {} };
                 this.mailflowAssessment = data.mailflow_assessment || {
                     status: 'insufficient_evidence',
                     title: 'Waiting for mailflow evidence',
