@@ -125,6 +125,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.provider_access import require_provider_operator_access
 from app.services.ovh_dns import get_ovh_dns_credentials
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.remediation_dispatch import (
@@ -6027,6 +6028,13 @@ async def preview_dns_provider_domain_import(
         db,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
+    if normalize_provider_id(provider) in {
+        "akamai",
+        "akamai-edgedns",
+        "edgedns",
+        "fastdns",
+    }:
+        require_provider_operator_access(db, _auth)
     try:
         return await preview_dns_provider_import(
             db,
@@ -6054,6 +6062,13 @@ async def import_dns_provider_domain_zones(
         db,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
+    if normalize_provider_id(provider) in {
+        "akamai",
+        "akamai-edgedns",
+        "edgedns",
+        "fastdns",
+    }:
+        require_provider_operator_access(db, _auth)
     try:
         return await import_dns_provider_domains(
             db,
