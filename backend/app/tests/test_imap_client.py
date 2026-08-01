@@ -22,6 +22,7 @@ from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.services.dmarc_parser import DMARCParser
 from app.services.imap_client import IMAPClient
 from app.services.dsn_parser import MAX_DSN_BYTES
 from app.services.report_store import ReportStore
@@ -646,6 +647,22 @@ class TestProcessAttachments:
         )
         count = client._process_attachments(msg)
         assert count == 1
+
+    def test_oversized_gzip_is_rejected_before_extraction(self):
+        client = self._make_client()
+        content = b"x" * (10 * 1024 * 1024 + 1)
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.gz", content, "application/gzip")
+        )
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        with patch.object(DMARCParser, "_extract_xml_content") as extract:
+            count = client._process_attachments(msg, stats, message_id="43")
+
+        assert count == 0
+        extract.assert_not_called()
+        assert len(stats["errors"]) == 1
+        assert "File too large" in stats["errors"][0]
 
     def test_processes_gzip_inline(self):
         client = self._make_client()

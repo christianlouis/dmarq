@@ -17,6 +17,10 @@ MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB for zip bomb protection
 MAX_FILES_IN_ARCHIVE = 10  # Maximum number of files in a zip archive
 
 
+class NoXMLContentError(ValueError):
+    """Raised when an attachment does not contain extractable XML."""
+
+
 class DMARCParser:
     """
     Parser for DMARC Aggregate Reports (XML format)
@@ -46,7 +50,7 @@ class DMARCParser:
         # Determine file type and extract XML content
         xml_content = DMARCParser._extract_xml_content(file_content, filename)
         if not xml_content:
-            raise ValueError("Could not extract XML content from file")
+            raise NoXMLContentError("Could not extract XML content from file")
 
         # Security: Check uncompressed XML size
         if len(xml_content) > MAX_UNCOMPRESSED_SIZE:
@@ -118,7 +122,15 @@ class DMARCParser:
         # Try to handle as GZIP file
         if filename.lower().endswith(".gz") or filename.lower().endswith(".gzip"):
             try:
-                return gzip.decompress(file_content)
+                with gzip.GzipFile(fileobj=io.BytesIO(file_content)) as archive:
+                    content = archive.read(MAX_UNCOMPRESSED_SIZE + 1)
+                if len(content) > MAX_UNCOMPRESSED_SIZE:
+                    raise ValueError(
+                        "GZIP archive uncompressed size too large. "
+                        f"Maximum is {MAX_UNCOMPRESSED_SIZE / (1024*1024):.1f} MB. "
+                        "Possible gzip bomb attack detected."
+                    )
+                return content
             except gzip.BadGzipFile:
                 pass
 

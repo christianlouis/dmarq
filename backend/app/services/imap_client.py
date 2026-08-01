@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core.config import get_settings
 from app.services.delivery_events import ingest_dsn_email
-from app.services.dmarc_parser import DMARCParser
+from app.services.dmarc_parser import DMARCParser, NoXMLContentError
 from app.services.dsn_parser import MAX_DSN_BYTES, is_dsn_message
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
@@ -684,10 +684,9 @@ class IMAPClient:
                 )
                 return False
 
-            # Ordinary mail often contains archives. Only send archives with an XML
-            # payload to the parser; parser security-limit failures still remain errors.
-            xml_content = DMARCParser._extract_xml_content(content, filename)
-            if xml_content is None:
+            try:
+                report = DMARCParser.parse_file(content, filename)
+            except NoXMLContentError:
                 if stats is not None:
                     stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
                 self._append_detail(
@@ -698,8 +697,6 @@ class IMAPClient:
                     filename=filename,
                 )
                 return False
-
-            report = DMARCParser.parse_file(content, filename)
             stored = self._store_report_if_new(
                 report,
                 filename=filename,

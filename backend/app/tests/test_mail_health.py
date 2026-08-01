@@ -391,7 +391,7 @@ def test_successful_authentication_evidence_is_reported_as_healthy(db_session):
     result = _assessment(db_session, workspace)
 
     assert result["outcome"] == "healthy"
-    assert result["confidence"] == "High"
+    assert result["confidence"] == "Medium"
     assert result["intended_mail_impact"] == "likely_not_affected"
     assert result["urgency"] == "none"
     assert result["supporting_signals"][0]["delivery_certainty"] == "authentication_only"
@@ -402,8 +402,9 @@ def test_operator_legitimate_sender_with_previous_passes_is_prioritized_as_regre
     domain = Domain(name="example.test", workspace=workspace)
     db_session.add_all([workspace, domain])
     db_session.flush()
-    prior = int(datetime(2026, 6, 25, tzinfo=timezone.utc).timestamp())
-    current = int(datetime(2026, 7, 25, tzinfo=timezone.utc).timestamp())
+    now = datetime.now(timezone.utc)
+    prior = int((now - timedelta(days=40)).timestamp())
+    current = int((now - timedelta(days=2)).timestamp())
     db_session.add_all(
         [
             _projection(

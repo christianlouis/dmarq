@@ -1,3 +1,4 @@
+import gzip
 import io
 import zipfile
 
@@ -61,6 +62,14 @@ class TestDMARCParser:
         large_content = b"x" * (11 * 1024 * 1024)  # 11 MB
         with pytest.raises(ValueError, match="too large"):
             DMARCParser.parse_file(large_content, "report.xml")
+
+    def test_gzip_uncompressed_content_too_large(self, monkeypatch):
+        """GZIP extraction stops after the configured uncompressed-size limit."""
+        monkeypatch.setattr("app.services.dmarc_parser.MAX_UNCOMPRESSED_SIZE", 32)
+        content = gzip.compress(b"x" * 33)
+
+        with pytest.raises(ValueError, match="GZIP archive uncompressed size too large"):
+            DMARCParser.parse_file(content, "report.xml.gz")
 
     def test_invalid_xml(self):
         """Test that invalid XML raises a ValueError."""
