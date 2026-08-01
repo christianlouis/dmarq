@@ -59,6 +59,15 @@ from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _require_global_settings_mutation_access(auth_context: dict) -> None:
+    """Keep workspace-bound support sessions from changing global settings."""
+    if (auth_context or {}).get("auth_type") == "support_session":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Support sessions cannot modify deployment-wide settings",
+        )
+
 # ---------------------------------------------------------------------------
 # Defaults – used to seed missing keys on first read
 # ---------------------------------------------------------------------------
@@ -1186,6 +1195,7 @@ async def update_setting(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> SettingResponse:
     """Update or create a single setting."""
+    _require_global_settings_mutation_access(_auth)
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     row = _get_setting(key, db)
     new_value = payload.value
@@ -1245,6 +1255,7 @@ async def bulk_update_settings(
 
     Accepts ``{"settings": {"key1": "value1", "key2": "value2", ...}}``.
     """
+    _require_global_settings_mutation_access(_auth)
     results = []
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     for key, value in payload.settings.items():
