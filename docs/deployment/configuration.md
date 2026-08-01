@@ -474,6 +474,7 @@ runtime instead of storing raw secrets in the repository.
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `POSTMARK_ACCOUNT_TOKEN` | Optional Postmark account token for read-only sender-domain discovery | - | `your_postmark_account_token` |
+| `POSTMARK_WORKSPACE_ID` | Workspace authorized to discover and import domains with the Postmark account token (required when the token is configured) | - | `1` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 | `WEBHOOK_MAX_EMAIL_SIZE_MB` | Maximum raw RFC 822 email size accepted by inbound report webhooks | `25` | `10`, `50` |
 

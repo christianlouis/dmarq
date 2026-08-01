@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     DMARQ_DNS_CUSTOM_DOH_HOSTNAME: Optional[str] = None
     DMARQ_DNS_CUSTOM_DOT_HOSTNAME: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
+    POSTMARK_WORKSPACE_ID: Optional[int] = None
     WEBHOOK_SECRET: Optional[str] = None
     WEBHOOK_MAX_EMAIL_SIZE_MB: int = 25
 

@@ -205,6 +205,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "postmark",
     },
+    {
+        "key": "postmark.workspace_id",
+        "value": "",
+        "description": "Workspace ID authorized to use the Postmark account token",
+        "value_type": "integer",
+        "category": "postmark",
+    },
     # ── Forensics ────────────────────────────────────────────────────────────
     {
         "key": "forensics.redaction_mode",
