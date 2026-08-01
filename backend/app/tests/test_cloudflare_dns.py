@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import dns.exception
 import dns.resolver
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -1759,6 +1760,30 @@ def test_dns_provider_import_endpoint_returns_import_summary(authed_client: Test
     data = response.json()
     assert data["provider"] == "cloudflare"
     assert data["imported"] == [DOMAIN]
+
+
+@pytest.mark.parametrize("provider", ["route53", "hetzner"])
+def test_shared_native_provider_import_requires_provider_operator(
+    authed_client: TestClient, provider: str
+):
+    import_mock = AsyncMock()
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.require_provider_operator_access",
+            side_effect=HTTPException(
+                status_code=403, detail="Provider operator access is required"
+            ),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
+            new=import_mock,
+        ),
+    ):
+        response = authed_client.post(f"/api/v1/domains/dns/import/{provider}", json={})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Provider operator access is required"
+    import_mock.assert_not_awaited()
 
 
 def test_dns_provider_import_endpoint_rejects_unknown_provider(authed_client: TestClient):

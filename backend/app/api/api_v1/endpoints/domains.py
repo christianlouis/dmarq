@@ -127,6 +127,7 @@ from app.services.organizations import (
 )
 from app.services.ovh_dns import get_ovh_dns_credentials
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
+from app.services.provider_access import require_provider_operator_access
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
     summarize_remediation_activity,
@@ -220,6 +221,15 @@ REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
     "resolved",
     "rejected",
 }
+SHARED_NATIVE_DNS_PROVIDERS = {"hetzner", "route53"}
+
+
+def _require_shared_dns_provider_operator(
+    db: Session, auth_context: Dict[str, Any], provider: str
+) -> None:
+    """Restrict deployment-wide native DNS credentials to provider operators."""
+    if normalize_provider_id(provider) in SHARED_NATIVE_DNS_PROVIDERS:
+        require_provider_operator_access(db, auth_context)
 
 
 def _authorized_domain_workspace(
@@ -6049,6 +6059,7 @@ async def import_dns_provider_domain_zones(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Import selected, or all new, DNS-provider zones as monitored domains."""
+    _require_shared_dns_provider_operator(db, _auth, provider)
     workspace = _authorized_domain_workspace(
         _auth,
         db,
@@ -6968,6 +6979,7 @@ async def apply_domain_dns_change_plan(  # noqa: C901 - orchestration keeps prev
                 ttl=payload.ttl,
             )
         else:
+            _require_shared_dns_provider_operator(db, _auth, payload.provider)
             record_type_replacement = bool(
                 plan.get("current_record_type")
                 and str(plan.get("current_record_type")).upper()
