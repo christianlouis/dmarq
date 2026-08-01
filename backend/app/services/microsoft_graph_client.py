@@ -495,17 +495,21 @@ class MicrosoftGraphClient(MailSourceConnector):
                     resp.close()
                 raise MicrosoftGraphError("Microsoft Graph MIME request failed.")
 
-            content = bytearray()
             try:
-                for chunk in resp.iter_bytes():
-                    content.extend(chunk)
-                    if len(content) > MAX_DSN_BYTES:
-                        raise MicrosoftGraphError(
-                            "Microsoft Graph MIME message exceeds the safe size limit."
-                        )
+                return self._read_bounded_response(resp)
             finally:
                 resp.close()
-            return bytes(content)
+
+    @staticmethod
+    def _read_bounded_response(resp: httpx.Response) -> bytes:
+        content = bytearray()
+        for chunk in resp.iter_bytes():
+            content.extend(chunk)
+            if len(content) > MAX_DSN_BYTES:
+                raise MicrosoftGraphError(
+                    "Microsoft Graph MIME message exceeds the safe size limit."
+                )
+        return bytes(content)
 
     @staticmethod
     def _retry_delay_seconds(resp: httpx.Response, attempt: int) -> float:
