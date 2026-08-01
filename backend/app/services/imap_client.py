@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from app.core.config import get_settings
 from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
-from app.services.dsn_parser import is_dsn_message
+from app.services.dsn_parser import MAX_DSN_BYTES, is_dsn_message
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
@@ -236,11 +236,13 @@ class IMAPClient:
                 {"diagnostic_detail": str(e)},
             )
 
-    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
+    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:  # noqa: C901
         """Fetch, parse, and store DMARC attachments from one email message."""
         message_id = email_id.decode("utf-8", errors="replace")
         try:
-            status, msg_data = mail.fetch(email_id, "(RFC822)")
+            # Fetch at most one byte beyond the parser limit.  BODY.PEEK avoids
+            # implicitly setting \Seen before we decide how to handle the message.
+            status, msg_data = mail.fetch(email_id, f"(BODY.PEEK[]<0.{MAX_DSN_BYTES + 1}>)")
             if status != "OK":
                 logger.error("Error fetching email ID %s", email_id)
                 self._append_detail(
@@ -252,6 +254,10 @@ class IMAPClient:
                 return
 
             raw_email = msg_data[0][1]
+            if self._skip_oversized_message(
+                mail, email_id, message_id, raw_email, stats
+            ):
+                return
             msg = email.message_from_bytes(raw_email)
 
             if is_dsn_message(msg) and self.db is not None:
@@ -313,7 +319,19 @@ class IMAPClient:
                 reason="message_processing_failed",
                 message_id=message_id,
                 error="Message processing failed. Check server logs for details.",
-            )
+                )
+
+    @staticmethod
+    def _skip_oversized_message(mail, email_id, message_id, raw_email, stats) -> bool:
+        if len(raw_email) <= MAX_DSN_BYTES:
+            return False
+        logger.warning("Skipping oversized IMAP message ID %s", message_id)
+        stats["details"].append(
+            {"status": "skipped", "reason": "message_too_large", "message_id": message_id}
+        )
+        mail.store(email_id, "+FLAGS", "\\Seen")
+        stats["processed"] += 1
+        return True
 
     def fetch_reports(
         self,
