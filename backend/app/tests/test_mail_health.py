@@ -1,7 +1,7 @@
 """Tests for the focused, non-delivery-claiming mail-health assessment."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -53,11 +53,12 @@ def _projection(
 
 
 def _assessment(db_session, workspace):
+    now = datetime.now(timezone.utc)
     return build_workspace_mail_health_assessment(
         db_session,
         workspace=workspace,
-        start_ts=int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
-        end_ts=int(datetime(2026, 7, 31, tzinfo=timezone.utc).timestamp()),
+        start_ts=int((now - timedelta(days=30)).timestamp()),
+        end_ts=int((now + timedelta(days=1)).timestamp()),
     )
 
 
@@ -65,6 +66,7 @@ def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(d
     workspace = Workspace(slug="delivery-evidence", name="Delivery evidence")
     db_session.add(workspace)
     db_session.commit()
+    occurred_at = datetime.now(timezone.utc) - timedelta(days=1)
     ingest_provider_event(
         db_session,
         workspace=workspace,
@@ -73,7 +75,7 @@ def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(d
             "provider": "postmark",
             "event_id": "bounce-1",
             "event": "bounced",
-            "occurred_at": datetime(2026, 7, 25),
+            "occurred_at": occurred_at,
             "domain": "example.test",
             "recipient": "recipient@example.net",
             "status_code": "5.7.26",
@@ -101,6 +103,7 @@ def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
         "recipient": "recipient@example.net",
         "message_id": "retry-message-1",
     }
+    occurred_at = datetime.now(timezone.utc) - timedelta(days=2)
     ingest_provider_event(
         db_session,
         workspace=workspace,
@@ -108,7 +111,7 @@ def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
             **base,
             "event_id": "bounce-before-retry",
             "event": "bounced",
-            "occurred_at": datetime(2026, 7, 25),
+            "occurred_at": occurred_at,
             "status_code": "4.7.0",
         },
     )
@@ -119,7 +122,7 @@ def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
             **base,
             "event_id": "delivered-after-retry",
             "event": "delivered",
-            "occurred_at": datetime(2026, 7, 26),
+            "occurred_at": occurred_at + timedelta(days=1),
         },
     )
 
