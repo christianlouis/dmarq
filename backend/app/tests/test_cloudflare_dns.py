@@ -1371,34 +1371,15 @@ def test_dns_provider_import_preview_wraps_hetzner_zones(db_session):
     assert "Hetzner DNS zone" in result["zones"][0]["next_action"]
 
 
-def test_dns_provider_import_preview_wraps_linode_domains(db_session):
-    async def fake_discover(_db, workspace_id=None):
-        assert workspace_id == 123
-        return [
-            {
-                "id": "1",
-                "name": DOMAIN,
-                "status": "master",
-                "account_name": "Linode DNS",
-                "imported": False,
-            }
-        ]
-
-    with patch("app.services.dns_provider_imports.discover_linode_domains", new=fake_discover):
-        result = asyncio.run(
+def test_dns_provider_import_preview_rejects_linode(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import: linode"):
+        asyncio.run(
             dns_provider_imports.preview_dns_provider_import(
                 db_session,
                 provider="linode",
                 workspace_id=123,
             )
         )
-
-    assert result["provider"] == "linode"
-    assert result["provider_name"] == "Linode DNS"
-    assert result["total_discovered"] == 1
-    assert result["importable_count"] == 1
-    assert result["zones"][0]["domain"] == DOMAIN
-    assert "Linode DNS domain" in result["zones"][0]["next_action"]
 
 
 def test_dns_provider_import_preview_wraps_route53_zones(db_session):
@@ -1457,19 +1438,9 @@ def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
     assert result["imported"] == [DOMAIN]
 
 
-def test_dns_provider_import_apply_wraps_linode_import(db_session):
-    async def fake_import(_db, requested_domains=None, workspace_id=None):
-        assert requested_domains == [DOMAIN]
-        assert workspace_id == 456
-        return {
-            "imported": [DOMAIN],
-            "existing": [],
-            "skipped": [],
-            "total_discovered": 1,
-        }
-
-    with patch("app.services.dns_provider_imports.import_linode_domains", new=fake_import):
-        result = asyncio.run(
+def test_dns_provider_import_apply_rejects_linode(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import: linode"):
+        asyncio.run(
             dns_provider_imports.import_dns_provider_domains(
                 db_session,
                 provider="linode",
@@ -1477,10 +1448,6 @@ def test_dns_provider_import_apply_wraps_linode_import(db_session):
                 workspace_id=456,
             )
         )
-
-    assert result["provider"] == "linode"
-    assert result["provider_name"] == "Linode DNS"
-    assert result["imported"] == [DOMAIN]
 
 
 def test_dns_provider_import_apply_wraps_route53_import(db_session):
@@ -1908,8 +1875,8 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["route53"]["import_available"] is True
     assert providers["route53"]["zone_import_status"] == "ready"
     assert "iam_role_external_id" in providers["route53"]["auth_models"]
-    assert providers["linode"]["import_available"] is True
-    assert providers["linode"]["zone_import_status"] == "ready"
+    assert providers["linode"]["import_available"] is False
+    assert providers["linode"]["zone_import_status"] == "planned"
     assert providers["linode"]["record_write_status"] == "lexicon_available"
     assert "personal_access_token" in providers["linode"]["auth_models"]
     assert providers["akamai-edgedns"]["import_available"] is True
