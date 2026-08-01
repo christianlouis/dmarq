@@ -11,8 +11,10 @@ from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.setup import setup_status
 from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
+from app.core.logto import SESSION_COOKIE, create_session_token
 from app.core.security import _api_keys, add_api_key
 from app.models.setting import Setting
+from app.models.user import User
 
 
 @pytest.fixture(autouse=True)
@@ -320,6 +322,37 @@ class TestSetupSystem:
 
         assert response.status_code == 200
         assert setup_status["app_name"] == "Changed"
+
+    def test_system_setup_rejects_non_operator_updates_after_complete(
+        self, client: TestClient, db_session
+    ):
+        user = User(
+            email="analyst@example.com",
+            is_active=True,
+            is_superuser=False,
+        )
+        db_session.add(user)
+        db_session.commit()
+        setup_status["is_setup_complete"] = True
+
+        response = client.post(
+            "/api/v1/setup/system",
+            json={
+                "app_name": "Compromised",
+                "base_url": "https://attacker.example.com",
+                "cloudflare_enabled": True,
+                "cloudflare_api_token": "attacker-token",
+                "cloudflare_zone_id": "attacker-zone",
+            },
+            cookies={SESSION_COOKIE: create_session_token(user.id)},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Provider operator access is required"
+        assert (
+            db_session.query(Setting).filter_by(key="cloudflare.api_token").first()
+            is None
+        )
 
     def test_system_setup_persists_cloudflare_credentials_server_side(
         self, client: TestClient, db_session

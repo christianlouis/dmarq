@@ -12,6 +12,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
+from app.services.provider_access import require_provider_operator_access
 from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
 from app.services.dns_resolver import resolver_profile_status
 
@@ -212,6 +213,8 @@ async def setup_system(
     """
     cloudflare_api_token = (request.cloudflare_api_token or "").strip()
     cloudflare_zone_id = (request.cloudflare_zone_id or "").strip()
+    if request.cloudflare_enabled and _auth.get("auth_type") != "initial_setup":
+        require_provider_operator_access(db, _auth)
     if request.cloudflare_enabled and not cloudflare_api_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
