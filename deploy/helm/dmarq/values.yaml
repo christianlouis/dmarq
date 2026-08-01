@@ -37,7 +37,7 @@ secretKeys:
 
 config:
   projectName: DMARQ
-  environment: development
+  environment: production
   publicBaseUrl: http://dmarq.local
   language: en
   appTimezone: UTC
