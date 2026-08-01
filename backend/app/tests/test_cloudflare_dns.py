@@ -3731,12 +3731,12 @@ def test_dns_change_plan_apply_rejects_tampered_cname_migration_value(
                 "expected_record_type": "CNAME",
                 "expected_current_values": ["_dmarc.shared.example.net"],
                 "expected_record_id": "dmarc-cname",
-                "expected_proposed_value": plan["proposed_value"],
+                "expected_proposed_value": "v=DMARC1; p=reject",
             },
         )
 
     assert response.status_code == 422
-    assert "Proposed DNS value changed after preview" in response.json()["detail"]
+    assert "must use the generated DNS plan value" in response.json()["detail"]
 
 
 def test_dns_change_plan_requires_reviewed_baseline_for_cname_migration_apply(
