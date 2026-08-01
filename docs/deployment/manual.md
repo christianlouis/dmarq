@@ -47,10 +47,10 @@ Create a `.env` file in the backend directory with your configuration. For produ
 DATABASE_URL=sqlite:///./data/dmarq.db
 SECRET_KEY=generate_a_secure_random_key
 ADMIN_API_KEY=generate_a_second_random_key
-ENVIRONMENT=development
-PUBLIC_BASE_URL=http://localhost:8080
-AUTH_MODE=disabled
-AUTH_DISABLED=true
+ENVIRONMENT=production
+PUBLIC_BASE_URL=https://dmarq.example.com
+AUTH_MODE=auto
+AUTH_DISABLED=false
 
 # Optional one-time IMAP source bootstrap
 # IMAP_SERVER=imap.gmail.com
@@ -60,6 +60,12 @@ AUTH_DISABLED=true
 # IMAP_FOLDER=INBOX
 DELETE_IMPORTED_EMAILS=false
 ```
+
+Keep authentication enabled for any network-accessible deployment. If you use
+OIDC or a trusted authentication proxy, configure its provider-specific
+settings before starting the service; otherwise, use the generated
+`ADMIN_API_KEY` for authenticated API access. Reserve `AUTH_MODE=disabled` and
+`AUTH_DISABLED=true` for local development bound to localhost.
 
 Generate separate random values for `SECRET_KEY` and `ADMIN_API_KEY`:
 
