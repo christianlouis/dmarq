@@ -690,6 +690,44 @@ class TestExternalAuthProviders:
         assert organization_membership.role == "organization_owner"
         assert organization_membership.active is True
 
+    def test_sync_external_user_deactivates_memberships_removed_from_claims(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        db_session.add_all([organization, workspace])
+        db_session.commit()
+
+        user = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("primary", "workspace_owner"),),
+                organization_roles=(("customer-one", "organization_owner"),),
+            ),
+            db_session,
+        )
+        sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+            ),
+            db_session,
+        )
+
+        workspace_membership = (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+        )
+        organization_membership = (
+            db_session.query(OrganizationMembership)
+            .filter_by(organization_id=organization.id, user_id=user.id)
+            .one()
+        )
+        assert workspace_membership.active is False
+        assert organization_membership.active is False
+
     def test_sync_external_user_ignores_unknown_claim_targets(self, db_session):
         user = sync_external_user(
             ExternalIdentityClaims(

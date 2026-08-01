@@ -938,15 +938,34 @@ def _upsert_organization_membership(
 
 
 def _sync_external_memberships(claims: ExternalIdentityClaims, user: User, db: Session) -> None:
+    workspace_ids: set[int] = set()
     for workspace_slug, role in claims.workspace_roles:
-        _upsert_workspace_membership(db, user=user, workspace_slug=workspace_slug, role=role)
+        membership = _upsert_workspace_membership(
+            db, user=user, workspace_slug=workspace_slug, role=role
+        )
+        if membership is not None:
+            workspace_ids.add(membership.workspace_id)
+
+    organization_ids: set[int] = set()
     for organization_slug, role in claims.organization_roles:
-        _upsert_organization_membership(
+        membership = _upsert_organization_membership(
             db,
             user=user,
             organization_slug=organization_slug,
             role=role,
         )
+        if membership is not None:
+            organization_ids.add(membership.organization_id)
+
+    now = datetime.utcnow()
+    for membership in db.query(WorkspaceMembership).filter_by(user_id=user.id, active=True):
+        if membership.workspace_id not in workspace_ids:
+            membership.active = False
+            membership.updated_at = now
+    for membership in db.query(OrganizationMembership).filter_by(user_id=user.id, active=True):
+        if membership.organization_id not in organization_ids:
+            membership.active = False
+            membership.updated_at = now
 
 
 def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
