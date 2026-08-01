@@ -60,6 +60,7 @@ class ExternalIdentityClaims:
     groups: tuple[str, ...] = ()
     workspace_roles: tuple[tuple[str, str], ...] = ()
     organization_roles: tuple[tuple[str, str], ...] = ()
+    roles_authoritative: bool = False
     mfa_verified: bool = False
     mfa_claims: tuple[str, ...] = ()
 
@@ -693,6 +694,17 @@ def normalize_external_claims(
             allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
         ),
     )
+    roles_authoritative = bool(
+        (group_workspace_role_map or "").strip() or (group_organization_role_map or "").strip()
+    )
+    if roles_authoritative and not (workspace_roles or organization_roles):
+        logger.warning(
+            "Rejecting external login because configured group mappings granted no roles"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated identity is not assigned an authorized DMARQ role.",
+        )
     mfa_verified, mfa_claims = enforce_mfa_claims(payload, cfg)
     return ExternalIdentityClaims(
         provider=provider,
@@ -705,6 +717,7 @@ def normalize_external_claims(
         groups=groups,
         workspace_roles=workspace_roles,
         organization_roles=organization_roles,
+        roles_authoritative=roles_authoritative,
         mfa_verified=mfa_verified,
         mfa_claims=mfa_claims,
     )
@@ -938,6 +951,27 @@ def _upsert_organization_membership(
 
 
 def _sync_external_memberships(claims: ExternalIdentityClaims, user: User, db: Session) -> None:
+    if claims.roles_authoritative:
+        workspace_roles = set(claims.workspace_roles)
+        for membership in (
+            db.query(WorkspaceMembership)
+            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
+            .filter(WorkspaceMembership.user_id == user.id)
+        ):
+            if (membership.workspace.slug, membership.role) not in workspace_roles:
+                membership.active = False
+                membership.updated_at = datetime.utcnow()
+
+        organization_roles = set(claims.organization_roles)
+        for membership in (
+            db.query(OrganizationMembership)
+            .join(Organization, Organization.id == OrganizationMembership.organization_id)
+            .filter(OrganizationMembership.user_id == user.id)
+        ):
+            if (membership.organization.slug, membership.role) not in organization_roles:
+                membership.active = False
+                membership.updated_at = datetime.utcnow()
+
     for workspace_slug, role in claims.workspace_roles:
         _upsert_workspace_membership(db, user=user, workspace_slug=workspace_slug, role=role)
     for organization_slug, role in claims.organization_roles:
@@ -1007,6 +1041,25 @@ def trusted_proxy_claims_from_request(
         {"amr": request.headers.get(mfa_header)},
         cfg,
     )
+    workspace_roles = _role_pairs_from_group_map(
+        groups,
+        cfg.AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP,
+        allowed_roles=set(ROLE_PERMISSIONS),
+    )
+    organization_roles = _role_pairs_from_group_map(
+        groups,
+        cfg.AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP,
+        allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
+    )
+    roles_authoritative = bool(
+        (cfg.AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP or "").strip()
+        or (cfg.AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP or "").strip()
+    )
+    if roles_authoritative and not (workspace_roles or organization_roles):
+        logger.warning(
+            "Rejecting trusted proxy login because configured group mappings granted no roles"
+        )
+        return None
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject or email,
@@ -1015,16 +1068,9 @@ def trusted_proxy_claims_from_request(
         username=request.headers.get(cfg.AUTH_TRUSTED_PROXY_USERNAME_HEADER),
         email_verified=True,
         groups=groups,
-        workspace_roles=_role_pairs_from_group_map(
-            groups,
-            cfg.AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP,
-            allowed_roles=set(ROLE_PERMISSIONS),
-        ),
-        organization_roles=_role_pairs_from_group_map(
-            groups,
-            cfg.AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP,
-            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
-        ),
+        workspace_roles=workspace_roles,
+        organization_roles=organization_roles,
+        roles_authoritative=roles_authoritative,
         mfa_verified=mfa_verified,
         mfa_claims=mfa_claims,
     )
