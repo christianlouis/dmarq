@@ -80,6 +80,20 @@ def _normalize_provider(provider: str) -> str:
     return (provider or "").strip().lower().replace("_", "-")
 
 
+def _is_expected_postmark_record(
+    *, domain: str, record_type: str, name: str, purpose: str
+) -> bool:
+    """Return whether a Postmark requirement targets an expected owner name."""
+    normalized_name = name.rstrip(".").lower()
+    normalized_purpose = purpose.strip().lower()
+    if record_type == "TXT" and normalized_purpose == "dkim":
+        suffix = f"._domainkey.{domain}"
+        return normalized_name.endswith(suffix) and normalized_name != suffix.lstrip(".")
+    if record_type == "CNAME" and normalized_purpose == "return_path":
+        return normalized_name == f"pm-bounces.{domain}"
+    return False
+
+
 def _setting_value(db: Session, key: str) -> Optional[str]:
     row = db.query(Setting).filter(Setting.key == key).first()
     if row is None or not row.value:
@@ -349,7 +363,13 @@ async def mail_service_dns_records_for_domain(
             record_type = str(record.get("record_type") or "").strip().upper()
             name = str(record.get("name") or "").strip().strip(".")
             value = str(record.get("value") or "").strip().strip(".")
-            if not record_type or not name or not value:
+            purpose = str(record.get("purpose") or "sender_verification")
+            if not value or not _is_expected_postmark_record(
+                domain=normalized_domain,
+                record_type=record_type,
+                name=name,
+                purpose=purpose,
+            ):
                 continue
             records.append(
                 {
@@ -358,7 +378,7 @@ async def mail_service_dns_records_for_domain(
                     "record_type": record_type,
                     "name": name,
                     "value": value,
-                    "purpose": str(record.get("purpose") or "sender_verification"),
+                    "purpose": purpose,
                 }
             )
     return records

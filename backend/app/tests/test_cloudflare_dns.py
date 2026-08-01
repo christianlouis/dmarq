@@ -4378,6 +4378,22 @@ def test_cloudflare_write_provider_rejects_unsupported_apply_operation(db_sessio
             asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
 
 
+def test_cloudflare_write_provider_rejects_record_outside_monitored_domain(db_session):
+    provider = CloudflareDNSWriteProvider()
+    plan = {**_dns_plan(), "name": "_dmarc.attacker.example"}
+
+    with pytest.raises(DNSProviderWriteError, match="outside the monitored domain"):
+        asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=plan,
+                value_override=None,
+                ttl=1,
+            )
+        )
+
+
 def test_lexicon_write_provider_reports_missing_runtime(db_session):
     provider = LexiconDNSWriteProvider("route53")
 
