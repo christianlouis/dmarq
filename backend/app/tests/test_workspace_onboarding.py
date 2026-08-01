@@ -344,11 +344,11 @@ def test_apply_onboarding_bootstraps_owner_memberships(test_app, db_session: Ses
     assert db_session.query(WorkspaceMembership).count() == 1
 
 
-def test_apply_onboarding_repairs_existing_inactive_owner_memberships(
+def test_apply_onboarding_cannot_claim_existing_organization_with_inactive_memberships(
     test_app,
     db_session: Session,
 ):
-    """Existing non-owner inactive memberships are promoted back to owner access."""
+    """Inactive memberships cannot be used to claim ownership of an organization."""
     organization = Organization(slug="acme", name="Acme", active=True)
     workspace = Workspace(
         slug="client-one",
@@ -383,16 +383,52 @@ def test_apply_onboarding_repairs_existing_inactive_owner_memberships(
             json=_standard_payload(organization={"slug": "acme", "name": "Acme"}),
         )
 
-    assert response.status_code == 200
-    owner = response.json()["result"]["owner"]
-    assert owner["organization_membership"] == "reactivated"
-    assert owner["workspace_membership"] == "reactivated"
+    assert response.status_code == 403
     org_membership = db_session.query(OrganizationMembership).one()
     workspace_membership = db_session.query(WorkspaceMembership).one()
-    assert org_membership.role == "organization_owner"
-    assert org_membership.active is True
-    assert workspace_membership.role == ROLE_WORKSPACE_OWNER
-    assert workspace_membership.active is True
+    assert org_membership.role == "organization_auditor"
+    assert org_membership.active is False
+    assert workspace_membership.role == "auditor"
+    assert workspace_membership.active is False
+
+
+def test_apply_onboarding_cannot_claim_another_users_organization(
+    test_app,
+    db_session: Session,
+):
+    """A tenant user cannot bootstrap owner access in an existing organization."""
+    victim = Organization(slug="victim", name="Victim", active=True)
+    attacker_organization = Organization(slug="attacker", name="Attacker", active=True)
+    attacker = User(email="attacker@example.com", is_active=True, is_verified=True)
+    db_session.add_all([victim, attacker_organization, attacker])
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=attacker_organization.id,
+            user_id=attacker.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, attacker) as client:
+        response = client.post(
+            "/api/v1/onboarding/apply",
+            json=_standard_payload(organization={"slug": "victim", "name": "Victim"}),
+        )
+
+    assert response.status_code == 403
+    assert (
+        db_session.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == victim.id,
+            OrganizationMembership.user_id == attacker.id,
+        )
+        .count()
+        == 0
+    )
+    assert db_session.query(Workspace).filter(Workspace.slug == "client-one").count() == 0
 
 
 def test_apply_onboarding_rejects_workspace_owned_by_another_organization(
