@@ -265,7 +265,13 @@ def lexicon_provider_environment_configured(provider_id: str) -> bool:
 
 
 def _plan_value(plan: Dict[str, Any], value_override: Optional[str]) -> str:
-    value = (value_override or plan.get("proposed_value") or "").strip()
+    planned_value = str(plan.get("proposed_value") or "").strip()
+    override = str(value_override or "").strip()
+    if _is_record_type_replacement(plan) and override and override != planned_value:
+        raise DNSProviderWriteError(
+            "Record-type migrations must use the generated DNS plan value"
+        )
+    value = override or planned_value
     if not value:
         raise DNSProviderWriteError("This DNS plan does not include an apply-ready record value")
     if "<" in value or ">" in value:
