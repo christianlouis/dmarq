@@ -62,11 +62,11 @@ following occurs:
 
 | Field | Decision |
 | --- | --- |
-| Status | Temporarily accepted and tracked in [issue #805](https://github.com/christianlouis/dmarq/issues/805) |
+| Status | Mitigation prepared in the SQLite runtime patch PR; keep tracked until the published image is independently rescanned |
 | Recorded | 2026-07-15 |
 | Review by | 2026-08-16, or the next base-image refresh, whichever comes first |
 | Affected image | Official `python:3.13-slim` runtime base on Debian 13 (trixie) |
-| Affected package | `libsqlite3-0` `3.46.1-7+deb13u1` |
+| Affected package | Debian `libsqlite3-0` `3.46.1-7+deb13u1`; replaced in the DMARQ image by an upstream-fixed `3.54.0-0dmarq1` build |
 | Tracked CVEs | CVE-2026-50812, CVE-2026-50813 |
 | Owner | DMARQ maintainers |
 
@@ -75,18 +75,19 @@ following occurs:
 - Snyk reported both findings as low severity in the inherited runtime package.
 - DMARQ uses SQLite through Python and SQLAlchemy for supported single-container
   installations; removing SQLite would break the documented deployment mode.
-- A recheck of `ghcr.io/christianlouis/dmarq:docker-latest` on 2026-07-18
-  found the same installed version as Debian's current trixie candidate.
-- No fixed Debian trixie package or safe application-side remediation was
-  available at the last review. Mixing packages from another Debian suite
-  would create a larger, unsupported runtime dependency risk.
+- Debian's current Trixie package still does not contain the two fixes, while
+  the upstream SQLite fix commits are available. The image now builds that
+  fixed source tree and replaces the runtime library through a package with
+  the same ABI and package name.
 
 ### Required controls
 
-- Rebuild release images from the current official Python base so a fixed
-  package is inherited as soon as Debian publishes one.
+- Rebuild release images from the current official Python base so unrelated
+  Debian security updates continue to flow into the image.
 - Scan immutable release images during the release gate and record the
   installed `libsqlite3-0` version against issue #805.
+- Verify that Python loads the packaged fixed library and that the image does
+  not retain the vulnerable Debian package version.
 - Keep the documented PostgreSQL deployment option available for operators
   who require a database without the embedded SQLite runtime package.
 - Do not expose SQLite or arbitrary SQL execution through the HTTP surface.
@@ -96,8 +97,8 @@ following occurs:
 End this acceptance and rebuild all published image tags when any of the
 following occurs:
 
-1. Debian trixie or the official Python slim image publishes a fixed package.
-2. A supported base image contains a fixed SQLite version without cross-suite
-   package mixing.
+1. Debian trixie or the official Python slim image publishes a maintained
+   fixed package; replace the custom package with that distribution package.
+2. A maintained upstream SQLite release supersedes the pinned fix tree.
 3. A scanner raises the severity or shows an application-reachable exploit path.
 4. The review deadline is reached without a fresh documented assessment.

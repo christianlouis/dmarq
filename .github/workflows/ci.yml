@@ -552,6 +552,14 @@ jobs:
           curl -fsS http://127.0.0.1:8080/api/v1/domains/domains \
             | grep -q '"name":"example.com"'
 
+      - name: Verify SQLite security-fixed runtime
+        run: |
+          docker compose exec -T app sh -euxc '
+            test "$(dpkg-query -W -f="\${Version}" libsqlite3-0)" = "3.54.0-0dmarq1"
+            python -c "import sqlite3; db = sqlite3.connect(\":memory:\"); assert sqlite3.sqlite_version_info >= (3, 54, 0), sqlite3.sqlite_version; assert any(row[0] == \"ENABLE_SESSION\" for row in db.execute(\"pragma compile_options\")); print(sqlite3.sqlite_version)"
+            grep -Eq "/usr/lib/[^ ]*/libsqlite3\.so\.0" /proc/self/maps
+          '
+
       - name: Show logs on failure
         if: failure()
         run: docker compose logs --no-color --tail=300
