@@ -2,6 +2,7 @@ existingSecret: dmarq-test
 image:
   tag: docker-stable
 config:
+  environment: development
   publicBaseUrl: http://dmarq.dmarq-test.svc.cluster.local
 bootstrap:
   enabled: true
