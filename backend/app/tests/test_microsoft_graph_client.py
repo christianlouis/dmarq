@@ -7,11 +7,13 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import pytest
 
 from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport
 from app.models.workspace import Workspace
 from app.services.mail_connector import initial_import_stats
+from app.services.dsn_parser import MAX_DSN_BYTES
 from app.services.microsoft_graph_client import (
     M365_APPLICATION_SCOPE,
     M365_SCOPES,
@@ -43,6 +45,35 @@ def _make_client(db=None, already_ingested=None) -> MicrosoftGraphClient:
         already_ingested_ids=already_ingested or [],
         db=db,
     )
+
+
+def test_raw_mime_download_stops_at_size_limit(monkeypatch):
+    client = _make_client()
+    response = SimpleNamespace(
+        status_code=200,
+        iter_bytes=lambda: iter((b"x" * MAX_DSN_BYTES, b"overflow")),
+        close=lambda: None,
+    )
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, **kwargs):
+            return (method, url, kwargs)
+
+        def send(self, _request, *, stream):
+            assert stream is True
+            return response
+
+    transport = FakeClient()
+    monkeypatch.setattr("app.services.microsoft_graph_client.httpx.Client", lambda **_kw: transport)
+
+    with pytest.raises(MicrosoftGraphError, match="safe size limit"):
+        client._request_bytes("/messages/oversized/$value")
 
 
 class TestMicrosoftGraphOAuthHelpers:
