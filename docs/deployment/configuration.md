@@ -62,12 +62,14 @@ paths.
 | `GUIDED_MAIL_HEALTH_UI_ENABLED` | Make the optional guided mail-health dashboard available. It remains disabled per workspace until an operator chooses it, so existing workspaces stay on the classic dashboard. Individual signed-in users may then choose their own explanation depth, teaching hints, and Watch, Diagnose, or Evidence context. Auth-disabled single-user installs persist the same choices as a workspace fallback. | `false` | `true`, `false` |
 | `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from Logto, direct OIDC, or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
 | `AUTH_MFA_CLAIM_NAMES` | Comma-separated claim names to inspect for MFA assurance. Common OIDC claims are `amr` and `acr`. | `amr,acr` | `amr,acr` |
-| `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as MFA proof. Adjust this to the values emitted by your IdP. | `mfa,otp,totp,webauthn,hwk,swk,phr` | `mfa,webauthn` |
+| `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as explicit MFA proof. Adjust this only to assurance values that guarantee MFA under your IdP policy. | `mfa` | `mfa` |
 
 When `AUTH_REQUIRE_MFA=true`, DMARQ does not perform MFA itself. It verifies
 that the upstream identity provider or trusted proxy explicitly states that MFA
-was used. For OIDC providers, this usually comes through `amr` values such as
-`mfa`, `otp`, or `webauthn`. For trusted-proxy deployments, configure the proxy
+was used. For OIDC providers, this usually comes through an `amr` value such as
+`mfa`. Individual method references such as `otp` or `webauthn` are not accepted
+by default because they do not necessarily prove that multiple factors were
+used. For trusted-proxy deployments, configure the proxy
 to forward a dedicated assurance header and strip any inbound spoofed copy of
 that header before the request reaches DMARQ.
 

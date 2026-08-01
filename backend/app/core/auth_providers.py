@@ -398,7 +398,7 @@ def _mfa_claim_names(settings: Settings | None = None) -> tuple[str, ...]:
 
 def _mfa_claim_values(settings: Settings | None = None) -> set[str]:
     cfg = settings or get_settings()
-    return _split_csv(getattr(cfg, "AUTH_MFA_CLAIM_VALUES", "mfa,otp,totp,webauthn,hwk,swk,phr"))
+    return _split_csv(getattr(cfg, "AUTH_MFA_CLAIM_VALUES", "mfa"))
 
 
 def mfa_claim_context(

@@ -226,7 +226,7 @@ class Settings(BaseSettings):
     OIDC_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
     AUTH_REQUIRE_MFA: bool = False
     AUTH_MFA_CLAIM_NAMES: str = "amr,acr"
-    AUTH_MFA_CLAIM_VALUES: str = "mfa,otp,totp,webauthn,hwk,swk,phr"
+    AUTH_MFA_CLAIM_VALUES: str = "mfa"
 
     AUTHENTIK_ISSUER_URL: Optional[str] = None
     AUTHENTIK_CLIENT_ID: Optional[str] = None
