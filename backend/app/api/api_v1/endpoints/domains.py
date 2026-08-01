@@ -128,7 +128,6 @@ from app.services.organizations import (
 from app.services.provider_access import require_provider_operator_access
 from app.services.ovh_dns import get_ovh_dns_credentials
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
-from app.services.provider_access import require_provider_operator_access
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
     summarize_remediation_activity,
@@ -6034,6 +6033,7 @@ async def preview_dns_provider_domain_import(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Preview DNS-provider zones that can be imported as monitored domains."""
+    _require_shared_dns_provider_operator(db, _auth, provider)
     workspace = _authorized_domain_workspace(
         _auth,
         db,

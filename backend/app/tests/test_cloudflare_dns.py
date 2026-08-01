@@ -1735,6 +1735,7 @@ def test_shared_native_provider_import_requires_provider_operator(
     authed_client: TestClient, provider: str
 ):
     import_mock = AsyncMock()
+    preview_mock = AsyncMock()
     with (
         patch(
             "app.api.api_v1.endpoints.domains.require_provider_operator_access",
@@ -1746,12 +1747,19 @@ def test_shared_native_provider_import_requires_provider_operator(
             "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
             new=import_mock,
         ),
+        patch(
+            "app.api.api_v1.endpoints.domains.preview_dns_provider_import",
+            new=preview_mock,
+        ),
     ):
-        response = authed_client.post(f"/api/v1/domains/dns/import/{provider}", json={})
+        apply_response = authed_client.post(f"/api/v1/domains/dns/import/{provider}", json={})
+        preview_response = authed_client.get(f"/api/v1/domains/dns/import/{provider}/preview")
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Provider operator access is required"
+    for response in (apply_response, preview_response):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Provider operator access is required"
     import_mock.assert_not_awaited()
+    preview_mock.assert_not_awaited()
 
 
 def test_dns_provider_import_endpoint_rejects_unknown_provider(authed_client: TestClient):
