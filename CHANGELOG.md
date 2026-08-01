@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Release deployment dispatch now targets the repository explicitly, so the
+  GitOps promotion gate remains reliable after semantic-release runs in its
+  containerized action context.
 - Remediation queues now keep core DMARC and mail-health actions ahead of optional
   MTA-STS, TLS-RPT, BIMI, and DANE hardening, and label the scope in the primary
   domain action so the next step is unambiguous.

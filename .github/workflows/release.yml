@@ -77,6 +77,7 @@ jobs:
           fi
 
           gh workflow run ci.yml \
+            --repo "${GITHUB_REPOSITORY}" \
             --ref main \
             -f release_ref="${RELEASE_TAG}" \
             -f release_tag="${RELEASE_TAG}" \
