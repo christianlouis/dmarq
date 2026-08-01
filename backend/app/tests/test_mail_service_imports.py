@@ -360,6 +360,41 @@ def test_mail_service_dns_records_for_domain_is_optional(db_session):
     assert records == []
 
 
+def test_mail_service_dns_records_for_domain_rejects_unexpected_postmark_names(db_session):
+    requirements = [
+        {"record_type": "TXT", "name": "example.com", "value": "attacker", "purpose": "dkim"},
+        {
+            "record_type": "TXT",
+            "name": "pm._domainkey.other.example",
+            "value": "attacker",
+            "purpose": "dkim",
+        },
+        {
+            "record_type": "CNAME",
+            "name": "attacker-controlled.example.com",
+            "value": "attacker.example.net",
+            "purpose": "return_path",
+        },
+        {
+            "record_type": "CNAME",
+            "name": "pm-bounces.example.com",
+            "value": "pm.mtasv.net",
+            "purpose": "return_path",
+        },
+    ]
+    with patch(
+        "app.services.mail_service_imports.discover_postmark_sender_domains",
+        new=AsyncMock(
+            return_value=[{"domain": "example.com", "required_dns_records": requirements}]
+        ),
+    ):
+        records = asyncio.run(
+            mail_service_imports.mail_service_dns_records_for_domain(db_session, "example.com")
+        )
+
+    assert [record["name"] for record in records] == ["pm-bounces.example.com"]
+
+
 def test_mail_service_dns_records_for_domain_skips_provider_discovery_for_cached_reads(
     db_session,
 ):

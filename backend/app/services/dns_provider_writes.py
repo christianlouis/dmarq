@@ -281,7 +281,7 @@ def _plan_value(plan: Dict[str, Any], value_override: Optional[str]) -> str:
     return value
 
 
-def _validate_plan_for_automation(plan: Dict[str, Any]) -> None:
+def _validate_plan_for_automation(plan: Dict[str, Any], *, domain: str) -> None:
     operation = str(plan.get("operation") or "").lower()
     record_type = str(plan.get("record_type") or "").upper()
     if operation not in SUPPORTED_AUTOMATED_OPERATIONS:
@@ -292,6 +292,13 @@ def _validate_plan_for_automation(plan: Dict[str, Any]) -> None:
         raise DNSProviderWriteError(
             f"Record type '{record_type}' is not supported for automatic DNS writes yet"
         )
+    normalized_domain = domain.strip().rstrip(".").lower()
+    normalized_name = str(plan.get("name") or "").strip().rstrip(".").lower()
+    if not normalized_domain or not normalized_name or not (
+        normalized_name == normalized_domain
+        or normalized_name.endswith(f".{normalized_domain}")
+    ):
+        raise DNSProviderWriteError("The DNS plan record name is outside the monitored domain")
 
 
 def _current_record_type(plan: Dict[str, Any]) -> str:
@@ -508,7 +515,7 @@ class CloudflareDNSWriteProvider:
         value_override: Optional[str],
         ttl: int,
     ) -> DNSWriteMutation:
-        _validate_plan_for_automation(plan)
+        _validate_plan_for_automation(plan, domain=domain)
         value = _plan_value(plan, value_override)
         record_type = str(plan["record_type"]).upper()
         record_name = str(plan["name"])
@@ -706,7 +713,7 @@ class NativeManagedDNSWriteProvider:
         value_override: Optional[str],
         ttl: int,
     ) -> DNSWriteMutation:
-        _validate_plan_for_automation(plan)
+        _validate_plan_for_automation(plan, domain=domain)
         value = _plan_value(plan, value_override)
         record_type = str(plan["record_type"]).upper()
         record_name = str(plan["name"])
@@ -847,7 +854,7 @@ class LexiconDNSWriteProvider:
     ) -> DNSWriteMutation:
         if not lexicon_runtime_available():
             raise DNSProviderWriteError("dns-lexicon is not installed in this DMARQ runtime")
-        _validate_plan_for_automation(plan)
+        _validate_plan_for_automation(plan, domain=domain)
         value = _plan_value(plan, value_override)
         record_type = str(plan["record_type"]).upper()
         record_name = str(plan["name"])
@@ -1050,7 +1057,7 @@ def _demo_dns_mutation(
     ttl: int = 1,
 ) -> DNSWriteMutation:
     """Return a provider-like mutation for demo flows without provider access."""
-    _validate_plan_for_automation(plan)
+    _validate_plan_for_automation(plan, domain=domain)
     content = _plan_value(plan, value_override)
     provider = normalize_provider_id(provider_id)
     record_type = str(plan.get("record_type") or "").upper()
