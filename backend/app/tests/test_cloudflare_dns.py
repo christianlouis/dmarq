@@ -45,6 +45,7 @@ from app.services.dns_provider_writes import (
     LexiconDNSWriteProvider,
 )
 from app.services.organizations import OrganizationPlanLimitError
+from app.services.workspace_access import PERMISSION_INTEGRATIONS_WRITE
 from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
@@ -2466,6 +2467,10 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
 ):
     with (
         patch(
+            "app.api.api_v1.endpoints.domains._authorized_domain_workspace",
+            wraps=domains_endpoint._authorized_domain_workspace,
+        ) as authorize_workspace_mock,
+        patch(
             "app.api.api_v1.endpoints.domains.build_cloudflare_oauth_state",
             return_value="state-token",
         ) as state_mock,
@@ -2489,6 +2494,9 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
     assert data["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth")
     assert data["scopes"] == "zone.read dns.read"
     assert data["scope_profile"] == "read_only"
+    assert authorize_workspace_mock.call_args.kwargs["permission"] == (
+        PERMISSION_INTEGRATIONS_WRITE
+    )
     state_mock.assert_called_once()
     authorize_mock.assert_called_once()
     assert state_mock.call_args.kwargs["scope_profile"] == "read_only"
@@ -2630,6 +2638,10 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
 
     with (
         patch(
+            "app.api.api_v1.endpoints.domains._authorized_domain_workspace",
+            wraps=domains_endpoint._authorized_domain_workspace,
+        ) as authorize_workspace_mock,
+        patch(
             "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
             return_value={
                 "workspace_id": workspace.id,
@@ -2651,6 +2663,10 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/settings/cloudflare"
+    assert authorize_workspace_mock.call_args.kwargs == {
+        "permission": PERMISSION_INTEGRATIONS_WRITE,
+        "selected_workspace_id": workspace.id,
+    }
     decode_mock.assert_called_once_with("state-token")
     exchange_mock.assert_awaited_once_with(
         code="oauth-code",

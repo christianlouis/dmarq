@@ -184,6 +184,7 @@ from app.services.webhook_events import (
 )
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
+    PERMISSION_INTEGRATIONS_WRITE,
     PERMISSION_REPORTS_READ,
     parse_selected_workspace_id,
     resolve_authorized_workspace,
@@ -7971,6 +7972,7 @@ async def get_cloudflare_oauth_authorize_url(
     workspace = _authorized_domain_workspace(
         _auth,
         db,
+        permission=PERMISSION_INTEGRATIONS_WRITE,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
@@ -8059,7 +8061,12 @@ async def cloudflare_oauth_callback(
 
     try:
         state_payload = decode_cloudflare_oauth_state(state_value)
-        _authorized_domain_workspace(_auth, db, selected_workspace_id=state_payload["workspace_id"])
+        _authorized_domain_workspace(
+            _auth,
+            db,
+            permission=PERMISSION_INTEGRATIONS_WRITE,
+            selected_workspace_id=state_payload["workspace_id"],
+        )
         redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
         token_data = await exchange_cloudflare_oauth_code(
             code=code,
