@@ -269,6 +269,27 @@ def _upsert_memberships(
         organization_membership.active = active
 
 
+def _set_memberships_active(
+    db: Session, *, workspace: Workspace, user: User, active: bool
+) -> None:
+    """Set the active state for memberships managed by this SCIM workspace."""
+    for membership in getattr(user, "_scim_memberships", []):
+        membership.active = active
+
+    if workspace.organization_id is None:
+        return
+    organization_membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == workspace.organization_id,
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if organization_membership is not None:
+        organization_membership.active = active
+
+
 def _scim_user_to_dict(user: User, workspace: Workspace) -> Dict[str, Any]:
     memberships = (
         db_memberships
@@ -542,8 +563,7 @@ async def patch_scim_user(
         path = (operation.path or "").strip().lower()
         if operation.op.strip().lower() in {"replace", "add"} and path == "active":
             active = _coerce_scim_bool(operation.value)
-            for membership in getattr(user, "_scim_memberships", []):
-                membership.active = active
+            _set_memberships_active(db, workspace=workspace, user=user, active=active)
             changed = True
     if not changed:
         raise HTTPException(
@@ -578,8 +598,7 @@ async def deactivate_scim_user(
     """Deactivate a SCIM user without deleting audit history."""
     workspace = _workspace_for_token(db, _auth)
     user = _user_or_404(db, user_id, workspace)
-    for membership in getattr(user, "_scim_memberships", []):
-        membership.active = False
+    _set_memberships_active(db, workspace=workspace, user=user, active=False)
     record_workspace_audit_log(
         db,
         workspace=workspace,

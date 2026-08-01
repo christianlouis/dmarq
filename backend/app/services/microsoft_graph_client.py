@@ -12,7 +12,7 @@ import httpx
 
 from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
-from app.services.dsn_parser import is_dsn_message
+from app.services.dsn_parser import MAX_DSN_BYTES, is_dsn_message
 from app.services.mail_connector import (
     ConnectorImportContext,
     MailSourceConnector,
@@ -467,30 +467,49 @@ class MicrosoftGraphClient(MailSourceConnector):
         return resp.json() if resp.content else {}
 
     def _request_bytes(self, path: str) -> bytes:
-        """Fetch raw MIME content with the same bounded retry/auth behavior."""
+        """Fetch raw MIME content without buffering more than the DSN limit."""
         url = f"{GRAPH_BASE_URL}{path}"
         resp: Optional[httpx.Response] = None
-        for attempt in range(_MAX_GRAPH_RETRIES + 1):
-            resp = httpx.request("GET", url, headers=self._headers(), timeout=30)
-            if resp.status_code == 401:
-                if self.auth_mode == M365_AUTH_MODE_APPLICATION:
-                    self._acquire_application_access_token()
-                elif self.refresh_token:
-                    self._refresh_access_token()
-                else:
-                    break
-                resp = httpx.request("GET", url, headers=self._headers(), timeout=30)
-            if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_GRAPH_RETRIES:
-                self._sleep(self._retry_delay_seconds(resp, attempt))
-                continue
-            break
-        if resp is None or resp.status_code < 200 or resp.status_code >= 300:
-            raise MicrosoftGraphError(
-                self._format_error(resp)
-                if resp is not None
-                else "Microsoft Graph MIME request failed."
-            )
-        return bytes(resp.content)
+        with httpx.Client(timeout=30) as client:
+            for attempt in range(_MAX_GRAPH_RETRIES + 1):
+                request = client.build_request("GET", url, headers=self._headers())
+                resp = client.send(request, stream=True)
+                if resp.status_code == 401:
+                    if self.auth_mode == M365_AUTH_MODE_APPLICATION:
+                        self._acquire_application_access_token()
+                    elif self.refresh_token:
+                        self._refresh_access_token()
+                    else:
+                        break
+                    resp.close()
+                    request = client.build_request("GET", url, headers=self._headers())
+                    resp = client.send(request, stream=True)
+                if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_GRAPH_RETRIES:
+                    delay = self._retry_delay_seconds(resp, attempt)
+                    resp.close()
+                    self._sleep(delay)
+                    continue
+                break
+            if resp is None or resp.status_code < 200 or resp.status_code >= 300:
+                if resp is not None:
+                    resp.close()
+                raise MicrosoftGraphError("Microsoft Graph MIME request failed.")
+
+            try:
+                return self._read_bounded_response(resp)
+            finally:
+                resp.close()
+
+    @staticmethod
+    def _read_bounded_response(resp: httpx.Response) -> bytes:
+        content = bytearray()
+        for chunk in resp.iter_bytes():
+            content.extend(chunk)
+            if len(content) > MAX_DSN_BYTES:
+                raise MicrosoftGraphError(
+                    "Microsoft Graph MIME message exceeds the safe size limit."
+                )
+        return bytes(content)
 
     @staticmethod
     def _retry_delay_seconds(resp: httpx.Response, attempt: int) -> float:
@@ -632,6 +651,10 @@ class MicrosoftGraphClient(MailSourceConnector):
                 raw = self._request_bytes(
                     f"{mailbox_path}/messages/{quote(message_id, safe='')}/$value"
                 )
+                if len(raw) > MAX_DSN_BYTES:
+                    raise MicrosoftGraphError(
+                        "Delivery status message exceeds the safe size limit."
+                    )
                 if is_dsn_message(email.message_from_bytes(raw)):
                     result = ingest_dsn_email(
                         self.db,

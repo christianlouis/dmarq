@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # The daily projection key spans reports, so locking individual report rows is
 # insufficient when two workers handle reports for the same sender/day.
 _SOURCE_PROJECTION_ADVISORY_LOCK_KEY = 1_144_591_954
+# Report generators come from report-controlled XML and are copied into each
+# per-source row. Keep that shared value small so one report cannot amplify an
+# oversized generator name across every projection it creates.
+MAX_REPORT_GENERATOR_LENGTH = 256
 
 
 def _acquire_source_projection_write_lock(db: Session) -> None:
@@ -61,8 +65,10 @@ def _json_list(value: str | None) -> List[Dict[str, Any]]:
     return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
 
 
-def _add_unique(values: List[str], value: Any) -> None:
+def _add_unique(values: List[str], value: Any, *, max_length: int | None = None) -> None:
     text = str(value or "").strip()
+    if max_length is not None:
+        text = text[:max_length]
     if text and text not in values:
         values.append(text)
 
@@ -99,7 +105,7 @@ def _merge_metadata(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[s
         "spf_domains": list(current.get("spf_domains") or []),
         "dkim_domains": list(current.get("dkim_domains") or []),
         "dkim_selectors": list(current.get("dkim_selectors") or []),
-        "report_generators": list(current.get("report_generators") or []),
+        "report_generators": [],
         "extensions": dict(current.get("extensions") or {}),
     }
     for key in (
@@ -110,8 +116,13 @@ def _merge_metadata(current: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[s
         "dkim_selectors",
         "report_generators",
     ):
-        for value in incoming.get(key) or []:
-            _add_unique(merged[key], value)
+        values = list(current.get(key) or []) + list(incoming.get(key) or [])
+        for value in values:
+            _add_unique(
+                merged[key],
+                value,
+                max_length=MAX_REPORT_GENERATOR_LENGTH if key == "report_generators" else None,
+            )
     for key, value in (incoming.get("extensions") or {}).items():
         merged["extensions"].setdefault(str(key), str(value))
     return merged
@@ -142,7 +153,11 @@ def _projection_records(
             },
         )
         count = _int(record.get("count"))
-        _add_unique(item["metadata"]["report_generators"], report_generator)
+        _add_unique(
+            item["metadata"]["report_generators"],
+            report_generator,
+            max_length=MAX_REPORT_GENERATOR_LENGTH,
+        )
         item["message_count"] += count
         spf = str(record.get("spf_result") or record.get("spf") or "unknown").lower()
         dkim = str(record.get("dkim_result") or record.get("dkim") or "unknown").lower()

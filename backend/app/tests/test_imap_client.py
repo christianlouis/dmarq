@@ -24,6 +24,7 @@ from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.dmarc_parser import DMARCParser
 from app.services.imap_client import IMAPClient
+from app.services.dsn_parser import MAX_DSN_BYTES
 from app.services.report_store import ReportStore
 from app.tests.test_delivery_events import _dsn_bytes
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -1154,3 +1155,19 @@ def test_imap_processes_dsn_as_delivery_evidence(db_session):
     assert stats["delivery_events_found"] == 1
     assert db_session.query(DeliveryEvent).one().source_system == "imap_dsn"
     mail.store.assert_called_with(b"1", "+FLAGS", "\\Seen")
+
+
+def test_imap_rejects_oversized_message_before_mime_parse(monkeypatch):
+    client = IMAPClient(server="imap.example.com", username="user", password="password")
+    mail = MagicMock()
+    mail.fetch.return_value = ("OK", [(b"1", b"x" * (MAX_DSN_BYTES + 1))])
+    parse = MagicMock()
+    monkeypatch.setattr("app.services.imap_client.email.message_from_bytes", parse)
+    stats = {"processed": 0, "reports_found": 0, "errors": [], "details": []}
+
+    client._process_single_email(mail, b"1", stats)
+
+    parse.assert_not_called()
+    mail.fetch.assert_called_once_with(b"1", f"(BODY.PEEK[]<0.{MAX_DSN_BYTES + 1}>)")
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+    assert stats["details"][0]["reason"] == "message_too_large"

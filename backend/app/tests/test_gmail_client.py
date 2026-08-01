@@ -25,6 +25,7 @@ from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
+from app.services.dsn_parser import MAX_DSN_BYTES
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_delivery_events import _dsn_bytes
@@ -1028,3 +1029,17 @@ def test_gmail_search_keeps_dsn_results_out_of_trash():
     assert DMARC_GMAIL_QUERY.startswith("-in:trash (")
     assert DMARC_GMAIL_QUERY.endswith(")")
     assert 'subject:"Delivery Status Notification"' in DMARC_GMAIL_QUERY
+
+
+def test_gmail_rejects_oversized_raw_message_before_decoding(monkeypatch):
+    client = _make_client()
+    service = MagicMock()
+    max_encoded_bytes = ((MAX_DSN_BYTES + 2) // 3) * 4
+    service.users().messages().get().execute.return_value = {"raw": "A" * (max_encoded_bytes + 1)}
+    parse = MagicMock()
+    monkeypatch.setattr("app.services.gmail_client.email.message_from_bytes", parse)
+    stats = {"errors": [], "details": []}
+
+    assert client._process_message(service, "oversized", stats) == 0
+    parse.assert_not_called()
+    assert stats["details"][0]["reason"] == "message_too_large"

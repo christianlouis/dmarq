@@ -125,8 +125,10 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.provider_access import require_provider_operator_access
 from app.services.ovh_dns import get_ovh_dns_credentials
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
+from app.services.provider_access import require_provider_operator_access
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
     summarize_remediation_activity,
@@ -184,6 +186,7 @@ from app.services.webhook_events import (
 )
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
+    PERMISSION_INTEGRATIONS_WRITE,
     PERMISSION_REPORTS_READ,
     parse_selected_workspace_id,
     resolve_authorized_workspace,
@@ -220,6 +223,15 @@ REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
     "resolved",
     "rejected",
 }
+SHARED_NATIVE_DNS_PROVIDERS = {"hetzner", "route53"}
+
+
+def _require_shared_dns_provider_operator(
+    db: Session, auth_context: Dict[str, Any], provider: str
+) -> None:
+    """Restrict deployment-wide native DNS credentials to provider operators."""
+    if normalize_provider_id(provider) in SHARED_NATIVE_DNS_PROVIDERS:
+        require_provider_operator_access(db, auth_context)
 
 
 def _authorized_domain_workspace(
@@ -6027,6 +6039,13 @@ async def preview_dns_provider_domain_import(
         db,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
+    if normalize_provider_id(provider) in {
+        "akamai",
+        "akamai-edgedns",
+        "edgedns",
+        "fastdns",
+    }:
+        require_provider_operator_access(db, _auth)
     try:
         return await preview_dns_provider_import(
             db,
@@ -6049,11 +6068,19 @@ async def import_dns_provider_domain_zones(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Import selected, or all new, DNS-provider zones as monitored domains."""
+    _require_shared_dns_provider_operator(db, _auth, provider)
     workspace = _authorized_domain_workspace(
         _auth,
         db,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
+    if normalize_provider_id(provider) in {
+        "akamai",
+        "akamai-edgedns",
+        "edgedns",
+        "fastdns",
+    }:
+        require_provider_operator_access(db, _auth)
     try:
         return await import_dns_provider_domains(
             db,
@@ -6968,6 +6995,7 @@ async def apply_domain_dns_change_plan(  # noqa: C901 - orchestration keeps prev
                 ttl=payload.ttl,
             )
         else:
+            _require_shared_dns_provider_operator(db, _auth, payload.provider)
             record_type_replacement = bool(
                 plan.get("current_record_type")
                 and str(plan.get("current_record_type")).upper()
@@ -7971,6 +7999,7 @@ async def get_cloudflare_oauth_authorize_url(
     workspace = _authorized_domain_workspace(
         _auth,
         db,
+        permission=PERMISSION_INTEGRATIONS_WRITE,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
@@ -8059,7 +8088,12 @@ async def cloudflare_oauth_callback(
 
     try:
         state_payload = decode_cloudflare_oauth_state(state_value)
-        _authorized_domain_workspace(_auth, db, selected_workspace_id=state_payload["workspace_id"])
+        _authorized_domain_workspace(
+            _auth,
+            db,
+            permission=PERMISSION_INTEGRATIONS_WRITE,
+            selected_workspace_id=state_payload["workspace_id"],
+        )
         redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
         token_data = await exchange_cloudflare_oauth_code(
             code=code,

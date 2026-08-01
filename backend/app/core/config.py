@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     DMARQ_DNS_CUSTOM_DOH_HOSTNAME: Optional[str] = None
     DMARQ_DNS_CUSTOM_DOT_HOSTNAME: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
+    POSTMARK_WORKSPACE_ID: Optional[int] = None
     WEBHOOK_SECRET: Optional[str] = None
     WEBHOOK_MAX_EMAIL_SIZE_MB: int = 25
 
@@ -226,7 +227,7 @@ class Settings(BaseSettings):
     OIDC_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
     AUTH_REQUIRE_MFA: bool = False
     AUTH_MFA_CLAIM_NAMES: str = "amr,acr"
-    AUTH_MFA_CLAIM_VALUES: str = "mfa,otp,totp,webauthn,hwk,swk,phr"
+    AUTH_MFA_CLAIM_VALUES: str = "mfa"
 
     AUTHENTIK_ISSUER_URL: Optional[str] = None
     AUTHENTIK_CLIENT_ID: Optional[str] = None
