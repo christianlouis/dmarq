@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.organization import Organization
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.workspace_access import (
     PERMISSION_WORKSPACE_ADMIN,
+    require_organization_permission,
     require_workspace_permission,
 )
 from app.services.workspace_onboarding import (
@@ -128,6 +130,13 @@ async def apply_workspace_onboarding(
     """Apply a workspace onboarding template."""
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN)
     plan = _build_plan_or_422(payload)
+    existing_organization = db.query(Organization).filter(
+        Organization.slug == plan["organization"]["slug"]
+    ).first()
+    if existing_organization is not None:
+        require_organization_permission(
+            _auth, PERMISSION_WORKSPACE_ADMIN, db, existing_organization
+        )
     try:
         result = apply_onboarding_plan(db, plan=plan, auth_context=_auth, request=request)
     except OrganizationPlanLimitError as exc:
