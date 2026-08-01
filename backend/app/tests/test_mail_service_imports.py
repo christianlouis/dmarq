@@ -69,6 +69,45 @@ def test_postmark_token_falls_back_to_environment(db_session):
         assert mail_service_imports.get_postmark_account_token(db_session) == "env-token"
 
 
+def test_postmark_discovery_rejects_token_bound_to_another_workspace(db_session):
+    db_session.add(
+        Setting(
+            key="postmark.workspace_id",
+            value="7",
+            category="postmark",
+        )
+    )
+    db_session.commit()
+
+    with (
+        patch("app.services.mail_service_imports.get_postmark_account_token", return_value="token"),
+        patch("app.services.mail_service_imports._postmark_get", new=AsyncMock()) as get_mock,
+        pytest.raises(LookupError, match="not configured for this workspace"),
+    ):
+        asyncio.run(
+            mail_service_imports.discover_postmark_sender_domains(db_session, workspace_id=8)
+        )
+
+    get_mock.assert_not_awaited()
+
+
+def test_postmark_discovery_requires_workspace_binding(db_session):
+    class FakeSettings:
+        POSTMARK_WORKSPACE_ID = None
+
+    with (
+        patch("app.services.mail_service_imports.get_postmark_account_token", return_value="token"),
+        patch("app.services.mail_service_imports.get_settings", return_value=FakeSettings()),
+        patch("app.services.mail_service_imports._postmark_get", new=AsyncMock()) as get_mock,
+        pytest.raises(LookupError, match="not bound to a workspace"),
+    ):
+        asyncio.run(
+            mail_service_imports.discover_postmark_sender_domains(db_session, workspace_id=8)
+        )
+
+    get_mock.assert_not_awaited()
+
+
 def test_mail_service_helpers_handle_empty_values(db_session):
     assert mail_service_imports._domain_from_email(None) is None
     assert mail_service_imports._domain_from_email("not-an-email") is None
