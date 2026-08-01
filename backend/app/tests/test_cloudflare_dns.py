@@ -25,7 +25,7 @@ from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.models.workspace_access import WorkspaceAuditLog
+from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services import (
     akamai_edgedns,
     cloudflare_dns,
@@ -1808,6 +1808,58 @@ def test_dns_provider_import_endpoint_rejects_unknown_provider_on_apply(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Unsupported DNS provider import: example"
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/v1/domains/dns/import/fastdns/preview"),
+        ("post", "/api/v1/domains/dns/import/akamai-edgedns"),
+    ],
+)
+def test_akamai_import_requires_provider_operator(
+    test_app, db_session: Session, method: str, path: str
+):
+    workspace = get_or_create_default_workspace(db_session)
+    user = User(
+        email="akamai-domain-admin@example.com",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="domain_admin",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        yield db_session
+
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    provider_call = AsyncMock()
+    target = (
+        "app.api.api_v1.endpoints.domains.preview_dns_provider_import"
+        if method == "get"
+        else "app.api.api_v1.endpoints.domains.import_dns_provider_domains"
+    )
+    with TestClient(test_app) as client, patch(target, new=provider_call):
+        response = client.request(method, path, json={} if method == "post" else None)
+
+    test_app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Provider operator access is required"
+    provider_call.assert_not_awaited()
 
 
 def test_dns_provider_import_endpoint_surfaces_plan_limit(
