@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The backend runtime now builds SQLite from the upstream session-extension
+  security-fix tree and installs it as the image's `libsqlite3-0` package,
+  avoiding the still-unpatched Debian Trixie package for CVE-2026-50812 and
+  CVE-2026-50813.
 - Release deployment dispatch now targets the repository explicitly, so the
   GitOps promotion gate remains reliable after semantic-release runs in its
   containerized action context.
