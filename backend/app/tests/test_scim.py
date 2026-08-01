@@ -262,7 +262,7 @@ def test_scim_workspace_role_does_not_create_organization_membership(
 
 
 def test_scim_explicit_org_role_creates_organization_membership(client: TestClient, db_session):
-    """Only explicit SCIM org role groups write organization membership rows."""
+    """SCIM manages the active state of an explicitly mapped organization role."""
     organization = Organization(slug="scim-explicit-org", name="SCIM Explicit Org")
     db_session.add(organization)
     db_session.flush()
@@ -284,6 +284,37 @@ def test_scim_explicit_org_role_creates_organization_membership(client: TestClie
     user = db_session.query(User).filter(User.email == "org-role@example.com").one()
     org_membership = db_session.query(OrganizationMembership).filter_by(user_id=user.id).one()
     assert org_membership.role == "billing_admin"
+    assert org_membership.active is True
+
+    patched = client.patch(
+        f"/api/v1/scim/v2/Users/{user.id}",
+        headers={"X-API-Key": token.secret},
+        json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "Replace", "path": "active", "value": False}],
+        },
+    )
+
+    assert patched.status_code == 200
+    db_session.refresh(org_membership)
+    assert org_membership.active is False
+
+    reactivated = client.patch(
+        f"/api/v1/scim/v2/Users/{user.id}",
+        headers={"X-API-Key": token.secret},
+        json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "Replace", "path": "active", "value": True}],
+        },
+    )
+    deleted = client.delete(
+        f"/api/v1/scim/v2/Users/{user.id}", headers={"X-API-Key": token.secret}
+    )
+
+    assert reactivated.status_code == 200
+    assert deleted.status_code == 200
+    db_session.refresh(org_membership)
+    assert org_membership.active is False
 
 
 def test_scim_replace_rejects_payload_for_different_user(client: TestClient, db_session):
