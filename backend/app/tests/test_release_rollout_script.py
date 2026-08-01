@@ -145,9 +145,17 @@ def test_release_workflow_dispatches_gitops_deploy_after_release():
     """Semantic-release commits must trigger the deploy workflow explicitly."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 
-    assert "actions: write" in workflow
+    release_job, deploy_job = workflow.split("  deploy:", maxsplit=1)
+
+    assert "actions: write" not in release_job
+    assert "contents: write" in release_job
+    assert "actions: write" in deploy_job
+    assert "needs: release" in deploy_job
     assert "id: semantic" in workflow
-    assert "steps.semantic.outputs.released == 'true'" in workflow
+    assert "needs.release.outputs.released == 'true'" in deploy_job
+    assert '[[ ! "${RELEASE_TAG}" =~ ^v[0-9]+' in deploy_job
+    assert 'releases/tags/${RELEASE_TAG}' in deploy_job
+    assert 'compare/${GITHUB_SHA}...${RELEASE_TAG}' in deploy_job
     assert "gh workflow run ci.yml" in workflow
     assert 'release_ref="${RELEASE_TAG}"' in workflow
     assert 'release_tag="${RELEASE_TAG}"' in workflow

@@ -10,9 +10,10 @@ jobs:
     name: Semantic Release
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: write
-      id-token: write
+    outputs:
+      released: ${{ steps.semantic.outputs.released }}
+      tag: ${{ steps.semantic.outputs.tag }}
 
     steps:
       - name: Checkout code
@@ -36,12 +37,45 @@ jobs:
           push: true
           vcs_release: true
 
-      - name: Deploy released version through CI GitOps gate
-        if: steps.semantic.outputs.released == 'true'
+  deploy:
+    name: Dispatch release deployment
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Validate released tag and dispatch CI GitOps gate
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.semantic.outputs.tag }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
         run: |
+          set -euo pipefail
+
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid semantic-release tag: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          # Do not trust the release action's output alone. Confirm through the
+          # GitHub API that it names a published release created by this run and
+          # that its commit descends from the triggering main commit.
+          RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")
+          PUBLISHED_AT=$(jq -r '.published_at // empty' <<<"${RELEASE_JSON}")
+          if [[ -z "${PUBLISHED_AT}" || "${PUBLISHED_AT}" < "${{ github.event.repository.updated_at }}" ]]; then
+            echo "Release ${RELEASE_TAG} was not published during this main update" >&2
+            exit 1
+          fi
+
+          COMPARE_STATUS=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...${RELEASE_TAG}" \
+            --jq '.status')
+          if [[ "${COMPARE_STATUS}" != "ahead" && "${COMPARE_STATUS}" != "identical" ]]; then
+            echo "Release ${RELEASE_TAG} does not descend from ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+
           gh workflow run ci.yml \
             --ref main \
             -f release_ref="${RELEASE_TAG}" \
