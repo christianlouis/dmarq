@@ -28,6 +28,7 @@ from app.services.report_persistence import persisted_report_to_dict, save_parse
 from app.services.report_store import ReportStore
 from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_read_projection import (
+    MAX_REPORT_GENERATOR_LENGTH,
     _acquire_source_projection_write_lock,
     backfill_source_projections,
     load_domain_source_read_projection,
@@ -121,6 +122,23 @@ def test_save_parsed_report_materializes_daily_sender_facts(db_session):
     assert projection.dmarc_fail_count == 3
     assert json.loads(projection.disposition_counts) == {"none": 7, "reject": 3}
     assert json.loads(projection.metadata_json)["report_generators"] == ["Workspace Test Org"]
+
+
+def test_source_projection_bounds_report_generator_per_source(db_session):
+    """Report-controlled metadata cannot amplify an oversized value across source rows."""
+    workspace = get_or_create_default_workspace(db_session)
+    report = _parsed_report(domain="bounded-generator.example", report_id="bounded-generator")
+    report["org_name"] = "r" * (MAX_REPORT_GENERATOR_LENGTH + 10_000)
+    report["records"].append({**report["records"][0], "source_ip": "192.0.2.56"})
+
+    save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.commit()
+
+    projections = db_session.query(DomainSourceDailyProjection).all()
+    assert len(projections) == 2
+    for projection in projections:
+        generators = json.loads(projection.metadata_json)["report_generators"]
+        assert generators == ["r" * MAX_REPORT_GENERATOR_LENGTH]
 
 
 def test_projection_backfill_materializes_unprojected_reports(db_session):
