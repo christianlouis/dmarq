@@ -1091,18 +1091,6 @@ async def test_ai_connection(
             selected_model=None,
         )
 
-    stored_key = _setting_plain_or_default(db, "ai.api_key")
-    api_key = str(payload.api_key or "").strip()
-    if api_key == "**redacted**":
-        api_key = stored_key
-    if not api_key:
-        api_key = stored_key
-    if profile.get("requires_api_key") and not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Add an API key before testing this AI provider.",
-        )
-
     base_url = _normalize_ai_base_url(
         provider,
         str(payload.base_url or _setting_plain_or_default(db, "ai.remote_base_url") or ""),
@@ -1112,6 +1100,26 @@ async def test_ai_connection(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Add a provider base URL before testing this AI provider.",
+        )
+
+    stored_key = _setting_plain_or_default(db, "ai.api_key")
+    api_key = str(payload.api_key or "").strip()
+    if not api_key or api_key == "**redacted**":
+        stored_provider = str(_setting_plain_or_default(db, "ai.provider") or "template")
+        stored_provider = _ai_provider_profile(stored_provider)["id"]
+        stored_profile = _ai_provider_profile(stored_provider)
+        stored_base_url = _normalize_ai_base_url(
+            stored_provider,
+            _setting_plain_or_default(db, "ai.remote_base_url"),
+            stored_profile,
+        )
+        # A redacted credential may only be reused with the endpoint it was saved for.
+        # Otherwise an authenticated caller could send the secret to an arbitrary host.
+        api_key = stored_key if (provider, base_url) == (stored_provider, stored_base_url) else ""
+    if profile.get("requires_api_key") and not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add an API key before testing this AI provider or base URL.",
         )
 
     selected_model = str(payload.model or _setting_plain_or_default(db, "ai.model") or "").strip()
