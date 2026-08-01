@@ -25,7 +25,7 @@ from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.models.workspace_access import WorkspaceAuditLog
+from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services import (
     akamai_edgedns,
     cloudflare_dns,
@@ -46,6 +46,7 @@ from app.services.dns_provider_writes import (
     LexiconDNSWriteProvider,
 )
 from app.services.organizations import OrganizationPlanLimitError
+from app.services.workspace_access import PERMISSION_INTEGRATIONS_WRITE
 from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
@@ -1371,34 +1372,15 @@ def test_dns_provider_import_preview_wraps_hetzner_zones(db_session):
     assert "Hetzner DNS zone" in result["zones"][0]["next_action"]
 
 
-def test_dns_provider_import_preview_wraps_linode_domains(db_session):
-    async def fake_discover(_db, workspace_id=None):
-        assert workspace_id == 123
-        return [
-            {
-                "id": "1",
-                "name": DOMAIN,
-                "status": "master",
-                "account_name": "Linode DNS",
-                "imported": False,
-            }
-        ]
-
-    with patch("app.services.dns_provider_imports.discover_linode_domains", new=fake_discover):
-        result = asyncio.run(
+def test_dns_provider_import_preview_rejects_linode(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import: linode"):
+        asyncio.run(
             dns_provider_imports.preview_dns_provider_import(
                 db_session,
                 provider="linode",
                 workspace_id=123,
             )
         )
-
-    assert result["provider"] == "linode"
-    assert result["provider_name"] == "Linode DNS"
-    assert result["total_discovered"] == 1
-    assert result["importable_count"] == 1
-    assert result["zones"][0]["domain"] == DOMAIN
-    assert "Linode DNS domain" in result["zones"][0]["next_action"]
 
 
 def test_dns_provider_import_preview_wraps_route53_zones(db_session):
@@ -1457,19 +1439,9 @@ def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
     assert result["imported"] == [DOMAIN]
 
 
-def test_dns_provider_import_apply_wraps_linode_import(db_session):
-    async def fake_import(_db, requested_domains=None, workspace_id=None):
-        assert requested_domains == [DOMAIN]
-        assert workspace_id == 456
-        return {
-            "imported": [DOMAIN],
-            "existing": [],
-            "skipped": [],
-            "total_discovered": 1,
-        }
-
-    with patch("app.services.dns_provider_imports.import_linode_domains", new=fake_import):
-        result = asyncio.run(
+def test_dns_provider_import_apply_rejects_linode(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import: linode"):
+        asyncio.run(
             dns_provider_imports.import_dns_provider_domains(
                 db_session,
                 provider="linode",
@@ -1477,10 +1449,6 @@ def test_dns_provider_import_apply_wraps_linode_import(db_session):
                 workspace_id=456,
             )
         )
-
-    assert result["provider"] == "linode"
-    assert result["provider_name"] == "Linode DNS"
-    assert result["imported"] == [DOMAIN]
 
 
 def test_dns_provider_import_apply_wraps_route53_import(db_session):
@@ -1762,28 +1730,36 @@ def test_dns_provider_import_endpoint_returns_import_summary(authed_client: Test
     assert data["imported"] == [DOMAIN]
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "kwargs"),
-    [
-        ("get", "/api/v1/domains/dns/import/route53/preview", {}),
-        ("post", "/api/v1/domains/dns/import/route53", {"json": {}}),
-    ],
-)
-def test_route53_import_endpoints_require_provider_operator_access(
-    authed_client: TestClient,
-    method: str,
-    path: str,
-    kwargs: dict,
+@pytest.mark.parametrize("provider", ["route53", "hetzner"])
+def test_shared_native_provider_import_requires_provider_operator(
+    authed_client: TestClient, provider: str
 ):
-    with patch(
-        "app.api.api_v1.endpoints.domains.require_provider_operator_access",
-        side_effect=HTTPException(status_code=403, detail="Provider operator access is required"),
-    ) as require_operator:
-        response = getattr(authed_client, method)(path, **kwargs)
+    import_mock = AsyncMock()
+    preview_mock = AsyncMock()
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.require_provider_operator_access",
+            side_effect=HTTPException(
+                status_code=403, detail="Provider operator access is required"
+            ),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
+            new=import_mock,
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.preview_dns_provider_import",
+            new=preview_mock,
+        ),
+    ):
+        apply_response = authed_client.post(f"/api/v1/domains/dns/import/{provider}", json={})
+        preview_response = authed_client.get(f"/api/v1/domains/dns/import/{provider}/preview")
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Provider operator access is required"
-    require_operator.assert_called_once()
+    for response in (apply_response, preview_response):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Provider operator access is required"
+    import_mock.assert_not_awaited()
+    preview_mock.assert_not_awaited()
 
 
 def test_dns_provider_import_endpoint_rejects_unknown_provider(authed_client: TestClient):
@@ -1808,6 +1784,58 @@ def test_dns_provider_import_endpoint_rejects_unknown_provider_on_apply(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Unsupported DNS provider import: example"
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/v1/domains/dns/import/fastdns/preview"),
+        ("post", "/api/v1/domains/dns/import/akamai-edgedns"),
+    ],
+)
+def test_akamai_import_requires_provider_operator(
+    test_app, db_session: Session, method: str, path: str
+):
+    workspace = get_or_create_default_workspace(db_session)
+    user = User(
+        email="akamai-domain-admin@example.com",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="domain_admin",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        yield db_session
+
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    provider_call = AsyncMock()
+    target = (
+        "app.api.api_v1.endpoints.domains.preview_dns_provider_import"
+        if method == "get"
+        else "app.api.api_v1.endpoints.domains.import_dns_provider_domains"
+    )
+    with TestClient(test_app) as client, patch(target, new=provider_call):
+        response = client.request(method, path, json={} if method == "post" else None)
+
+    test_app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Provider operator access is required"
+    provider_call.assert_not_awaited()
 
 
 def test_dns_provider_import_endpoint_surfaces_plan_limit(
@@ -1856,8 +1884,8 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["route53"]["import_available"] is True
     assert providers["route53"]["zone_import_status"] == "ready"
     assert "iam_role_external_id" in providers["route53"]["auth_models"]
-    assert providers["linode"]["import_available"] is True
-    assert providers["linode"]["zone_import_status"] == "ready"
+    assert providers["linode"]["import_available"] is False
+    assert providers["linode"]["zone_import_status"] == "planned"
     assert providers["linode"]["record_write_status"] == "lexicon_available"
     assert "personal_access_token" in providers["linode"]["auth_models"]
     assert providers["akamai-edgedns"]["import_available"] is True
@@ -2491,6 +2519,10 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
 ):
     with (
         patch(
+            "app.api.api_v1.endpoints.domains._authorized_domain_workspace",
+            wraps=domains_endpoint._authorized_domain_workspace,
+        ) as authorize_workspace_mock,
+        patch(
             "app.api.api_v1.endpoints.domains.build_cloudflare_oauth_state",
             return_value="state-token",
         ) as state_mock,
@@ -2514,6 +2546,9 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
     assert data["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth")
     assert data["scopes"] == "zone.read dns.read"
     assert data["scope_profile"] == "read_only"
+    assert authorize_workspace_mock.call_args.kwargs["permission"] == (
+        PERMISSION_INTEGRATIONS_WRITE
+    )
     state_mock.assert_called_once()
     authorize_mock.assert_called_once()
     assert state_mock.call_args.kwargs["scope_profile"] == "read_only"
@@ -2655,6 +2690,10 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
 
     with (
         patch(
+            "app.api.api_v1.endpoints.domains._authorized_domain_workspace",
+            wraps=domains_endpoint._authorized_domain_workspace,
+        ) as authorize_workspace_mock,
+        patch(
             "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
             return_value={
                 "workspace_id": workspace.id,
@@ -2676,6 +2715,10 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/settings/cloudflare"
+    assert authorize_workspace_mock.call_args.kwargs == {
+        "permission": PERMISSION_INTEGRATIONS_WRITE,
+        "selected_workspace_id": workspace.id,
+    }
     decode_mock.assert_called_once_with("state-token")
     exchange_mock.assert_awaited_once_with(
         code="oauth-code",
@@ -4341,6 +4384,22 @@ def test_cloudflare_write_provider_rejects_unsupported_apply_operation(db_sessio
     ):
         with pytest.raises(DNSProviderWriteError, match="Unsupported Cloudflare operation"):
             asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
+def test_cloudflare_write_provider_rejects_record_outside_monitored_domain(db_session):
+    provider = CloudflareDNSWriteProvider()
+    plan = {**_dns_plan(), "name": "_dmarc.attacker.example"}
+
+    with pytest.raises(DNSProviderWriteError, match="outside the monitored domain"):
+        asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=plan,
+                value_override=None,
+                ttl=1,
+            )
+        )
 
 
 def test_lexicon_write_provider_reports_missing_runtime(db_session):

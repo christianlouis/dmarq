@@ -422,6 +422,38 @@ def test_ai_connection_uses_saved_redacted_secret_and_discovers_models(
     )
 
 
+@pytest.mark.parametrize("api_key", [None, "**redacted**"])
+def test_ai_connection_does_not_send_saved_secret_to_caller_supplied_url(
+    authed_client: TestClient,
+    api_key: str | None,
+):
+    save_response = authed_client.post(
+        "/api/v1/settings/bulk",
+        json={
+            "settings": {
+                "ai.provider": "openai_compatible",
+                "ai.remote_base_url": "https://saved.example/v1",
+                "ai.api_key": "sk-stored-secret",
+            }
+        },
+    )
+    assert save_response.status_code == 200
+
+    model_fetch = AsyncMock(return_value=[])
+    payload = {
+        "provider": "openai_compatible",
+        "base_url": "https://attacker.example/v1",
+    }
+    if api_key is not None:
+        payload["api_key"] = api_key
+    with patch.object(settings_endpoint, "_fetch_openai_compatible_models", model_fetch):
+        response = authed_client.post("/api/v1/settings/ai/test", json=payload)
+
+    assert response.status_code == 400
+    assert "API key" in response.json()["detail"]
+    model_fetch.assert_not_awaited()
+
+
 def test_ai_summary_requires_explicit_opt_in(authed_client: TestClient):
     _seed_report_store()
     response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/summary")

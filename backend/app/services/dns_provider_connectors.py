@@ -145,7 +145,9 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         name="Linode DNS",
         tier=1,
         auth_models=["personal_access_token", "lexicon_environment"],
-        zone_import_status="ready",
+        # Instance-wide environment credentials cannot safely authorize a
+        # workspace import in multi-tenant deployments.
+        zone_import_status="planned",
         record_read_status="planned",
         record_write_status="lexicon_available",
         dry_run_supported=True,

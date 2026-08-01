@@ -314,7 +314,7 @@ class TestExternalAuthProviders:
 
         assert exc.value.status_code == 403
 
-    def test_mfa_claim_context_accepts_common_oidc_assurance_claims(self):
+    def test_mfa_claim_context_requires_explicit_mfa_assurance_by_default(self):
         settings = Settings(AUTH_MFA_CLAIM_NAMES="amr,acr")
 
         verified, claims = mfa_claim_context(
@@ -325,8 +325,13 @@ class TestExternalAuthProviders:
             settings,
         )
 
-        assert verified is True
+        assert verified is False
         assert claims == ("amr:single_factor", "amr:webauthn", "acr:urn:example:loa")
+
+        verified, claims = mfa_claim_context({"amr": ["webauthn", "mfa"]}, settings)
+
+        assert verified is True
+        assert claims == ("amr:webauthn", "amr:mfa")
 
     def test_mfa_claim_context_normalizes_object_and_scalar_claims(self):
         settings = Settings(

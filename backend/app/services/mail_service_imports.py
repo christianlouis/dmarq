@@ -80,6 +80,20 @@ def _normalize_provider(provider: str) -> str:
     return (provider or "").strip().lower().replace("_", "-")
 
 
+def _is_expected_postmark_record(
+    *, domain: str, record_type: str, name: str, purpose: str
+) -> bool:
+    """Return whether a Postmark requirement targets an expected owner name."""
+    normalized_name = name.rstrip(".").lower()
+    normalized_purpose = purpose.strip().lower()
+    if record_type == "TXT" and normalized_purpose == "dkim":
+        suffix = f"._domainkey.{domain}"
+        return normalized_name.endswith(suffix) and normalized_name != suffix.lstrip(".")
+    if record_type == "CNAME" and normalized_purpose == "return_path":
+        return normalized_name == f"pm-bounces.{domain}"
+    return False
+
+
 def _setting_value(db: Session, key: str) -> Optional[str]:
     row = db.query(Setting).filter(Setting.key == key).first()
     if row is None or not row.value:
@@ -92,6 +106,30 @@ def _setting_value(db: Session, key: str) -> Optional[str]:
 def get_postmark_account_token(db: Session) -> Optional[str]:
     """Resolve the Postmark account token from settings or environment."""
     return _setting_value(db, "postmark.account_token") or get_settings().POSTMARK_ACCOUNT_TOKEN
+
+
+def _postmark_workspace_id(db: Session) -> Optional[int]:
+    """Return the workspace to which the account-wide Postmark token is bound."""
+    value = _setting_value(db, "postmark.workspace_id")
+    if value is None:
+        value = get_settings().POSTMARK_WORKSPACE_ID
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise LookupError("Postmark workspace binding is invalid") from exc
+
+
+def _require_postmark_workspace_scope(db: Session, workspace_id: Optional[int]) -> None:
+    """Prevent an account-wide Postmark token from crossing workspace boundaries."""
+    if workspace_id is None:
+        return
+    configured_workspace_id = _postmark_workspace_id(db)
+    if configured_workspace_id is None:
+        raise LookupError("Postmark account token is not bound to a workspace")
+    if configured_workspace_id != workspace_id:
+        raise LookupError("Postmark is not configured for this workspace")
 
 
 def _domain_from_email(value: Any) -> Optional[str]:
@@ -227,6 +265,7 @@ async def discover_postmark_sender_domains(
     token = get_postmark_account_token(db)
     if not token:
         raise LookupError("Postmark account token is not configured")
+    _require_postmark_workspace_scope(db, workspace_id)
 
     known_query = db.query(Domain.name)
     if workspace_id is not None:
@@ -349,7 +388,13 @@ async def mail_service_dns_records_for_domain(
             record_type = str(record.get("record_type") or "").strip().upper()
             name = str(record.get("name") or "").strip().strip(".")
             value = str(record.get("value") or "").strip().strip(".")
-            if not record_type or not name or not value:
+            purpose = str(record.get("purpose") or "sender_verification")
+            if not value or not _is_expected_postmark_record(
+                domain=normalized_domain,
+                record_type=record_type,
+                name=name,
+                purpose=purpose,
+            ):
                 continue
             records.append(
                 {
@@ -358,7 +403,7 @@ async def mail_service_dns_records_for_domain(
                     "record_type": record_type,
                     "name": name,
                     "value": value,
-                    "purpose": str(record.get("purpose") or "sender_verification"),
+                    "purpose": purpose,
                 }
             )
     return records

@@ -21,7 +21,7 @@ from googleapiclient.errors import HttpError
 
 from app.services.delivery_events import ingest_dsn_email
 from app.services.dmarc_parser import DMARCParser
-from app.services.dsn_parser import is_dsn_message
+from app.services.dsn_parser import MAX_DSN_BYTES, is_dsn_message
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
@@ -375,7 +375,23 @@ class GmailClient:
             )
             return 0
 
-        raw_bytes = base64.urlsafe_b64decode(msg_data.get("raw", ""))
+        encoded_raw = msg_data.get("raw", "")
+        # Gmail's raw endpoint cannot be ranged.  Reject an oversized payload before
+        # base64 decoding creates a second, attacker-controlled allocation.
+        max_encoded_bytes = ((MAX_DSN_BYTES + 2) // 3) * 4
+        if len(encoded_raw) > max_encoded_bytes:
+            logger.warning("Gmail API: skipping oversized message %s", msg_id)
+            self._append_detail(
+                stats, status="skipped", reason="message_too_large", message_id=msg_id
+            )
+            return 0
+
+        raw_bytes = base64.urlsafe_b64decode(encoded_raw)
+        if len(raw_bytes) > MAX_DSN_BYTES:
+            self._append_detail(
+                stats, status="skipped", reason="message_too_large", message_id=msg_id
+            )
+            return 0
         msg = email.message_from_bytes(raw_bytes)
         if is_dsn_message(msg) and self.db is not None:
             result = ingest_dsn_email(

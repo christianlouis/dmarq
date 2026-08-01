@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
+from app.core.security import require_admin_auth
 from app.models.alert import AlertConfigurationAudit, AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
@@ -391,6 +392,58 @@ class TestSettingsAPI:
         data = {row["key"]: row["value"] for row in res.json()}
         assert data["dmarc.default_policy"] == "quarantine"
         assert data["dmarc.default_percentage"] == "80"
+
+    def test_support_session_cannot_update_global_setting(
+        self,
+        test_app,
+        client: TestClient,
+        db_session: Session,
+    ):
+        """Workspace-bound support access cannot change deployment-wide settings."""
+
+        async def support_session_auth():
+            return {
+                "auth_type": "support_session",
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "support_read_only": True,
+            }
+
+        test_app.dependency_overrides[require_admin_auth] = support_session_auth
+
+        res = client.put(
+            "/api/v1/settings/general.app_name",
+            json={"value": "Changed by support"},
+        )
+
+        assert res.status_code == 403
+        assert res.json()["detail"] == "Support sessions cannot modify deployment-wide settings"
+        assert db_session.query(Setting).filter(Setting.key == "general.app_name").first() is None
+
+    def test_support_session_cannot_bulk_update_global_settings(
+        self,
+        test_app,
+        client: TestClient,
+        db_session: Session,
+    ):
+        """The bulk mutation route applies the same support-session boundary."""
+
+        async def support_session_auth():
+            return {
+                "auth_type": "support_session",
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "support_read_only": False,
+            }
+
+        test_app.dependency_overrides[require_admin_auth] = support_session_auth
+
+        res = client.post(
+            "/api/v1/settings/bulk",
+            json={"settings": {"general.app_name": "Changed by support"}},
+        )
+
+        assert res.status_code == 403
+        assert res.json()["detail"] == "Support sessions cannot modify deployment-wide settings"
+        assert db_session.query(Setting).filter(Setting.key == "general.app_name").first() is None
 
     def test_secret_is_redacted_in_response(self, authed_client: TestClient):
         """cloudflare.api_token value is redacted in GET responses."""

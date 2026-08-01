@@ -59,6 +59,15 @@ from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _require_global_settings_mutation_access(auth_context: dict) -> None:
+    """Keep workspace-bound support sessions from changing global settings."""
+    if (auth_context or {}).get("auth_type") == "support_session":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Support sessions cannot modify deployment-wide settings",
+        )
+
 # ---------------------------------------------------------------------------
 # Defaults – used to seed missing keys on first read
 # ---------------------------------------------------------------------------
@@ -203,6 +212,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value": "",
         "description": "Postmark account token for read-only sender-domain discovery",
         "value_type": "string",
+        "category": "postmark",
+    },
+    {
+        "key": "postmark.workspace_id",
+        "value": "",
+        "description": "Workspace ID authorized to use the Postmark account token",
+        "value_type": "integer",
         "category": "postmark",
     },
     # ── Forensics ────────────────────────────────────────────────────────────
@@ -1091,18 +1107,6 @@ async def test_ai_connection(
             selected_model=None,
         )
 
-    stored_key = _setting_plain_or_default(db, "ai.api_key")
-    api_key = str(payload.api_key or "").strip()
-    if api_key == "**redacted**":
-        api_key = stored_key
-    if not api_key:
-        api_key = stored_key
-    if profile.get("requires_api_key") and not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Add an API key before testing this AI provider.",
-        )
-
     base_url = _normalize_ai_base_url(
         provider,
         str(payload.base_url or _setting_plain_or_default(db, "ai.remote_base_url") or ""),
@@ -1112,6 +1116,26 @@ async def test_ai_connection(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Add a provider base URL before testing this AI provider.",
+        )
+
+    stored_key = _setting_plain_or_default(db, "ai.api_key")
+    api_key = str(payload.api_key or "").strip()
+    if not api_key or api_key == "**redacted**":
+        stored_provider = str(_setting_plain_or_default(db, "ai.provider") or "template")
+        stored_provider = _ai_provider_profile(stored_provider)["id"]
+        stored_profile = _ai_provider_profile(stored_provider)
+        stored_base_url = _normalize_ai_base_url(
+            stored_provider,
+            _setting_plain_or_default(db, "ai.remote_base_url"),
+            stored_profile,
+        )
+        # A redacted credential may only be reused with the endpoint it was saved for.
+        # Otherwise an authenticated caller could send the secret to an arbitrary host.
+        api_key = stored_key if (provider, base_url) == (stored_provider, stored_base_url) else ""
+    if profile.get("requires_api_key") and not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add an API key before testing this AI provider or base URL.",
         )
 
     selected_model = str(payload.model or _setting_plain_or_default(db, "ai.model") or "").strip()
@@ -1186,6 +1210,7 @@ async def update_setting(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> SettingResponse:
     """Update or create a single setting."""
+    _require_global_settings_mutation_access(_auth)
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     row = _get_setting(key, db)
     new_value = payload.value
@@ -1245,6 +1270,7 @@ async def bulk_update_settings(
 
     Accepts ``{"settings": {"key1": "value1", "key2": "value2", ...}}``.
     """
+    _require_global_settings_mutation_access(_auth)
     results = []
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     for key, value in payload.settings.items():
