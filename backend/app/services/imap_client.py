@@ -1,10 +1,13 @@
 import email
+import gzip
 import imaplib
 import logging
 import shlex
 import ssl
+import zipfile
 from datetime import datetime, timedelta
 from email.header import decode_header
+from io import BytesIO
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core.config import get_settings
@@ -21,6 +24,8 @@ from app.services.mail_connector import (
 )
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.tls_report_parser import TLSReportParser
+from app.services.tls_report_persistence import save_tls_report
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -549,6 +554,7 @@ class IMAPClient:
             or lower.endswith(".zip")
             or lower.endswith(".gz")
             or lower.endswith(".gzip")
+            or lower.endswith(".json")
         )
 
     @staticmethod
@@ -693,6 +699,85 @@ class IMAPClient:
             )
             return False
 
+    @staticmethod
+    def _sniff_report_kind(content: bytes, filename: str) -> str:
+        """Peek at (decompressed) attachment content to tell TLS-RPT JSON from DMARC XML.
+
+        Both report types are shipped under the same sender!domain!start!end
+        filename convention and the same .gz/.zip wrapping, so the filename
+        alone can't distinguish them - only the payload's first non-whitespace
+        byte can ('{' for TLS-RPT JSON, '<' for DMARC XML).
+        """
+        lower = filename.lower()
+        try:
+            if lower.endswith(".gz") or lower.endswith(".gzip"):
+                peek = gzip.decompress(content)
+            elif lower.endswith(".zip"):
+                with zipfile.ZipFile(BytesIO(content)) as zf:
+                    inner = zf.namelist()[0]
+                    peek = zf.read(inner)
+            else:
+                peek = content
+        except Exception:  # pylint: disable=broad-exception-caught
+            return "unknown"
+
+        stripped = peek.lstrip()
+        if stripped.startswith(b"{"):
+            return "tls"
+        if stripped.startswith(b"<"):
+            return "dmarc"
+        return "unknown"
+
+    def _process_tls_report_attachment(
+        self,
+        content: bytes,
+        *,
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        try:
+            parsed = TLSReportParser.parse_file(content, filename)
+        except ValueError as exc:
+            if stats is not None:
+                stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+            self._append_detail(
+                stats,
+                status="skipped",
+                reason="unrelated_attachment",
+                message_id=message_id,
+                filename=filename,
+                error=str(exc),
+            )
+            return False
+
+        if self.db is None:
+            logger.warning("No database session available; dropping TLS report %s", filename)
+            return False
+
+        result = save_tls_report(self.db, parsed, workspace_id=self.workspace_id)
+        stored = bool(result["created"])
+        if stored:
+            logger.info("Successfully processed TLS-RPT report: %s", filename)
+            self._append_detail(
+                stats,
+                status="imported",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        else:
+            if stats is not None:
+                stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
+            self._append_detail(
+                stats,
+                status="duplicate",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        return stored
+
     def _process_dmarc_attachment(
         self,
         part: email.message.Message,
@@ -714,6 +799,14 @@ class IMAPClient:
                     filename=filename,
                 )
                 return False
+
+            if self._sniff_report_kind(content, filename) == "tls":
+                return self._process_tls_report_attachment(
+                    content,
+                    filename=filename,
+                    stats=stats,
+                    message_id=message_id,
+                )
 
             try:
                 report = DMARCParser.parse_file(content, filename)
