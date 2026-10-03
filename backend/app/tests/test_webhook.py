@@ -275,6 +275,19 @@ def test_webhook_rejects_invalid_base64(client: TestClient, monkeypatch):
     assert response.status_code == 400
 
 
+def test_webhook_rejects_invalid_json(client: TestClient, monkeypatch):
+    secret = _set_webhook_secret(monkeypatch)
+
+    response = client.post(
+        "/api/v1/webhook/email",
+        headers={"X-Webhook-Secret": secret, "Content-Type": "application/json"},
+        content=b"{not-json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid webhook JSON."
+
+
 def test_webhook_uses_payload_subject_fallback(client: TestClient, monkeypatch):
     secret = _set_webhook_secret(monkeypatch)
     raw_email = _raw_email_with_attachment("notes.txt", b"ignored")
