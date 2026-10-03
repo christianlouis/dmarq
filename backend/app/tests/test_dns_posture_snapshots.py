@@ -347,8 +347,20 @@ def test_selectors_fall_back_to_manual_configuration_without_reports(db_session)
     domain = Domain(name="manual-only.example", dkim_selectors="manual,", active=True)
     db_session.add(domain)
     db_session.commit()
-
     assert dns_posture_refresh._selectors(db_session, domain) == ["manual"]
+
+
+def test_selectors_bound_manual_report_input_before_dns_refresh(db_session):
+    selectors = ",".join(f"attacker-{index}" for index in range(150))
+    domain = Domain(name="bounded-selectors.example", dkim_selectors=selectors, active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    selected = dns_posture_refresh._selectors(db_session, domain)
+
+    assert len(selected) == dns_posture_refresh.MAX_DNS_POSTURE_SELECTORS
+    assert selected[0] == "attacker-0"
+    assert selected[-1] == "attacker-99"
 
 
 @pytest.mark.asyncio

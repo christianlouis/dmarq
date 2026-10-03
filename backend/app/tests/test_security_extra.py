@@ -4,6 +4,7 @@ create_access_token, and require_admin_auth branches not yet exercised.
 """
 
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from jose import jwt
@@ -14,6 +15,7 @@ from app.core.security import (
     generate_api_key,
     verify_token,
 )
+from app.models.user import User
 
 # ---------------------------------------------------------------------------
 # create_access_token
@@ -145,19 +147,58 @@ class TestRequireAdminAuth:
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_valid_session_cookie_returns_auth_context(self):
+    async def test_valid_session_cookie_returns_auth_context(self, db_session):
         """A valid dmarq_session cookie should authenticate successfully."""
         from app.core.logto import create_session_token
         from app.core.security import require_admin_auth
 
-        token = create_session_token(user_id=42)
+        user = User(email="active-session@example.com", is_active=True)
+        db_session.add(user)
+        db_session.commit()
+        token = create_session_token(user_id=user.id)
         result = await require_admin_auth(
             request=self._make_request(cookies={"dmarq_session": token}),
             api_key=None,
             bearer=None,
+            db=db_session,
         )
         assert result["auth_type"] == "session"
-        assert result["user_id"] == 42
+        assert result["user_id"] == user.id
+
+    @pytest.mark.asyncio
+    async def test_deactivated_user_rejects_existing_session_and_bearer_tokens(self, db_session):
+        from fastapi import HTTPException
+        from fastapi.security import HTTPAuthorizationCredentials
+
+        from app.core import logto
+        from app.core.logto import create_session_token
+        from app.core.security import require_admin_auth
+
+        user = User(email="revoked-session@example.com", is_active=True)
+        db_session.add(user)
+        db_session.commit()
+        token = create_session_token(user.id)
+        user.is_active = False
+        db_session.commit()
+
+        with patch("app.core.security._current_settings", return_value=logto.settings):
+            with pytest.raises(HTTPException) as cookie_error:
+                await require_admin_auth(
+                    request=self._make_request(cookies={"dmarq_session": token}),
+                    api_key=None,
+                    bearer=None,
+                    db=db_session,
+                )
+            assert cookie_error.value.status_code == 401
+
+            with pytest.raises(HTTPException) as bearer_error:
+                await require_admin_auth(
+                    request=self._make_request(),
+                    api_key=None,
+                    bearer=HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+                    db=db_session,
+                )
+        assert bearer_error.value.status_code == 401
 
 
 # ---------------------------------------------------------------------------

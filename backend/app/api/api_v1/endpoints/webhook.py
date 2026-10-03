@@ -3,6 +3,7 @@
 import base64
 import email
 import hmac
+import json
 import logging
 import math
 from email.header import decode_header
@@ -84,7 +85,7 @@ def _ensure_base64_email_size(raw_email: str) -> None:
         )
 
 
-def _ensure_request_content_length(request: Request) -> None:
+def _ensure_request_content_length(request: Request, max_bytes: Optional[int] = None) -> None:
     content_length = request.headers.get("content-length")
     if not content_length:
         return
@@ -92,7 +93,7 @@ def _ensure_request_content_length(request: Request) -> None:
         body_size = int(content_length)
     except ValueError:
         return
-    max_bytes = _max_webhook_email_bytes()
+    max_bytes = max_bytes or _max_webhook_email_bytes()
     if body_size > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -101,6 +102,21 @@ def _ensure_request_content_length(request: Request) -> None:
                 f"Maximum accepted size is {max_bytes} bytes."
             ),
         )
+
+
+async def _read_limited_body(request: Request, max_bytes: int) -> bytes:
+    """Read a request body without allowing chunked requests to grow unbounded."""
+    chunks = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"Webhook request body is too large. Maximum is {max_bytes} bytes.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _api_endpoint_path(path: str) -> str:
@@ -219,12 +235,22 @@ async def webhook_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str,
 
 @router.post("/email")
 async def receive_email(
-    payload: EmailWebhookPayload,
+    request: Request,
     x_webhook_secret: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Receive a base64 encoded raw email from an email worker webhook."""
     _require_webhook_secret(x_webhook_secret)
+    # Authenticate and enforce a bounded JSON envelope before FastAPI/Pydantic
+    # materializes an attacker-controlled raw_email string.
+    max_encoded_bytes = 4 * math.ceil(_max_webhook_email_bytes() / 3)
+    _ensure_request_content_length(request, max_encoded_bytes + 64 * 1024)
+    try:
+        payload = EmailWebhookPayload.parse_obj(
+            json.loads((await _read_limited_body(request, max_encoded_bytes + 64 * 1024)).decode("utf-8"))
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook JSON.") from exc
     _ensure_base64_email_size(payload.raw_email)
     try:
         raw_email = base64.b64decode(payload.raw_email, validate=True)
@@ -247,7 +273,7 @@ async def receive_raw_email(
     """Receive raw RFC 822 email bytes from an email worker webhook."""
     _require_webhook_secret(x_webhook_secret)
     _ensure_request_content_length(request)
-    raw_email = await request.body()
+    raw_email = await _read_limited_body(request, _max_webhook_email_bytes())
     _ensure_email_size(raw_email)
     return _handle_raw_email(raw_email, db)
 

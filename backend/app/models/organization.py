@@ -43,6 +43,7 @@ class OrganizationMembership(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     role = Column(String(50), nullable=False, index=True)
     active = Column(Boolean, default=True, nullable=False, index=True)
+    external_role_managed = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

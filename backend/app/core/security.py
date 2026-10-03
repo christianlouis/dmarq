@@ -177,10 +177,50 @@ async def verify_token(
         ) from e
 
 
+def _bearer_auth_context(
+    bearer: Optional[HTTPAuthorizationCredentials],
+    current_settings: Any,
+    db: Session,
+) -> Optional[dict]:
+    """Return app-session or legacy JWT authentication for a bearer token."""
+    if bearer is None:
+        return None
+
+    from app.core.logto import (  # local import
+        active_session_user_id,
+        decode_session_token,
+    )
+
+    # A valid app-session token is never a legacy token.  If its user has
+    # been deactivated, reject it instead of falling through to the legacy
+    # python-jose branch below.
+    if decode_session_token(bearer.credentials) is not None:
+        user_id = active_session_user_id(bearer.credentials, db)
+        if user_id is not None:
+            return {"auth_type": "bearer", "user_id": user_id}
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session user not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(
+            bearer.credentials,
+            current_settings.SECRET_KEY,
+            algorithms=[current_settings.ALGORITHM],
+        )
+        return {"auth_type": "jwt", "payload": payload}
+    except JWTError as e:
+        logger.warning("Invalid Bearer JWT: %s", str(e))
+        return None
+
+
 async def _require_regular_admin_auth(
     request: Request,
     api_key: Optional[str],
     bearer: Optional[HTTPAuthorizationCredentials],
+    db: Session,
 ) -> dict:
     """Authenticate a request that is not using a provider support session."""
     current_settings = _current_settings()
@@ -199,11 +239,11 @@ async def _require_regular_admin_auth(
         return proxy_context
 
     # 2. Session cookie (external-IdP-backed app session)
-    from app.core.logto import SESSION_COOKIE, decode_session_token  # local import
+    from app.core.logto import SESSION_COOKIE, active_session_user_id  # local import
 
     session_token = request.cookies.get(SESSION_COOKIE)
     if session_token:
-        user_id = decode_session_token(session_token)
+        user_id = active_session_user_id(session_token, db)
         if user_id is not None:
             return {"auth_type": "session", "user_id": user_id}
 
@@ -212,23 +252,9 @@ async def _require_regular_admin_auth(
         return {"auth_type": "api_key"}
 
     # 4. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
-    if bearer:
-        from app.core.logto import decode_session_token as _dec  # local import
-
-        user_id = _dec(bearer.credentials)
-        if user_id is not None:
-            return {"auth_type": "bearer", "user_id": user_id}
-
-        # Fallback: legacy python-jose JWT (pre-Logto API keys / CI tokens)
-        try:
-            payload = jwt.decode(
-                bearer.credentials,
-                current_settings.SECRET_KEY,
-                algorithms=[current_settings.ALGORITHM],
-            )
-            return {"auth_type": "jwt", "payload": payload}
-        except JWTError as e:
-            logger.warning("Invalid Bearer JWT: %s", str(e))
+    bearer_context = _bearer_auth_context(bearer, current_settings, db)
+    if bearer_context is not None:
+        return bearer_context
 
     # No valid authentication
     raise HTTPException(
@@ -242,6 +268,7 @@ async def require_admin_auth(
     request: Request,
     api_key: Optional[str] = Security(api_key_header),
     bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
+    db: Session = Depends(get_db),
 ) -> dict:
     """
     Require authentication for admin/API endpoints.
@@ -254,7 +281,7 @@ async def require_admin_auth(
     support_context = support_session_auth_context(request)
     if support_context is not None:
         return support_context
-    return await _require_regular_admin_auth(request, api_key, bearer)
+    return await _require_regular_admin_auth(request, api_key, bearer, db)
 
 
 def require_api_token_scope(required_scope: str) -> Callable:
@@ -375,7 +402,7 @@ def require_provider_auth(required_scope: str) -> Callable:
         )
         if token_context is not None:
             return token_context
-        return await require_admin_auth(request, api_key=api_key, bearer=bearer)
+        return await require_admin_auth(request, api_key=api_key, bearer=bearer, db=db)
 
     return _require_provider_auth
 

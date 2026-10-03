@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import forensics as forensics_endpoint
+from app.middleware import auth as auth_middleware
 from app.models.domain import Domain
 from app.models.report import ForensicReport
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import (
@@ -383,11 +385,16 @@ def test_forensic_detail_returns_404(authed_client):
     assert response.status_code == 404
 
 
-def test_forensic_html_pages_render():
+def test_forensic_html_pages_render(db_session, monkeypatch):
     from app.core.logto import SESSION_COOKIE, create_session_token  # noqa: PLC0415
     from app.main import app as main_app  # noqa: PLC0415
 
-    cookies = {SESSION_COOKIE: create_session_token(user_id=1)}
+    user = User(email="forensics-html@example.com", is_active=True)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    monkeypatch.setattr(auth_middleware, "SessionLocal", lambda: db_session)
+    cookies = {SESSION_COOKIE: create_session_token(user_id=user.id)}
     with TestClient(main_app) as c:
         list_response = c.get("/forensics", cookies=cookies)
         detail_response = c.get("/forensics/123", cookies=cookies)

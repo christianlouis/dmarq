@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB for zip bomb protection
 MAX_FILES_IN_ARCHIVE = 10  # Maximum number of files in a zip archive
+MAX_RECORDS = 1000
+MAX_EXTENSION_DEPTH = 8
+MAX_EXTENSION_KEYS = 64
+MAX_EXTENSION_VALUE_LENGTH = 4096
+MAX_DKIM_ENTRIES_PER_RECORD = 32
+MAX_TOTAL_DKIM_ENTRIES = 1000
+MAX_EXTENSION_NODES = 256
+MAX_EXTENSION_BYTES = 256 * 1024
 
 
 class NoXMLContentError(ValueError):
@@ -176,23 +184,52 @@ class DMARCParser:
         ]
 
     @staticmethod
-    def _collect_extension_values(parent) -> Dict[str, Any]:
+    def _collect_extension_values(
+        parent, *, depth: int = 0, budget: Optional[list[int]] = None
+    ) -> Dict[str, Any]:
         """Capture namespaced extension values without coupling to vendor-specific schemas."""
+        if depth >= MAX_EXTENSION_DEPTH:
+            raise ValueError("DMARC extension nesting is too deep")
         values: Dict[str, Any] = {}
-        for child in list(parent):
+        budget = budget if budget is not None else [0, 0]
+        children = list(parent)
+        if len(children) > MAX_EXTENSION_KEYS:
+            raise ValueError("DMARC extension contains too many fields")
+        for child in children:
+            budget[0] += 1
+            if budget[0] > MAX_EXTENSION_NODES:
+                raise ValueError("DMARC report contains too many extension fields")
             key = child.tag
             if len(child):
-                values[key] = DMARCParser._collect_extension_values(child)
+                values[key] = DMARCParser._collect_extension_values(
+                    child, depth=depth + 1, budget=budget
+                )
             else:
-                values[key] = (child.text or "").strip()
+                value = (child.text or "").strip()
+                if len(value) > MAX_EXTENSION_VALUE_LENGTH:
+                    raise ValueError("DMARC extension value is too large")
+                budget[1] += len(value.encode("utf-8"))
+                if budget[1] > MAX_EXTENSION_BYTES:
+                    raise ValueError("DMARC report extension data is too large")
+                values[key] = value
         return values
 
     @staticmethod
-    def _extension_value(element) -> Any:
+    def _extension_value(element, *, budget: Optional[list[int]] = None) -> Any:
         """Return a scalar or nested mapping for a vendor extension element."""
         if len(element):
-            return DMARCParser._collect_extension_values(element)
-        return (element.text or "").strip()
+            return DMARCParser._collect_extension_values(element, budget=budget)
+        value = (element.text or "").strip()
+        if len(value.encode("utf-8")) > MAX_EXTENSION_VALUE_LENGTH:
+            raise ValueError("DMARC report extension value is too large")
+        if budget is not None:
+            budget[0] += 1
+            budget[1] += len(value.encode("utf-8"))
+            if budget[0] > MAX_EXTENSION_NODES:
+                raise ValueError("DMARC report contains too many extension fields")
+            if budget[1] > MAX_EXTENSION_BYTES:
+                raise ValueError("DMARC report extension data is too large")
+        return value
 
     @staticmethod
     def _detect_variant(root, xml_namespace: str) -> dict:
@@ -343,27 +380,29 @@ class DMARCParser:
             }
             for dkim in auth_results.findall("dkim")
         ]
+        if len(dkim_entries) > MAX_DKIM_ENTRIES_PER_RECORD:
+            raise ValueError("DMARC record contains too many DKIM entries")
         if dkim_entries:
             parsed["dkim"] = dkim_entries
         return parsed
 
     @staticmethod
-    def _parse_record_extensions(record_elem) -> dict:
+    def _parse_record_extensions(record_elem, *, budget: Optional[list[int]] = None) -> dict:
         """Parse record-level extension elements."""
         extension_values = {}
         for child in record_elem:
             if child.tag not in {"row", "identifiers", "auth_results"}:
-                extension_values[child.tag] = DMARCParser._extension_value(child)
+                extension_values[child.tag] = DMARCParser._extension_value(child, budget=budget)
         return {"extensions": extension_values} if extension_values else {}
 
     @staticmethod
-    def _parse_record(record_elem) -> dict:
+    def _parse_record(record_elem, *, extension_budget: Optional[list[int]] = None) -> dict:
         """Parse a single <record> element into a dictionary."""
         record: dict = {}
         record.update(DMARCParser._parse_row(record_elem))
         record.update(DMARCParser._parse_identifiers(record_elem))
         record.update(DMARCParser._parse_auth_results(record_elem))
-        record.update(DMARCParser._parse_record_extensions(record_elem))
+        record.update(DMARCParser._parse_record_extensions(record_elem, budget=extension_budget))
 
         return record
 
@@ -400,12 +439,23 @@ class DMARCParser:
             # Parse policy published
             report.update(DMARCParser._parse_policy(root))
 
+            extension_budget = [0, 0]
             extension = root.find("extension")
             if extension is not None:
-                report["extensions"] = DMARCParser._collect_extension_values(extension)
+                report["extensions"] = DMARCParser._collect_extension_values(
+                    extension, budget=extension_budget
+                )
 
             # Parse records
-            records = [DMARCParser._parse_record(elem) for elem in root.findall("record")]
+            record_elements = root.findall("record")
+            if len(record_elements) > MAX_RECORDS:
+                raise ValueError(f"DMARC report contains too many records (maximum {MAX_RECORDS})")
+            records = [
+                DMARCParser._parse_record(elem, extension_budget=extension_budget)
+                for elem in record_elements
+            ]
+            if sum(len(record.get("dkim") or []) for record in records) > MAX_TOTAL_DKIM_ENTRIES:
+                raise ValueError("DMARC report contains too many DKIM entries")
             report["records"] = records
             report["summary"] = DMARCParser._compute_summary(records)
 

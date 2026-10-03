@@ -7,7 +7,7 @@ from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.redaction import sanitize_for_log
 from app.models.domain import Domain
@@ -818,31 +818,33 @@ class StatsSummarizer:
         )
         if end_ts is not None:
             current_query = current_query.filter(DMARCReport.begin_date < int(end_ts))
-        previous_query = (
-            db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-            .join(Domain, DMARCReport.domain_id == Domain.id)
-            .filter(DMARCReport.begin_date < cutoff_ts)
+        previous_report = aliased(DMARCReport)
+        previous_record = aliased(ReportRecord)
+        previous_source_exists = (
+            db.query(previous_record.id)
+            .join(previous_report, previous_record.report_id == previous_report.id)
+            .filter(
+                previous_report.domain_id == DMARCReport.domain_id,
+                previous_record.source_ip == ReportRecord.source_ip,
+                previous_report.begin_date < cutoff_ts,
+            )
+            .exists()
         )
 
         if domain_db_id is not None:
             current_query = current_query.filter(DMARCReport.domain_id == domain_db_id)
-            previous_query = previous_query.filter(DMARCReport.domain_id == domain_db_id)
         if workspace_id is not None:
             current_query = current_query.filter(Domain.workspace_id == workspace_id)
-            previous_query = previous_query.filter(Domain.workspace_id == workspace_id)
 
-        previous_sources = {(row.domain, row.source_ip) for row in previous_query.distinct().all()}
         current_sources = (
-            current_query.group_by(Domain.name, ReportRecord.source_ip)
+            current_query.filter(~previous_source_exists)
+            .group_by(Domain.name, ReportRecord.source_ip)
             .order_by(func.sum(ReportRecord.count).desc())
+            .limit(max(1, int(limit)))
             .all()
         )
 
         for row in current_sources:
-            source_key = (row.domain, row.source_ip)
-            if source_key in previous_sources:
-                continue
             changes.append(
                 {
                     "type": "new_source",

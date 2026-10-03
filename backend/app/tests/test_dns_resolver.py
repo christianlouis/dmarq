@@ -514,6 +514,18 @@ async def test_check_dkim_not_found():
 
 
 @pytest.mark.asyncio
+async def test_check_dkim_bounds_attacker_controlled_selector_fanout():
+    provider = FakeDNSProvider({})
+    selectors = [f"selector-{index}" for index in range(150)]
+
+    found, matching, record = await provider.check_dkim("example.com", selectors)
+
+    assert found is False
+    assert matching == []
+    assert record is None
+
+
+@pytest.mark.asyncio
 async def test_check_domain_all_present():
     provider = FakeDNSProvider(
         {

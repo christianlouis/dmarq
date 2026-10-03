@@ -139,7 +139,7 @@ async def require_setup_write_auth(
     """Allow unauthenticated first-time setup writes, then require admin auth."""
     if not _setup_is_complete(db):
         return {"auth_type": "initial_setup"}
-    return await require_admin_auth(request=request, api_key=api_key, bearer=bearer)
+    return await require_admin_auth(request=request, api_key=api_key, bearer=bearer, db=db)
 
 
 @router.get("/status", response_model=SetupStatusResponse)

@@ -18,6 +18,9 @@ class User(Base):
     # Null for users that pre-date Logto integration or for
     # programmatic/service accounts created directly in the DB.
     logto_id = Column(String, unique=True, index=True, nullable=True)
+    # Set after an IdP has supplied a complete role snapshot.  This lets a
+    # later login revoke memberships when the IdP omits a role claim entirely.
+    external_roles_authoritative = Column(Boolean, default=False, nullable=False)
     # hashed_password kept for possible future local-auth fallback; nullable
     # because Logto users authenticate externally and have no local password.
     hashed_password = Column(String, nullable=True)

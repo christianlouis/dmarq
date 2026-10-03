@@ -4,7 +4,16 @@ import zipfile
 
 import pytest
 
-from app.services.dmarc_parser import DMARCParser
+from app.services.dmarc_parser import (
+    MAX_EXTENSION_BYTES,
+    MAX_EXTENSION_DEPTH,
+    MAX_EXTENSION_KEYS,
+    MAX_EXTENSION_VALUE_LENGTH,
+    MAX_DKIM_ENTRIES_PER_RECORD,
+    MAX_EXTENSION_NODES,
+    MAX_RECORDS,
+    DMARCParser,
+)
 from app.tests.test_data import SAMPLE_XML, SAMPLE_XML_WITH_NAMESPACE, load_dmarc_fixture
 
 
@@ -62,6 +71,122 @@ class TestDMARCParser:
         large_content = b"x" * (11 * 1024 * 1024)  # 11 MB
         with pytest.raises(ValueError, match="too large"):
             DMARCParser.parse_file(large_content, "report.xml")
+
+    def test_report_record_count_is_bounded(self):
+        records = "".join("<record><row><count>1</count></row></record>" for _ in range(MAX_RECORDS + 1))
+        xml = f"<feedback><policy_published><domain>example.com</domain></policy_published>{records}</feedback>"
+        with pytest.raises(ValueError, match="too many records"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_extension_value_size_is_bounded(self):
+        value = "x" * (MAX_EXTENSION_VALUE_LENGTH + 1)
+        xml = f"<feedback><extension><vendor><value>{value}</value></vendor></extension></feedback>"
+        with pytest.raises(ValueError, match="extension value is too large"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_dkim_entries_per_record_are_bounded(self):
+        entries = "".join(
+            f"<dkim><domain>example.com</domain><selector>s{index}</selector>"
+            "<result>pass</result></dkim>"
+            for index in range(MAX_DKIM_ENTRIES_PER_RECORD + 1)
+        )
+        xml = (
+            "<feedback><record><row><count>1</count></row>"
+            f"<auth_results>{entries}</auth_results></record></feedback>"
+        )
+        with pytest.raises(ValueError, match="too many DKIM entries"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_extension_node_count_is_bounded_across_report(self):
+        records = "".join(
+            f"<record><extension_{index}>x</extension_{index}></record>"
+            for index in range(MAX_EXTENSION_NODES + 1)
+        )
+        xml = f"<feedback>{records}</feedback>"
+        with pytest.raises(ValueError, match="too many extension fields"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_extension_depth_is_bounded(self):
+        nested = "x"
+        for index in range(MAX_EXTENSION_DEPTH + 1):
+            nested = f"<extension_{index}>{nested}</extension_{index}>"
+        xml = f"<feedback><extension>{nested}</extension></feedback>"
+
+        with pytest.raises(ValueError, match="nesting is too deep"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_extension_keys_are_bounded_per_container(self):
+        children = "".join(
+            f"<extension_{index}>x</extension_{index}>" for index in range(MAX_EXTENSION_KEYS + 1)
+        )
+        xml = f"<feedback><extension>{children}</extension></feedback>"
+
+        with pytest.raises(ValueError, match="too many fields"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_extension_bytes_are_bounded_across_report(self):
+        value = "é" * (MAX_EXTENSION_BYTES // MAX_EXTENSION_KEYS)
+        children = "".join(
+            f"<extension_{index}>{value}</extension_{index}>" for index in range(MAX_EXTENSION_KEYS)
+        )
+        xml = f"<feedback><extension>{children}</extension></feedback>"
+
+        with pytest.raises(ValueError, match="extension data is too large"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_nested_extension_node_count_is_bounded(self):
+        groups = "".join(
+            "<group>"
+            + "".join(f"<field_{index}>x</field_{index}>" for index in range(MAX_EXTENSION_KEYS))
+            + "</group>"
+            for _ in range(5)
+        )
+        xml = f"<feedback><extension>{groups}</extension></feedback>"
+
+        with pytest.raises(ValueError, match="too many extension fields"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_record_extension_value_size_is_bounded(self):
+        value = "x" * (MAX_EXTENSION_VALUE_LENGTH + 1)
+        xml = f"<feedback><record><vendor>{value}</vendor></record></feedback>"
+
+        with pytest.raises(ValueError, match="extension value is too large"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_nested_record_extension_is_parsed(self):
+        xml = b"<feedback><record><vendor><source>mail-platform</source></vendor></record></feedback>"
+
+        result = DMARCParser.parse_file(xml, "report.xml")
+
+        assert result["records"][0]["extensions"] == {
+            "vendor": {"source": "mail-platform"}
+        }
+
+    def test_record_extension_bytes_are_bounded_across_report(self):
+        value = "é" * 2048
+        records = "".join(f"<record><vendor>{value}</vendor></record>" for _ in range(256))
+        xml = f"<feedback>{records}</feedback>"
+
+        with pytest.raises(ValueError, match="extension data is too large"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
+
+    def test_dkim_entries_across_report_are_bounded(self):
+        def dkim_entries(count):
+            return "".join(
+                f"<dkim><domain>example.com</domain><selector>s{index}</selector>"
+                "<result>pass</result></dkim>"
+                for index in range(count)
+            )
+
+        records = "".join(
+            f"<record><row><count>1</count></row><auth_results>{dkim_entries(32)}</auth_results></record>"
+            for _ in range(31)
+        )
+        records += f"<record><row><count>1</count></row><auth_results>{dkim_entries(9)}</auth_results></record>"
+        xml = f"<feedback>{records}</feedback>"
+
+        with pytest.raises(ValueError, match="too many DKIM entries"):
+            DMARCParser.parse_file(xml.encode(), "report.xml")
 
     def test_gzip_uncompressed_content_too_large(self, monkeypatch):
         """GZIP extraction stops after the configured uncompressed-size limit."""

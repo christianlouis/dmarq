@@ -235,6 +235,14 @@ async def _handle_external_oidc_callback(
         logger.warning("%s callback error: %s", provider.label, exc)
         return RedirectResponse(url="/login?error=token_error", status_code=302)
 
+    # sync_external_user commits any authoritative role revocation before this
+    # response.  Do not mint a fresh stateless app session for an inactive user.
+    if not user.is_active:
+        response = RedirectResponse(url="/login?error=callback_failed", status_code=302)
+        response.delete_cookie(key=OIDC_STATE_COOKIE, httponly=True, samesite="lax")
+        logger.warning("%s callback denied inactive user id=%d", provider.label, user.id)
+        return response
+
     response = RedirectResponse(url=_safe_next(state_payload.get("next")), status_code=302)
     response.set_cookie(
         key=SESSION_COOKIE,
