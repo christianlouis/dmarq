@@ -177,6 +177,45 @@ async def verify_token(
         ) from e
 
 
+def _bearer_auth_context(
+    bearer: Optional[HTTPAuthorizationCredentials],
+    current_settings: Any,
+    db: Session,
+) -> Optional[dict]:
+    """Return app-session or legacy JWT authentication for a bearer token."""
+    if bearer is None:
+        return None
+
+    from app.core.logto import (  # local import
+        active_session_user_id,
+        decode_session_token,
+    )
+
+    # A valid app-session token is never a legacy token.  If its user has
+    # been deactivated, reject it instead of falling through to the legacy
+    # python-jose branch below.
+    if decode_session_token(bearer.credentials) is not None:
+        user_id = active_session_user_id(bearer.credentials, db)
+        if user_id is not None:
+            return {"auth_type": "bearer", "user_id": user_id}
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session user not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(
+            bearer.credentials,
+            current_settings.SECRET_KEY,
+            algorithms=[current_settings.ALGORITHM],
+        )
+        return {"auth_type": "jwt", "payload": payload}
+    except JWTError as e:
+        logger.warning("Invalid Bearer JWT: %s", str(e))
+        return None
+
+
 async def _require_regular_admin_auth(
     request: Request,
     api_key: Optional[str],
@@ -213,35 +252,9 @@ async def _require_regular_admin_auth(
         return {"auth_type": "api_key"}
 
     # 4. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
-    if bearer:
-        from app.core.logto import (  # local import
-            active_session_user_id as _active_session_user_id,
-            decode_session_token,
-        )
-
-        # A valid app-session token is never a legacy token.  If its user has
-        # been deactivated, reject it instead of falling through to the legacy
-        # python-jose branch below.
-        if decode_session_token(bearer.credentials) is not None:
-            user_id = _active_session_user_id(bearer.credentials, db)
-            if user_id is not None:
-                return {"auth_type": "bearer", "user_id": user_id}
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session user not found or inactive",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Fallback: legacy python-jose JWT (pre-Logto API keys / CI tokens)
-        try:
-            payload = jwt.decode(
-                bearer.credentials,
-                current_settings.SECRET_KEY,
-                algorithms=[current_settings.ALGORITHM],
-            )
-            return {"auth_type": "jwt", "payload": payload}
-        except JWTError as e:
-            logger.warning("Invalid Bearer JWT: %s", str(e))
+    bearer_context = _bearer_auth_context(bearer, current_settings, db)
+    if bearer_context is not None:
+        return bearer_context
 
     # No valid authentication
     raise HTTPException(

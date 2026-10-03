@@ -57,6 +57,41 @@ _STATIC_EXTENSIONS: tuple[str, ...] = (
 )
 
 
+def _is_public_path(path: str) -> bool:
+    """Return whether browser auth should not intercept this path."""
+    return (
+        path in _PUBLIC_PATHS
+        or any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
+        or any(path.endswith(extension) for extension in _STATIC_EXTENSIONS)
+    )
+
+
+def _has_active_session(request: Request) -> bool:
+    """Return whether the request's app session belongs to an active user."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return False
+    db = SessionLocal()
+    try:
+        return active_session_user_id(token, db) is not None
+    finally:
+        db.close()
+
+
+def _auth_redirect(request: Request, configured: bool) -> RedirectResponse:
+    """Return the setup or login redirect for an unauthenticated browser request."""
+    if not configured:
+        setup_url = "/setup"
+        if request.url.query:
+            setup_url = f"{setup_url}?{request.url.query}"
+        return RedirectResponse(url=setup_url, status_code=302)
+
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return RedirectResponse(url=f"/login?next={next_path}", status_code=302)
+
+
 class AuthRedirectMiddleware(BaseHTTPMiddleware):
     """
     Redirect unauthenticated browser requests to the appropriate page.
@@ -83,11 +118,7 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # ── 1. Public paths & prefixes ────────────────────────────────────────
-        if path in _PUBLIC_PATHS:
-            return await call_next(request)
-        if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
-            return await call_next(request)
-        if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
+        if _is_public_path(path):
             return await call_next(request)
 
         # ── 2. Trusted proxy / Authentik Outpost headers ─────────────────────
@@ -97,24 +128,8 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # ── 3. Valid session cookie ───────────────────────────────────────────
-        token = request.cookies.get(SESSION_COOKIE)
-        if token:
-            db = SessionLocal()
-            try:
-                if active_session_user_id(token, db) is not None:
-                    return await call_next(request)
-            finally:
-                db.close()
+        if _has_active_session(request):
+            return await call_next(request)
 
         # ── 4. Browser auth not configured ───────────────────────────────────
-        if not getattr(cfg, "auth_configured", False):
-            setup_url = "/setup"
-            if request.url.query:
-                setup_url = f"{setup_url}?{request.url.query}"
-            return RedirectResponse(url=setup_url, status_code=302)
-
-        # ── 5. Redirect to login ──────────────────────────────────────────────
-        next_path = request.url.path
-        if request.url.query:
-            next_path = f"{next_path}?{request.url.query}"
-        return RedirectResponse(url=f"/login?next={next_path}", status_code=302)
+        return _auth_redirect(request, getattr(cfg, "auth_configured", False))
