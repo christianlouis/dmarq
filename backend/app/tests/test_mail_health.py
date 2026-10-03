@@ -11,6 +11,9 @@ from app.services.delivery_events import ingest_provider_event
 from app.services.mail_health import build_workspace_mail_health_assessment
 from app.services.sender_classifications import record_sender_classification
 
+# Keep report evidence inside a stable window with the intended freshness ages.
+ASSESSMENT_NOW = datetime(2026, 8, 2, tzinfo=timezone.utc)
+
 
 def _projection(
     domain_id: int,
@@ -52,8 +55,7 @@ def _projection(
     )
 
 
-def _assessment(db_session, workspace):
-    now = datetime.now(timezone.utc)
+def _assessment(db_session, workspace, *, now=ASSESSMENT_NOW):
     return build_workspace_mail_health_assessment(
         db_session,
         workspace=workspace,
@@ -66,7 +68,8 @@ def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(d
     workspace = Workspace(slug="delivery-evidence", name="Delivery evidence")
     db_session.add(workspace)
     db_session.commit()
-    occurred_at = datetime.now(timezone.utc) - timedelta(days=1)
+    now = datetime.now(timezone.utc)
+    occurred_at = now - timedelta(days=1)
     ingest_provider_event(
         db_session,
         workspace=workspace,
@@ -83,7 +86,7 @@ def test_actual_non_delivery_event_outranks_aggregate_authentication_inference(d
         },
     )
 
-    result = _assessment(db_session, workspace)
+    result = _assessment(db_session, workspace, now=now)
 
     assert result["outcome"] == "action_required"
     assert result["domain"] == "example.test"
@@ -103,7 +106,8 @@ def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
         "recipient": "recipient@example.net",
         "message_id": "retry-message-1",
     }
-    occurred_at = datetime.now(timezone.utc) - timedelta(days=2)
+    now = datetime.now(timezone.utc)
+    occurred_at = now - timedelta(days=2)
     ingest_provider_event(
         db_session,
         workspace=workspace,
@@ -126,7 +130,7 @@ def test_newer_correlated_delivery_supersedes_an_earlier_bounce(db_session):
         },
     )
 
-    result = _assessment(db_session, workspace)
+    result = _assessment(db_session, workspace, now=now)
 
     assert result["outcome"] != "action_required"
     assert result["title"] != "A sending system reported non-delivery"
@@ -402,7 +406,7 @@ def test_operator_legitimate_sender_with_previous_passes_is_prioritized_as_regre
     domain = Domain(name="example.test", workspace=workspace)
     db_session.add_all([workspace, domain])
     db_session.flush()
-    now = datetime.now(timezone.utc)
+    now = ASSESSMENT_NOW
     prior = int((now - timedelta(days=40)).timestamp())
     current = int((now - timedelta(days=2)).timestamp())
     db_session.add_all(
