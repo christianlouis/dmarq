@@ -5,8 +5,10 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import tls_reports as tls_endpoint
+from app.middleware import auth as auth_middleware
 from app.models.domain import Domain
 from app.models.report import TLSReport, TLSReportFailure
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.tls_report_parser import TLSReportParser
 from app.services.tls_report_persistence import (
@@ -222,11 +224,16 @@ def test_validate_upload_rejects_missing_name_and_large_file():
         raise AssertionError("Expected large file to be rejected")
 
 
-def test_tls_report_html_page_renders():
+def test_tls_report_html_page_renders(db_session, monkeypatch):
     from app.core.logto import SESSION_COOKIE, create_session_token  # noqa: PLC0415
     from app.main import app as main_app  # noqa: PLC0415
 
-    cookies = {SESSION_COOKIE: create_session_token(user_id=1)}
+    user = User(email="tls-html@example.com", is_active=True)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    monkeypatch.setattr(auth_middleware, "SessionLocal", lambda: db_session)
+    cookies = {SESSION_COOKIE: create_session_token(user_id=user.id)}
     with TestClient(main_app) as client:
         response = client.get("/tls-reports", cookies=cookies)
 
