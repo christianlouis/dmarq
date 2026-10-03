@@ -15,6 +15,8 @@ from app.models.domain import Domain
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_posture_snapshots import capture_dns_posture_snapshot
 from app.services.dns_resolver import get_default_provider
+from app.services.report_persistence import hydrate_domain_report_store_from_db
+from app.services.report_store import ReportStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +34,22 @@ def _try_acquire_refresh_lock(db) -> bool:
     )
 
 
-def _selectors(domain: Domain) -> list[str]:
-    return [item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()]
+def _selectors(db, domain: Domain) -> list[str]:
+    """Return manual and persisted report-observed selectors for one domain."""
+    manual = [item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()]
+    store = ReportStore()
+    hydrate_domain_report_store_from_db(
+        db,
+        store,
+        domain.name,
+        workspace_id=domain.workspace_id,
+    )
+    observed = [
+        str(item["selector"])
+        for item in store.get_domain_selector_evidence(domain.name)
+        if item.get("selector")
+    ]
+    return list(dict.fromkeys(manual + observed))
 
 
 def _candidates(limit: int) -> List[Tuple[int, str]]:
@@ -73,7 +89,7 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         if current is not None and current.requested_at is None and current.accepted_snapshot_id:
             return False
         provider = get_default_provider(db)
-        selectors = _selectors(domain)
+        selectors = _selectors(db, domain)
         result, cached, checked_at = await resolve_domain_dns_cached(
             db,
             provider,
