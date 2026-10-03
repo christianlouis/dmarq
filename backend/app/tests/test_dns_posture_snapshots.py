@@ -1,17 +1,22 @@
 import asyncio
+import json
 from datetime import datetime
 
 import pytest
 
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
+from app.models.workspace import Workspace
 from app.services import dns_posture_refresh
 from app.services.dns_posture_snapshots import (
     accepted_dns_posture_result,
     capture_dns_posture_snapshot,
     request_dns_posture_refresh,
+    selector_fingerprint,
 )
 from app.services.dns_resolver import DomainDNSResult
+from app.services.report_persistence import save_parsed_report
+from app.services.report_store import ReportStore
 
 
 def _result(*, dmarc=True, status="ok"):
@@ -24,6 +29,29 @@ def _result(*, dmarc=True, status="ok"):
         resolver_route="configured_recursive",
         resolver_identity="127.0.0.1",
     )
+
+
+def _report(domain, report_id, *, selector, dkim_domain=None, end_timestamp=None):
+    return {
+        "domain": domain,
+        "report_id": report_id,
+        "org_name": "reporter.example",
+        "begin_timestamp": end_timestamp or 1_700_000_000,
+        "end_timestamp": end_timestamp or 1_700_003_600,
+        "policy": {"p": "reject"},
+        "records": [
+            {
+                "source_ip": "192.0.2.1",
+                "count": 1,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "dkim": [{"domain": dkim_domain or domain, "selector": selector, "result": "pass"}],
+                "spf": [],
+                "header_from": domain,
+            }
+        ],
+    }
 
 
 def test_failed_lookup_preserves_last_known_good_dns_posture(db_session):
@@ -220,6 +248,107 @@ async def test_refresh_domain_materializes_requested_dns_evidence(db_session, mo
     current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
     assert current.accepted_snapshot_id is not None
     assert current.requested_at is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_domain_uses_persisted_report_selector_and_scopes_evidence(
+    db_session, monkeypatch
+):
+    workspace = Workspace(slug="selector-refresh", name="Selector Refresh")
+    other_workspace = Workspace(slug="other-selector-refresh", name="Other Selector Refresh")
+    domain = Domain(name="worker-report.example", workspace=workspace, active=True)
+    other_domain = Domain(name="other-report.example", workspace=other_workspace, active=True)
+    db_session.add_all([workspace, other_workspace, domain, other_domain])
+    db_session.flush()
+    save_parsed_report(
+        db_session,
+        _report(domain.name, "target-report", selector="20i"),
+        workspace_id=workspace.id,
+    )
+    save_parsed_report(
+        db_session,
+        _report(other_domain.name, "other-report", selector="wrong-workspace"),
+        workspace_id=other_workspace.id,
+    )
+    db_session.commit()
+    singleton = ReportStore.get_instance()
+    singleton.add_report(_report(domain.name, "singleton-report", selector="singleton-only"))
+    seen = {}
+
+    async def resolve(*_args, **kwargs):
+        seen["selectors"] = kwargs["selectors"]
+        result = _result()
+        result.dkim = True
+        result.dkim_selectors = ["20i"]
+        result.selectors_checked = list(kwargs["selectors"])
+        return result, False, datetime.utcnow()
+
+    monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
+    monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", resolve)
+
+    assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is True
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
+    snapshot = db_session.get(DomainDNSPostureSnapshot, current.accepted_snapshot_id)
+    result, _checked_at, _provenance = accepted_dns_posture_result(
+        db_session, domain_name=domain.name
+    )
+    assert seen["selectors"] == ["20i"]
+    assert snapshot.accepted is True
+    assert current.selector_hash == selector_fingerprint(["20i"])
+    assert snapshot.selector_hash == selector_fingerprint(["20i"])
+    assert json.loads(snapshot.result_json)["dkim_selectors"] == ["20i"]
+    assert result is not None and result.dkim is True
+    assert [item["selector"] for item in singleton.get_domain_selector_evidence(domain.name)] == [
+        "singleton-only"
+    ]
+
+
+def test_selectors_merge_manual_and_report_evidence_without_unaligned_or_other_workspace_rows(
+    db_session,
+):
+    workspace = Workspace(slug="selector-merge", name="Selector Merge")
+    other_workspace = Workspace(slug="selector-merge-other", name="Selector Merge Other")
+    domain = Domain(
+        name="merge-report.example",
+        workspace=workspace,
+        dkim_selectors="manual,20i",
+        active=True,
+    )
+    other_domain = Domain(name="unrelated.example", workspace=other_workspace, active=True)
+    db_session.add_all([workspace, other_workspace, domain, other_domain])
+    db_session.flush()
+    save_parsed_report(
+        db_session,
+        _report(domain.name, "merge-target", selector="20i"),
+        workspace_id=workspace.id,
+    )
+    save_parsed_report(
+        db_session,
+        _report(
+            domain.name,
+            "unaligned-target",
+            selector="unaligned",
+            dkim_domain="other.example",
+        ),
+        workspace_id=workspace.id,
+    )
+    save_parsed_report(
+        db_session,
+        _report(other_domain.name, "other-workspace", selector="leak"),
+        workspace_id=other_workspace.id,
+    )
+    db_session.commit()
+
+    assert dns_posture_refresh._selectors(db_session, domain) == ["manual", "20i"]
+
+
+def test_selectors_fall_back_to_manual_configuration_without_reports(db_session):
+    domain = Domain(name="manual-only.example", dkim_selectors="manual,", active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    assert dns_posture_refresh._selectors(db_session, domain) == ["manual"]
 
 
 @pytest.mark.asyncio
