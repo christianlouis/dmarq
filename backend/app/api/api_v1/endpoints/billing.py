@@ -26,6 +26,22 @@ from app.services.workspace_access import (
 )
 
 router = APIRouter()
+MAX_STRIPE_WEBHOOK_BYTES = 1 * 1024 * 1024
+
+
+async def _read_limited_body(request: Request) -> bytes:
+    """Read Stripe's unauthenticated body with a hard memory bound."""
+    chunks = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_STRIPE_WEBHOOK_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Stripe webhook payload is too large.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class BillingStripeConfigResponse(BaseModel):
@@ -145,7 +161,10 @@ async def receive_stripe_webhook(
     db: Session = Depends(get_db),
 ) -> StripeWebhookResponse:
     """Receive and apply a verified Stripe Billing webhook."""
-    body = await request.body()
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_STRIPE_WEBHOOK_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Stripe webhook payload is too large.")
+    body = await _read_limited_body(request)
     try:
         verify_stripe_signature(body, stripe_signature)
     except StripeNotConfiguredError as exc:

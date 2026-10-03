@@ -675,12 +675,14 @@ class TestExternalAuthProviders:
                     user_id=user.id,
                     role="analyst",
                     active=False,
+                    external_role_managed=True,
                 ),
                 OrganizationMembership(
                     organization_id=organization.id,
                     user_id=user.id,
                     role="auditor",
                     active=False,
+                    external_role_managed=True,
                 ),
             ]
         )
@@ -729,13 +731,18 @@ class TestExternalAuthProviders:
         db_session.add_all(
             [
                 WorkspaceMembership(
-                    workspace_id=primary.id, user_id=user.id, role="workspace_owner"
+                    workspace_id=primary.id, user_id=user.id, role="workspace_owner",
+                    external_role_managed=True,
                 ),
-                WorkspaceMembership(workspace_id=secondary.id, user_id=user.id, role="analyst"),
+                WorkspaceMembership(
+                    workspace_id=secondary.id, user_id=user.id, role="analyst",
+                    external_role_managed=True,
+                ),
                 OrganizationMembership(
                     organization_id=organization.id,
                     user_id=user.id,
                     role="organization_owner",
+                    external_role_managed=True,
                 ),
             ]
         )
@@ -761,6 +768,65 @@ class TestExternalAuthProviders:
         )
         assert not db_session.query(OrganizationMembership).one().active
 
+    def test_direct_role_claims_are_authoritative_for_revocation(self, db_session):
+        organization = Organization(slug="direct-claims", name="Direct Claims")
+        primary = Workspace(slug="primary-direct", name="Primary", organization=organization)
+        secondary = Workspace(slug="secondary-direct", name="Secondary", organization=organization)
+        user = User(logto_id="oidc:direct-user", email="direct@example.com", is_active=True)
+        db_session.add_all([organization, primary, secondary, user])
+        db_session.flush()
+        db_session.add_all(
+            [
+                WorkspaceMembership(
+                    workspace_id=primary.id, user_id=user.id, role="workspace_owner",
+                    external_role_managed=True,
+                ),
+                WorkspaceMembership(
+                    workspace_id=secondary.id, user_id=user.id, role="analyst",
+                    external_role_managed=True,
+                ),
+                OrganizationMembership(
+                    organization_id=organization.id, user_id=user.id, role="organization_owner",
+                    external_role_managed=True,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        claims = normalize_external_claims(
+            "oidc",
+            {
+                "sub": "direct-user",
+                "email": "direct@example.com",
+                "dmarq_workspace_roles": {
+                    "primary-direct": "workspace_owner",
+                    "secondary-direct": "analyst",
+                },
+                "dmarq_organization_roles": {"direct-claims": "organization_owner"},
+            },
+            allowed_domains="example.com",
+        )
+        assert claims.roles_authoritative is True
+        sync_external_user(claims, db_session)
+
+        assert db_session.query(WorkspaceMembership).filter_by(workspace_id=primary.id).one().active
+        assert db_session.query(WorkspaceMembership).filter_by(workspace_id=secondary.id).one().active
+        assert db_session.query(OrganizationMembership).one().active
+
+        # The IdP can remove role claims entirely. The persisted authoritative
+        # mode must still treat that login as a complete empty snapshot.
+        omitted_claims = normalize_external_claims(
+            "oidc",
+            {"sub": "direct-user", "email": "direct@example.com"},
+            allowed_domains="example.com",
+        )
+        assert omitted_claims.roles_authoritative is False
+        sync_external_user(omitted_claims, db_session)
+
+        assert not db_session.query(WorkspaceMembership).filter_by(workspace_id=primary.id).one().active
+        assert not db_session.query(WorkspaceMembership).filter_by(workspace_id=secondary.id).one().active
+        assert not db_session.query(OrganizationMembership).one().active
+
     def test_sync_external_user_ignores_unknown_claim_targets(self, db_session):
         user = sync_external_user(
             ExternalIdentityClaims(
@@ -776,6 +842,78 @@ class TestExternalAuthProviders:
         assert user.is_superuser is False
         assert db_session.query(WorkspaceMembership).count() == 0
         assert db_session.query(OrganizationMembership).count() == 0
+
+    def test_manual_memberships_survive_external_snapshot_and_omission(self, db_session):
+        organization = Organization(slug="manual-safe", name="Manual Safe")
+        primary = Workspace(slug="external", name="External", organization=organization)
+        manual = Workspace(slug="manual", name="Manual", organization=organization)
+        user = User(logto_id="oidc:manual-safe", email="manual@example.com", is_active=True)
+        db_session.add_all([organization, primary, manual, user])
+        db_session.flush()
+        db_session.add_all([
+            WorkspaceMembership(
+                workspace_id=primary.id, user_id=user.id, role="workspace_owner",
+                external_role_managed=True,
+            ),
+            WorkspaceMembership(
+                workspace_id=manual.id, user_id=user.id, role="analyst",
+                external_role_managed=False,
+            ),
+        ])
+        db_session.commit()
+
+        sync_external_user(
+            ExternalIdentityClaims(
+                provider="oidc", subject="manual-safe", email="manual@example.com",
+                workspace_roles=(("external", "workspace_owner"),),
+                roles_authoritative=True,
+            ),
+            db_session,
+        )
+        sync_external_user(
+            ExternalIdentityClaims(
+                provider="oidc", subject="manual-safe", email="manual@example.com",
+            ),
+            db_session,
+        )
+        assert not db_session.query(WorkspaceMembership).filter_by(workspace_id=primary.id).one().active
+        assert db_session.query(WorkspaceMembership).filter_by(workspace_id=manual.id).one().active
+
+    def test_idp_claim_cannot_overwrite_manual_same_target_memberships(self, db_session):
+        organization = Organization(slug="manual-target", name="Manual Target")
+        workspace = Workspace(slug="manual-target", name="Manual Target", organization=organization)
+        user = User(logto_id="oidc:manual-target", email="target@example.com", is_active=True)
+        db_session.add_all([organization, workspace, user])
+        db_session.flush()
+        db_session.add_all([
+            WorkspaceMembership(
+                workspace_id=workspace.id, user_id=user.id, role="analyst", active=True,
+                external_role_managed=False,
+            ),
+            OrganizationMembership(
+                organization_id=organization.id, user_id=user.id, role="auditor", active=False,
+                external_role_managed=False,
+            ),
+        ])
+        db_session.commit()
+
+        sync_external_user(
+            ExternalIdentityClaims(
+                provider="oidc", subject="manual-target", email="target@example.com",
+                workspace_roles=(("manual-target", "workspace_owner"),),
+                organization_roles=(("manual-target", "organization_owner"),),
+                roles_authoritative=True,
+            ),
+            db_session,
+        )
+        workspace_row = db_session.query(WorkspaceMembership).one()
+        organization_row = db_session.query(OrganizationMembership).one()
+        assert (workspace_row.role, workspace_row.active, workspace_row.external_role_managed) == (
+            "analyst", True, False
+        )
+        assert (organization_row.role, organization_row.active, organization_row.external_role_managed) == (
+            "auditor", False, False
+        )
 
     def test_trusted_proxy_auth_context_uses_authentik_headers(self):
         settings = Settings(

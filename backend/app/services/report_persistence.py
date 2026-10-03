@@ -375,6 +375,7 @@ def hydrate_domain_report_store_from_db(
     *,
     workspace_id: Optional[int] = None,
     days: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> int:
     """Load persisted reports for one domain into a fresh ReportStore.
 
@@ -402,7 +403,10 @@ def hydrate_domain_report_store_from_db(
         # database filter.
         cutoff = int(time.time()) - (max(1, int(days)) * 24 * 60 * 60)
         query = query.filter(DMARCReport.end_date >= cutoff)
-    reports = query.order_by(DMARCReport.end_date.desc()).all()
+    query = query.order_by(DMARCReport.end_date.desc())
+    if limit is not None:
+        query = query.limit(max(1, int(limit)))
+    reports = query.all()
     for report in reports:
         store.add_report(persisted_report_to_dict(report))
     return len(reports)

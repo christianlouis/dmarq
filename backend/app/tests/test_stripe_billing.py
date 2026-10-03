@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
+
+from app.api.api_v1.endpoints import billing
 
 from app.models.organization import (
     BillingAccount,
@@ -314,6 +317,18 @@ def test_stripe_webhook_rejects_invalid_signature(authed_client: TestClient, mon
     )
 
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_stripe_webhook_chunked_body_is_bounded_without_content_length():
+    class ChunkedRequest:
+        async def stream(self):
+            yield b"x" * billing.MAX_STRIPE_WEBHOOK_BYTES
+            yield b"overflow"
+
+    with pytest.raises(HTTPException) as exc:
+        await billing._read_limited_body(ChunkedRequest())
+    assert exc.value.status_code == 413
 
 
 def test_stripe_webhook_requires_configured_secret(authed_client: TestClient, monkeypatch):

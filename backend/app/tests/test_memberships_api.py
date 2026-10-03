@@ -249,7 +249,31 @@ def test_workspace_membership_api_validates_payload_and_invite_identity_conflict
                 "logto_id": "logto-conflict",
             },
         )
-        assert conflict.status_code == 409
+        assert conflict.status_code == 422
+
+        takeover = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "conflict-email@example.com",
+                "role": ROLE_ANALYST,
+                "logto_id": "attacker-controlled-subject",
+            },
+        )
+        assert takeover.status_code == 422
+        assert db_session.query(User).filter(User.id == email_user.id).one().logto_id is None
+
+        existing_subject = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "new-attacker-email@example.com",
+                "role": ROLE_ANALYST,
+                "logto_id": "logto-conflict",
+            },
+        )
+        assert existing_subject.status_code == 422
+        assert db_session.query(User).filter(User.id == logto_user.id).one().email == (
+            "conflict-logto@example.com"
+        )
 
         linked = owner_client.post(
             f"/api/v1/memberships/workspaces/{workspace.id}/invites",
@@ -259,9 +283,7 @@ def test_workspace_membership_api_validates_payload_and_invite_identity_conflict
                 "logto_id": "logto-conflict",
             },
         )
-        assert linked.status_code == 200
-        assert linked.json()["user"]["id"] == logto_user.id
-        assert linked.json()["user"]["email"] == "legacy-logto@example.com"
+        assert linked.status_code == 422
 
 
 def test_workspace_membership_invite_requires_sso_entitlement_for_logto_identity(
@@ -451,11 +473,10 @@ def test_organization_membership_api_audits_and_deactivates(
             json={
                 "email": "Org.Member@Example.com",
                 "role": "organization_auditor",
-                "logto_id": "logto-org-member",
             },
         )
         assert invited.status_code == 200
-        assert invited.json()["user"]["logto_id"] == "logto-org-member"
+        assert invited.json()["user"]["logto_id"] is None
 
         updated = owner_client.put(
             f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}",
@@ -674,7 +695,6 @@ def test_organization_invite_existing_inactive_user_respects_seat_limit(
             json={
                 "email": "organization-inactive-seat-user@example.com",
                 "role": "organization_auditor",
-                "logto_id": "logto-inactive-seat",
                 "full_name": "Inactive Seat User",
             },
         )

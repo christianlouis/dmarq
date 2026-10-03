@@ -694,8 +694,15 @@ def normalize_external_claims(
             allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
         ),
     )
+    # Explicit role claims are a complete snapshot too. Treating them as
+    # additive leaves memberships active forever when an IdP removes a role.
     roles_authoritative = bool(
-        (group_workspace_role_map or "").strip() or (group_organization_role_map or "").strip()
+        (group_workspace_role_map or "").strip()
+        or (group_organization_role_map or "").strip()
+        or "dmarq_workspace_roles" in payload
+        or "workspace_roles" in payload
+        or "dmarq_organization_roles" in payload
+        or "organization_roles" in payload
     )
     if roles_authoritative and not (workspace_roles or organization_roles):
         logger.warning(
@@ -896,11 +903,19 @@ def _upsert_workspace_membership(
         .first()
     )
     if membership is None:
-        membership = WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role=role)
+        membership = WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=role,
+            external_role_managed=True,
+        )
         db.add(membership)
+    elif not membership.external_role_managed:
+        return membership
     else:
         membership.role = role
         membership.active = True
+        membership.external_role_managed = True
         membership.updated_at = datetime.utcnow()
     if user.workspace_id is None:
         user.workspace_id = workspace.id
@@ -941,24 +956,32 @@ def _upsert_organization_membership(
             organization_id=organization.id,
             user_id=user.id,
             role=role,
+            external_role_managed=True,
         )
         db.add(membership)
+    elif not membership.external_role_managed:
+        return membership
     else:
         membership.role = role
         membership.active = True
+        membership.external_role_managed = True
         membership.updated_at = datetime.utcnow()
     return membership
 
 
-def _sync_external_memberships(claims: ExternalIdentityClaims, user: User, db: Session) -> None:
-    if claims.roles_authoritative:
+def _sync_external_memberships(
+    claims: ExternalIdentityClaims, user: User, db: Session
+) -> None:
+    if claims.roles_authoritative or user.external_roles_authoritative:
         workspace_roles = set(claims.workspace_roles)
         for membership in (
             db.query(WorkspaceMembership)
             .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .filter(WorkspaceMembership.user_id == user.id)
         ):
-            if (membership.workspace.slug, membership.role) not in workspace_roles:
+            if membership.external_role_managed and (
+                membership.workspace.slug, membership.role
+            ) not in workspace_roles:
                 membership.active = False
                 membership.updated_at = datetime.utcnow()
 
@@ -968,7 +991,9 @@ def _sync_external_memberships(claims: ExternalIdentityClaims, user: User, db: S
             .join(Organization, Organization.id == OrganizationMembership.organization_id)
             .filter(OrganizationMembership.user_id == user.id)
         ):
-            if (membership.organization.slug, membership.role) not in organization_roles:
+            if membership.external_role_managed and (
+                membership.organization.slug, membership.role
+            ) not in organization_roles:
                 membership.active = False
                 membership.updated_at = datetime.utcnow()
 
@@ -1003,6 +1028,11 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
         db.add(user)
         db.flush()
         logger.info("Created user id=%d from external provider=%s", user.id, claims.provider)
+
+    # Role claims are a complete snapshot. Persist that fact so omission of a
+    # role claim on a subsequent login still revokes the old membership.
+    if claims.roles_authoritative:
+        user.external_roles_authoritative = True
 
     user.full_name = claims.name or user.full_name
     user.username = claims.username or user.username

@@ -459,6 +459,35 @@ class TestStatsSummarizerGlobal:
         assert new_sources[0]["source_ip"] == "203.0.113.21"
         assert new_sources[0]["message_count"] == 7
 
+    def test_new_source_is_filtered_before_candidate_limit(self, db_session, summarizer):
+        domain = _seed_new_source_records(db_session)
+        noisy_report = DMARCReport(
+            domain_id=domain.id,
+            report_id="example.com-known-current",
+            org_name="google.com",
+            begin_date=_timestamp_days_ago(1),
+            end_date=_timestamp_days_ago(1) + 3600,
+            policy="none",
+        )
+        db_session.add(noisy_report)
+        db_session.flush()
+        db_session.add(
+            ReportRecord(
+                report_id=noisy_report.id,
+                source_ip="203.0.113.20",
+                count=1000,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            )
+        )
+        db_session.commit()
+
+        changes = summarizer._get_change_summary(db_session, days=7, limit=1)
+        new_sources = [item for item in changes if item["type"] == "new_source"]
+        assert len(new_sources) == 1
+        assert new_sources[0]["source_ip"] == "203.0.113.21"
+
     def test_global_change_summary_detects_compliance_drop(self, db_session, summarizer):
         _seed_compliance_drop_records(db_session)
         db_session.commit()

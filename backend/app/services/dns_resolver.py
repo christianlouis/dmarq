@@ -504,7 +504,7 @@ class BaseDNSProvider(ABC):
         input order, preserving manual selector priority in the response.
         """
         selector_results = await asyncio.gather(
-            *(self._check_one_dkim_selector(domain, selector) for selector in selectors)
+            *(self._check_one_dkim_selector(domain, selector) for selector in selectors[:100])
         )
         matching_selectors = [
             selector for selector, record in selector_results if record is not None

@@ -216,6 +216,18 @@ def test_webhook_content_length_guard_allows_invalid_header():
     webhook._ensure_request_content_length(request)
 
 
+@pytest.mark.asyncio
+async def test_webhook_chunked_body_is_bounded_without_content_length():
+    class ChunkedRequest:
+        async def stream(self):
+            yield b"x" * webhook._max_webhook_email_bytes()
+            yield b"overflow"
+
+    with pytest.raises(HTTPException) as exc:
+        await webhook._read_limited_body(ChunkedRequest(), webhook._max_webhook_email_bytes())
+    assert exc.value.status_code == 413
+
+
 def test_webhook_rejects_oversized_raw_email(client: TestClient, monkeypatch):
     secret = _set_webhook_secret(monkeypatch)
     monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "1")

@@ -21,6 +21,7 @@ from app.services.report_store import ReportStore
 logger = logging.getLogger(__name__)
 
 _DNS_POSTURE_REFRESH_LOCK_KEY = 1_144_591_957
+MAX_DNS_POSTURE_SELECTORS = 100
 
 
 def _try_acquire_refresh_lock(db) -> bool:
@@ -43,13 +44,16 @@ def _selectors(db, domain: Domain) -> list[str]:
         store,
         domain.name,
         workspace_id=domain.workspace_id,
+        limit=500,
     )
     observed = [
         str(item["selector"])
         for item in store.get_domain_selector_evidence(domain.name)
         if item.get("selector")
     ]
-    return list(dict.fromkeys(manual + observed))
+    # Report selectors are attacker-controlled input. Keep refresh work bounded
+    # even when a tenant has accumulated a large historical report archive.
+    return list(dict.fromkeys(manual + observed))[:MAX_DNS_POSTURE_SELECTORS]
 
 
 def _candidates(limit: int) -> List[Tuple[int, str]]:

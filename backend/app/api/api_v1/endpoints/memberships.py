@@ -234,6 +234,10 @@ def _require_sso_identity_linking(
                 "can_export": True,
             },
         ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="Client-supplied Logto identities cannot be linked by invitation.",
+    )
 
 
 def _require_user_seat_capacity(
@@ -262,10 +266,10 @@ def _find_or_create_invited_user(
     logto_user = None
     if payload.logto_id:
         logto_user = db.query(User).filter(User.logto_id == payload.logto_id).first()
-    if logto_user is not None and email_user is not None and logto_user.id != email_user.id:
+    if payload.logto_id:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Invite email and logto_id belong to different users",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Client-supplied Logto identities cannot be linked by invitation.",
         )
     user = logto_user or email_user
     if user is None:
@@ -328,11 +332,13 @@ def _upsert_workspace_membership_row(
             user_id=user.id,
             role=role,
             active=active,
+            external_role_managed=False,
         )
         db.add(membership)
     else:
         membership.role = role
         membership.active = active
+        membership.external_role_managed = False
     try:
         db.flush()
     except IntegrityError as exc:  # pragma: no cover - database race fallback
@@ -395,11 +401,13 @@ def _upsert_organization_membership_row(
             user_id=user.id,
             role=role,
             active=active,
+            external_role_managed=False,
         )
         db.add(membership)
     else:
         membership.role = role
         membership.active = active
+        membership.external_role_managed = False
     try:
         db.flush()
     except IntegrityError as exc:  # pragma: no cover - database race fallback
