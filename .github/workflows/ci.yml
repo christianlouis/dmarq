@@ -556,7 +556,7 @@ jobs:
         run: |
           docker compose exec -T app sh -euxc '
             test "$(dpkg-query -W -f="\${Version}" libsqlite3-0)" = "3.54.0-0dmarq1"
-            python -c "import sqlite3; db = sqlite3.connect(\":memory:\"); assert sqlite3.sqlite_version_info >= (3, 54, 0), sqlite3.sqlite_version; assert any(row[0] == \"ENABLE_SESSION\" for row in db.execute(\"pragma compile_options\")); assert any(\"/usr/lib/\" in line and \"libsqlite3.so.0\" in line for line in open(\"/proc/self/maps\")), \"Python is not using the packaged SQLite runtime\"; print(sqlite3.sqlite_version)"
+            python -c "import sqlite3; db = sqlite3.connect(\":memory:\"); assert sqlite3.sqlite_version_info >= (3, 54, 0), sqlite3.sqlite_version; assert any(row[0] == \"ENABLE_SESSION\" for row in db.execute(\"pragma compile_options\")); assert any((\"/lib/\" in line or \"/usr/lib/\" in line) and \"libsqlite3.so.0\" in line for line in open(\"/proc/self/maps\")), \"Python is not using the packaged SQLite runtime\"; print(sqlite3.sqlite_version)"
           '
 
       - name: Show logs on failure
