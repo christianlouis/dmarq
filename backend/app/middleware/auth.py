@@ -16,7 +16,8 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.types import ASGIApp
 
-from app.core.logto import SESSION_COOKIE, decode_session_token
+from app.core.database import SessionLocal
+from app.core.logto import SESSION_COOKIE, active_session_user_id
 
 # Paths that are always publicly accessible
 _PUBLIC_PATHS: frozenset[str] = frozenset(
@@ -97,8 +98,13 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
 
         # ── 3. Valid session cookie ───────────────────────────────────────────
         token = request.cookies.get(SESSION_COOKIE)
-        if token and decode_session_token(token) is not None:
-            return await call_next(request)
+        if token:
+            db = SessionLocal()
+            try:
+                if active_session_user_id(token, db) is not None:
+                    return await call_next(request)
+            finally:
+                db.close()
 
         # ── 4. Browser auth not configured ───────────────────────────────────
         if not getattr(cfg, "auth_configured", False):

@@ -256,6 +256,15 @@ def decode_session_token(token: str) -> Optional[int]:
         return None
 
 
+def active_session_user_id(token: str, db: Session) -> Optional[int]:
+    """Return a session's user id only while its local account remains active."""
+    user_id = decode_session_token(token)
+    if user_id is None:
+        return None
+    user = db.query(User.id).filter(User.id == user_id, User.is_active.is_(True)).first()
+    return user_id if user is not None else None
+
+
 # ── Local user sync ───────────────────────────────────────────────────────────
 
 

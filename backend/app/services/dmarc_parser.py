@@ -220,6 +220,8 @@ class DMARCParser:
         if len(element):
             return DMARCParser._collect_extension_values(element, budget=budget)
         value = (element.text or "").strip()
+        if len(value.encode("utf-8")) > MAX_EXTENSION_VALUE_LENGTH:
+            raise ValueError("DMARC report extension value is too large")
         if budget is not None:
             budget[0] += 1
             budget[1] += len(value.encode("utf-8"))

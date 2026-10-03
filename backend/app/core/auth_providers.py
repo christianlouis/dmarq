@@ -61,6 +61,7 @@ class ExternalIdentityClaims:
     workspace_roles: tuple[tuple[str, str], ...] = ()
     organization_roles: tuple[tuple[str, str], ...] = ()
     roles_authoritative: bool = False
+    roles_authorized: bool = True
     mfa_verified: bool = False
     mfa_claims: tuple[str, ...] = ()
 
@@ -704,14 +705,13 @@ def normalize_external_claims(
         or "dmarq_organization_roles" in payload
         or "organization_roles" in payload
     )
-    if roles_authoritative and not (workspace_roles or organization_roles):
-        logger.warning(
-            "Rejecting external login because configured group mappings granted no roles"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authenticated identity is not assigned an authorized DMARQ role.",
-        )
+    # An authoritative role source is an allow-list, including an explicitly
+    # empty claim.  A user whose IdP role snapshot resolves to no DMARQ role
+    # must not retain a previously-issued app session or fallback superuser
+    # access.
+    roles_authorized = not roles_authoritative or bool(workspace_roles or organization_roles)
+    if not roles_authorized:
+        logger.warning("External login supplied groups without an authorized role")
     mfa_verified, mfa_claims = enforce_mfa_claims(payload, cfg)
     return ExternalIdentityClaims(
         provider=provider,
@@ -725,6 +725,7 @@ def normalize_external_claims(
         workspace_roles=workspace_roles,
         organization_roles=organization_roles,
         roles_authoritative=roles_authoritative,
+        roles_authorized=roles_authorized,
         mfa_verified=mfa_verified,
         mfa_claims=mfa_claims,
     )
@@ -971,7 +972,8 @@ def _upsert_organization_membership(
 
 def _sync_external_memberships(
     claims: ExternalIdentityClaims, user: User, db: Session
-) -> None:
+) -> bool:
+    """Sync roles and report whether the IdP resolved an active external grant."""
     if claims.roles_authoritative or user.external_roles_authoritative:
         workspace_roles = set(claims.workspace_roles)
         for membership in (
@@ -997,15 +999,26 @@ def _sync_external_memberships(
                 membership.active = False
                 membership.updated_at = datetime.utcnow()
 
+    resolved_external_role = False
     for workspace_slug, role in claims.workspace_roles:
-        _upsert_workspace_membership(db, user=user, workspace_slug=workspace_slug, role=role)
+        membership = _upsert_workspace_membership(
+            db,
+            user=user,
+            workspace_slug=workspace_slug,
+            role=role,
+        )
+        if membership is not None and membership.external_role_managed and membership.active:
+            resolved_external_role = True
     for organization_slug, role in claims.organization_roles:
-        _upsert_organization_membership(
+        membership = _upsert_organization_membership(
             db,
             user=user,
             organization_slug=organization_slug,
             role=role,
         )
+        if membership is not None and membership.external_role_managed and membership.active:
+            resolved_external_role = True
+    return resolved_external_role
 
 
 def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
@@ -1022,7 +1035,9 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
             logto_id=identity_id,
             email=claims.email,
             is_active=True,
-            is_superuser=not bool(claims.workspace_roles or claims.organization_roles),
+            is_superuser=not claims.roles_authoritative and not bool(
+                claims.workspace_roles or claims.organization_roles
+            ),
             is_verified=claims.email_verified,
         )
         db.add(user)
@@ -1031,16 +1046,19 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
 
     # Role claims are a complete snapshot. Persist that fact so omission of a
     # role claim on a subsequent login still revokes the old membership.
+    authoritative_roles = claims.roles_authoritative or user.external_roles_authoritative
     if claims.roles_authoritative:
         user.external_roles_authoritative = True
 
     user.full_name = claims.name or user.full_name
     user.username = claims.username or user.username
     user.picture = claims.picture or user.picture
-    if claims.workspace_roles or claims.organization_roles:
+    if authoritative_roles or claims.workspace_roles or claims.organization_roles:
         user.is_superuser = False
     user.updated_at = datetime.utcnow()
-    _sync_external_memberships(claims, user, db)
+    resolved_external_role = _sync_external_memberships(claims, user, db)
+    if authoritative_roles:
+        user.is_active = resolved_external_role
     db.commit()
     db.refresh(user)
     return user

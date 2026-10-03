@@ -362,6 +362,7 @@ def test_selectors_bound_manual_report_input_before_dns_refresh(db_session):
     assert selected[0] == "attacker-0"
     assert selected[-1] == "attacker-99"
 
+
 @pytest.mark.asyncio
 async def test_refresh_domain_keeps_worker_alive_when_resolution_fails(db_session, monkeypatch):
     domain = Domain(name="worker-failure.example", active=True)

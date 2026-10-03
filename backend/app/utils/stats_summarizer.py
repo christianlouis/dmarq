@@ -845,7 +845,6 @@ class StatsSummarizer:
         )
 
         for row in current_sources:
-            source_key = (row.domain, row.source_ip)
             changes.append(
                 {
                     "type": "new_source",

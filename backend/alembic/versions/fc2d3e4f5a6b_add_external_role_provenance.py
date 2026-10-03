@@ -32,6 +32,11 @@ def upgrade() -> None:
                 server_default=sa.false(),
             ),
         )
+        op.create_index(
+            f"ix_{table}_external_role_managed",
+            table,
+            ["external_role_managed"],
+        )
     connection = op.get_bind()
     # Legacy OIDC/Authentik rows came from additive sync and have ambiguous
     # provenance. Deactivate them once; Logto/SCIM and manual grants remain.
@@ -51,6 +56,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_organization_memberships_external_role_managed",
+        table_name="organization_memberships",
+    )
+    op.drop_index(
+        "ix_workspace_memberships_external_role_managed",
+        table_name="workspace_memberships",
+    )
     op.drop_column("organization_memberships", "external_role_managed")
     op.drop_column("workspace_memberships", "external_role_managed")
     op.drop_column("users", "external_roles_authoritative")
