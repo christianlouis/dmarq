@@ -127,10 +127,10 @@ class TestMakeSyncDbUrl:
         url = "postgresql+asyncpg://user:pass@db:5432/mydb"
         assert _make_sync_db_url(url) == "postgresql+psycopg2://user:pass@db:5432/mydb"
 
-    def test_plain_postgresql_unchanged(self):
-        """Plain postgresql:// URLs are not modified."""
+    def test_plain_postgresql_uses_psycopg2(self):
+        """Plain postgresql:// URLs explicitly use the installed sync driver."""
         url = "postgresql://user:pass@db:5432/mydb"
-        assert _make_sync_db_url(url) == url
+        assert _make_sync_db_url(url) == url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
     def test_psycopg2_url_unchanged(self):
         """URLs already using psycopg2 are not modified."""

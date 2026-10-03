@@ -9,7 +9,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
 
-_ASYNC_TO_SYNC_SCHEMES = {
+_SYNC_SCHEMES = {
+    "postgresql": "postgresql+psycopg2",
     "postgresql+asyncpg": "postgresql+psycopg2",
 }
 
@@ -18,15 +19,16 @@ def _make_sync_db_url(url: str) -> str:
     """Return the synchronous-driver equivalent of *url*.
 
     Kubernetes and docker-compose deployments sometimes configure DATABASE_URL
-    with an async driver scheme (e.g. ``postgresql+asyncpg://``).  Alembic and
-    the synchronous SQLAlchemy engine used here require a sync driver, so we
-    map known async schemes to their psycopg2 equivalents.
+    with an async driver scheme (e.g. ``postgresql+asyncpg://``).  Bare
+    ``postgresql://`` URLs also need an explicit driver because newer SQLAlchemy
+    versions default them to psycopg.  Alembic and the synchronous engine use
+    psycopg2, so PostgreSQL URLs are normalized to that driver.
 
     Only the scheme component of the URL is rewritten; all other parts
     (credentials, host, path, query) are left untouched.
     """
     parsed = urlparse(url)
-    sync_scheme = _ASYNC_TO_SYNC_SCHEMES.get(parsed.scheme)
+    sync_scheme = _SYNC_SCHEMES.get(parsed.scheme)
     if sync_scheme is None:
         return url
     return urlunparse(parsed._replace(scheme=sync_scheme))
