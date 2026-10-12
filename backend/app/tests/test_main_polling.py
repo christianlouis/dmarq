@@ -34,6 +34,36 @@ async def test_cancel_background_task_ignores_completed_task():
 
 
 class TestNextSleepSeconds:
+    @pytest.mark.parametrize("min_sleep, expected", [(60, 3600), (7200, 7200)])
+    def test_empty_sources_default_to_one_hour(self, min_sleep, expected):
+        from app.main import _next_sleep_seconds
+
+        with patch("app.main.SessionLocal") as mock_session:
+            result = _next_sleep_seconds(min_sleep=min_sleep, enabled_sources=[])
+
+        assert result == expected
+        mock_session.assert_not_called()
+
+    def test_empty_database_defaults_to_one_hour(self):
+        from app.main import _next_sleep_seconds
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = []
+
+        with patch("app.main.SessionLocal", return_value=mock_db):
+            result = _next_sleep_seconds()
+
+        assert result == 3600
+        mock_db.close.assert_called_once()
+
+    @pytest.mark.parametrize("interval", [None, 0, 60])
+    def test_source_default_interval_is_one_hour(self, interval):
+        from app.main import _next_sleep_seconds
+
+        source = SimpleNamespace(polling_interval=interval)
+
+        assert _next_sleep_seconds(enabled_sources=[source]) == 3600
+
     def test_uses_shortest_enabled_source_interval_without_db_query(self):
         from app.main import _next_sleep_seconds
 
@@ -263,6 +293,23 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
     calm_watch.assert_called_once_with()
     summaries.assert_called_once_with()
     webhooks.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_polling_without_sources_sleeps_for_one_hour():
+    from app.main import scheduled_imap_polling
+
+    with (
+        patch("app.main._run_mailbox_scheduler_cycle", return_value=[]) as cycle,
+        patch("app.main.asyncio.sleep", side_effect=asyncio.CancelledError()) as sleep,
+        patch("app.main.mark_scheduler_cycle_started"),
+        patch("app.main.mark_scheduler_success"),
+        patch("app.main.mark_scheduler_stopped"),
+    ):
+        await scheduled_imap_polling()
+
+    cycle.assert_called_once_with()
+    sleep.assert_awaited_once_with(3600)
 
 
 @pytest.mark.asyncio
