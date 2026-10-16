@@ -262,7 +262,7 @@ and import history are stored per source.
 | `IMAP_USERNAME` | IMAP username | - | `dmarc@example.com` |
 | `IMAP_PASSWORD` | IMAP password | - | `app_password_here` |
 | `IMAP_FOLDER` | IMAP folder to check | `INBOX` | `DMARC`, `reports` |
-| `DELETE_IMPORTED_EMAILS` | Delete IMAP emails after a DMARC report is successfully imported | `false` | `true`, `false` |
+| `DELETE_IMPORTED_EMAILS` | Delete handled IMAP report emails, including aggregate duplicates; applies to environment credentials and Mail Sources | `false` | `true`, `false` |
 
 ### Application Settings
 
