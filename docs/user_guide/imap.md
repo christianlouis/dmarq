@@ -60,6 +60,24 @@ Sources page refreshes its progress until it completes or needs attention.
 
 ## Scheduled Polling
 
+### Delete Imported Messages
+
+Set `DELETE_IMPORTED_EMAILS=true` in the application environment and restart the
+application to enable IMAP cleanup. This global setting applies both to IMAP
+credentials supplied through environment variables and to IMAP entries created
+under **Mail Sources**, including manual fetches, scheduled polls, and backfills.
+It defaults to `false` and does not enable deletion for Gmail API or Microsoft
+Graph sources.
+
+Aggregate-report messages are deleted after their reports are persisted, or on
+a later poll when the reports are confirmed as duplicates in the same workspace.
+Messages with failed or skipped attachments are retained. Ordinary messages and
+messages without a successfully handled report are also retained. Cleanup only
+considers messages within the selected fetch window; use **Backfill** for older
+mail. Confirm the import-history results before widening that window.
+
+### Polling Schedule
+
 Enabled sources are checked by the application scheduler according to their
 polling interval. A successful connection test alone does not prove scheduled
 polling. Leave the instance running through at least one interval and confirm a

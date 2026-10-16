@@ -23,8 +23,8 @@ from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.dmarc_parser import DMARCParser
-from app.services.imap_client import IMAPClient
 from app.services.dsn_parser import MAX_DSN_BYTES
+from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 from app.tests.test_delivery_events import _dsn_bytes
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -752,7 +752,8 @@ class TestProcessAttachments:
         count = client._process_attachments(msg, stats)
 
         assert count == 0
-        assert stats.get("details") is None
+        assert stats["skipped_attachments"] == 1
+        assert stats["details"] == [{"status": "skipped", "reason": "missing_attachment_filename"}]
 
     def test_no_attachments_returns_zero(self):
         client = self._make_client()

@@ -254,9 +254,7 @@ class IMAPClient:
                 return
 
             raw_email = msg_data[0][1]
-            if self._skip_oversized_message(
-                mail, email_id, message_id, raw_email, stats
-            ):
+            if self._skip_oversized_message(mail, email_id, message_id, raw_email, stats):
                 return
             msg = email.message_from_bytes(raw_email)
 
@@ -295,13 +293,35 @@ class IMAPClient:
                 return
 
             if self._is_dmarc_report_email(msg):
+                duplicates_before = stats.get("duplicate_reports", 0)
+                errors_before = len(stats.get("errors", []))
+                skipped_before = stats.get("skipped_attachments", 0)
                 reports_found = self._process_attachments(msg, stats, message_id=message_id)
                 stats["reports_found"] += reports_found
 
-                # Mark DMARC-looking email as read, and delete only after a successful import.
+                # A second poll may contain only reports already stored in this workspace.
+                # Preserve mixed messages if any attachment could not be imported.
                 mail.store(email_id, "+FLAGS", "\\Seen")
-                if self.delete_emails and reports_found > 0:
-                    mail.store(email_id, "+FLAGS", "\\Deleted")
+                duplicates = stats.get("duplicate_reports", 0) - duplicates_before
+                handled = reports_found + duplicates
+                if (
+                    self.delete_emails
+                    and handled > 0
+                    and (duplicates == 0 or self.db is not None)
+                    and len(stats.get("errors", [])) == errors_before
+                    and stats.get("skipped_attachments", 0) == skipped_before
+                ):
+                    # Persist before setting a destructive mailbox flag. A failed commit
+                    # must leave the original message available for a later retry.
+                    if self.db is not None:
+                        try:
+                            self.db.commit()
+                        except Exception:
+                            self.db.rollback()
+                            raise
+                    status, _ = mail.store(email_id, "+FLAGS", "\\Deleted")
+                    if status != "OK":
+                        raise IMAPError("Mailbox rejected the delete flag")
                     stats["deleted"] = stats.get("deleted", 0) + 1
 
                 stats["processed"] += 1
@@ -319,7 +339,7 @@ class IMAPClient:
                 reason="message_processing_failed",
                 message_id=message_id,
                 error="Message processing failed. Check server logs for details.",
-                )
+            )
 
     @staticmethod
     def _skip_oversized_message(mail, email_id, message_id, raw_email, stats) -> bool:
@@ -548,13 +568,18 @@ class IMAPClient:
     ) -> bool:
         domain = report.get("domain", "unknown")
         report_id = report.get("report_id", "")
-        if report_id and (
-            self.report_store.has_report(domain, report_id)
-            or (
-                self.db is not None
-                and report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
+        # The process cache is shared across workspaces and may survive a rollback.
+        # Only the workspace-scoped database can prove a persisted duplicate.
+        exists = (
+            (
+                report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
+                if self.db is not None
+                else self.report_store.has_report(domain, report_id)
             )
-        ):
+            if report_id
+            else False
+        )
+        if exists:
             logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
             if stats is not None:
                 stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
@@ -745,6 +770,14 @@ class IMAPClient:
 
             filename = part.get_filename()
             if not filename:
+                if stats is not None:
+                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="missing_attachment_filename",
+                    message_id=message_id,
+                )
                 continue
 
             filename = self._decode_email_header(filename)
