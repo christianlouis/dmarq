@@ -302,10 +302,12 @@ class IMAPClient:
                 # A second poll may contain only reports already stored in this workspace.
                 # Preserve mixed messages if any attachment could not be imported.
                 mail.store(email_id, "+FLAGS", "\\Seen")
-                handled = reports_found + stats.get("duplicate_reports", 0) - duplicates_before
+                duplicates = stats.get("duplicate_reports", 0) - duplicates_before
+                handled = reports_found + duplicates
                 if (
                     self.delete_emails
                     and handled > 0
+                    and (duplicates == 0 or self.db is not None)
                     and len(stats.get("errors", [])) == errors_before
                     and stats.get("skipped_attachments", 0) == skipped_before
                 ):
@@ -764,6 +766,14 @@ class IMAPClient:
 
             filename = part.get_filename()
             if not filename:
+                if stats is not None:
+                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="missing_attachment_filename",
+                    message_id=message_id,
+                )
                 continue
 
             filename = self._decode_email_header(filename)

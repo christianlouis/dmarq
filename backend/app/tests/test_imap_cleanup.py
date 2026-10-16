@@ -61,20 +61,34 @@ def test_duplicate_cleanup_inherits_setting_for_configured_source(db_session, en
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
-@pytest.mark.parametrize("filename,content", [("broken.xml", b"broken"), ("notes.txt", b"notes")])
+@pytest.mark.parametrize(
+    "filename,content", [("broken.xml", b"broken"), ("notes.txt", b"notes"), (None, b"nameless")]
+)
 def test_preserves_message_with_unhandled_attachment(db_session, duplicate, filename, content):
     client = make_client(db_session)
     if duplicate:
         client._process_single_email(mailbox(), b"1", initial_import_stats(deleted=True))
     msg = email.message_from_bytes(_make_email_with_attachment())
-    part = MIMEApplication(content, Name=filename)
-    part["Content-Disposition"] = f'attachment; filename="{filename}"'
+    part = MIMEApplication(content)
+    part["Content-Disposition"] = f'attachment; filename="{filename}"' if filename else "attachment"
     msg.attach(part)
     mail = mailbox(msg.as_bytes())
     stats = initial_import_stats(deleted=True)
     client._process_single_email(mail, b"2", stats)
     assert stats["deleted"] == 0
     mail.store.assert_called_once_with(b"2", "+FLAGS", "\\Seen")
+
+
+def test_cache_only_duplicate_is_retained_without_database():
+    client = make_client(None, enabled=False)
+    client._process_single_email(mailbox(), b"1", initial_import_stats(deleted=True))
+    client.delete_emails = True
+    mail = mailbox()
+    stats = initial_import_stats(deleted=True)
+    client._process_single_email(mail, b"1", stats)
+    assert stats["duplicate_reports"] == 1
+    assert stats["deleted"] == 0
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
 
 
 def test_commit_failure_keeps_email_and_retry_ignores_stale_cache(db_session):
