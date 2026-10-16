@@ -100,7 +100,7 @@ def test_commit_failure_keeps_email_and_retry_ignores_stale_cache(db_session):
     assert stats["errors"]
     assert stats["deleted"] == 0
     mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
-    db_session.rollback()
+    assert db_session.query(DMARCReport).count() == 0
     retry = initial_import_stats(deleted=True)
     client._process_single_email(mailbox(), b"1", retry)
     assert retry["reports_found"] == 1

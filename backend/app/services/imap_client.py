@@ -314,7 +314,11 @@ class IMAPClient:
                     # Persist before setting a destructive mailbox flag. A failed commit
                     # must leave the original message available for a later retry.
                     if self.db is not None:
-                        self.db.commit()
+                        try:
+                            self.db.commit()
+                        except Exception:
+                            self.db.rollback()
+                            raise
                     status, _ = mail.store(email_id, "+FLAGS", "\\Deleted")
                     if status != "OK":
                         raise IMAPError("Mailbox rejected the delete flag")
