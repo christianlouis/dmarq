@@ -497,7 +497,7 @@ def _migrate_imap_env_vars_to_db() -> None:
             username=settings.IMAP_USERNAME,
             password=settings.IMAP_PASSWORD,
             use_ssl=True,
-            folder="INBOX",
+            folder=getattr(settings, "IMAP_FOLDER", None) or "INBOX",
             polling_interval=60,
             enabled=True,
         )

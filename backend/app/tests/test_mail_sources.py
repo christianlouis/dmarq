@@ -36,6 +36,18 @@ from app.services.workspace_access import ROLE_OPERATOR
 from app.services.workspaces import get_or_create_default_workspace
 
 
+def test_polling_interval_schema_documents_minutes_and_default():
+    from app.main import app as main_app
+
+    schema = main_app.openapi()["components"]["schemas"]
+    for model_name in ("MailSourceCreate", "MailSourceResponse"):
+        field = schema[model_name]["properties"]["polling_interval"]
+        assert field["default"] == 60
+        assert "minutes" in field["description"].lower()
+    update_field = schema["MailSourceUpdate"]["properties"]["polling_interval"]
+    assert "minutes" in update_field["description"].lower()
+
+
 class TestOAuthStateHelpers:
     """Unit coverage for the signed OAuth state helpers."""
 
