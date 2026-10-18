@@ -142,24 +142,12 @@ def report_exists(
     return query.first() is not None
 
 
-def save_parsed_report(
+def _get_or_create_domain(
     db: Session,
-    report: Dict[str, Any],
-    *,
-    workspace_id: Optional[int] = None,
-) -> tuple[DMARCReport, bool]:
-    """Persist a parsed DMARC report and its records.
-
-    Returns ``(row, created)``. The caller owns the transaction and should
-    commit after all related work has completed.
-    """
-    domain_name = report.get("domain") or "unknown"
-    report_id = report.get("report_id") or ""
-    policy = _policy_parts(report)
-    if workspace_id is None:
-        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
-        workspace_id = workspace.id
-
+    domain_name: str,
+    policy: Dict[str, Any],
+    workspace_id: int,
+) -> Domain:
     domain = (
         db.query(Domain)
         .filter(Domain.name == domain_name, Domain.workspace_id == workspace_id)
@@ -190,6 +178,28 @@ def save_parsed_report(
                 raise
     elif policy.get("p"):
         domain.dmarc_policy = policy["p"]
+    return domain
+
+
+def save_parsed_report(
+    db: Session,
+    report: Dict[str, Any],
+    *,
+    workspace_id: Optional[int] = None,
+) -> tuple[DMARCReport, bool]:
+    """Persist a parsed DMARC report and its records.
+
+    Returns ``(row, created)``. The caller owns the transaction and should
+    commit after all related work has completed.
+    """
+    domain_name = report.get("domain") or "unknown"
+    report_id = report.get("report_id") or ""
+    policy = _policy_parts(report)
+    if workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+        workspace_id = workspace.id
+
+    domain = _get_or_create_domain(db, domain_name, policy, workspace_id)
 
     existing = (
         db.query(DMARCReport)
@@ -263,7 +273,9 @@ def save_parsed_report(
     )
     # Do not resolve DNS while importing a report. Ingest only records the
     # selector inventory and lets the coalesced posture worker collect it.
-    observed_selectors = [item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()]
+    observed_selectors = [
+        item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()
+    ]
     for record in report.get("records") or []:
         for dkim in record.get("dkim") or []:
             if isinstance(dkim, dict) and str(dkim.get("selector") or "").strip():
