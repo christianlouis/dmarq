@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -243,6 +244,7 @@ async def test_refresh_domain_materializes_requested_dns_evidence(db_session, mo
     monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
     monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", resolve)
+    monkeypatch.setattr(dns_posture_refresh, "_refresh_side_checks", AsyncMock())
 
     assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is True
     current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
@@ -286,6 +288,7 @@ async def test_refresh_domain_uses_persisted_report_selector_and_scopes_evidence
     monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
     monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", resolve)
+    monkeypatch.setattr(dns_posture_refresh, "_refresh_side_checks", AsyncMock())
 
     assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is True
     current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
@@ -397,6 +400,19 @@ async def test_refresh_domain_reresolves_expired_baseline_without_request(db_ses
     monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
     monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", resolve)
+    monkeypatch.setattr(dns_posture_refresh, "_refresh_side_checks", AsyncMock())
+    monkeypatch.setattr(
+        dns_posture_refresh,
+        "get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "DNS_POSTURE_MAX_AGE_SECONDS": 21600,
+                "DNS_POSTURE_ABSENCE_CONFIRMATIONS": 2,
+            },
+        )(),
+    )
 
     assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is False
     assert calls == []
@@ -409,11 +425,14 @@ async def test_refresh_domain_reresolves_expired_baseline_without_request(db_ses
     assert calls == [True]
 
 
-def test_candidates_prioritize_oldest_pending_and_skip_fresh_or_recent_failures(
+def test_candidates_prioritize_oldest_due_work_and_skip_fresh_or_recent_failures(
     db_session, monkeypatch
 ):
     now = datetime.utcnow()
-    domains = [Domain(name=name, active=True) for name in ("new.example", "old.example", "fresh.example", "failed.example")]
+    domains = [
+        Domain(name=name, active=True)
+        for name in ("requested.example", "stale.example", "fresh.example", "failed.example")
+    ]
     db_session.add_all(domains)
     db_session.flush()
     domain_ids = [domain.id for domain in domains]
@@ -421,13 +440,13 @@ def test_candidates_prioritize_oldest_pending_and_skip_fresh_or_recent_failures(
         [
             DomainDNSPostureCurrent(
                 domain_id=domain_ids[0],
-                requested_at=now - timedelta(minutes=1),
+                requested_at=now,
                 completed_at=now,
             ),
             DomainDNSPostureCurrent(
                 domain_id=domain_ids[1],
-                requested_at=now - timedelta(hours=1),
-                completed_at=now,
+                accepted_snapshot_id=1,
+                completed_at=now - timedelta(days=1),
             ),
             DomainDNSPostureCurrent(
                 domain_id=domain_ids[2],
@@ -450,9 +469,41 @@ def test_candidates_prioritize_oldest_pending_and_skip_fresh_or_recent_failures(
     )
 
     assert dns_posture_refresh._candidates(2) == [
-        (domain_ids[1], "old.example"),
-        (domain_ids[0], "new.example"),
+        (domain_ids[1], "stale.example"),
+        (domain_ids[0], "requested.example"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_records_attempt_and_defers_retry_until_stale(db_session, monkeypatch):
+    domain = Domain(name="retry-after-failure.example", active=True)
+    db_session.add(domain)
+    db_session.commit()
+    domain_id = domain.id
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("resolver unavailable")
+
+    monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
+    monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", fail)
+    monkeypatch.setattr(
+        dns_posture_refresh,
+        "get_settings",
+        lambda: type("Settings", (), {"DNS_POSTURE_MAX_AGE_SECONDS": 21600})(),
+    )
+
+    assert await dns_posture_refresh.refresh_domain_dns_posture(domain_id) is False
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain_id).one()
+    assert current.requested_at is None
+    assert current.completed_at is not None
+    assert current.last_error == "RuntimeError"
+    assert dns_posture_refresh._candidates(10) == []
+
+    current = db_session.get(DomainDNSPostureCurrent, current.id)
+    current.completed_at = datetime.utcnow() - timedelta(days=1)
+    db_session.commit()
+    assert dns_posture_refresh._candidates(10) == [(domain_id, "retry-after-failure.example")]
 
 
 @pytest.mark.asyncio

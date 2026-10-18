@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
-from sqlalchemy import or_, text
+from sqlalchemy import case, func, or_, text
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -70,8 +70,10 @@ def _selectors(db, domain: Domain) -> list[str]:
 def _candidates(limit: int) -> List[Tuple[int, str]]:
     db = SessionLocal()
     try:
-        # Work explicitly requested by ingestion first, then establish a
-        # baseline for active domains that have never been materialized.
+        # A bounded batch must be fair to both requested work and completed
+        # evidence that has aged out.  A failed attempt records completed_at,
+        # so it is retried after the normal age window instead of occupying
+        # every batch until the resolver recovers.
         max_age = int(getattr(get_settings(), "DNS_POSTURE_MAX_AGE_SECONDS", 0) or 0)
         eligibility = [
             DomainDNSPostureCurrent.id.is_(None),
@@ -83,20 +85,13 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
                 DomainDNSPostureCurrent.completed_at
                 <= datetime.utcnow() - timedelta(seconds=max_age)
             )
-        # An unaccepted result is retried when explicitly requested, when no
-        # observation exists, or after the normal age window; failures cannot
-        # consume every bounded worker batch forever.
-        eligibility.append(
-            (DomainDNSPostureCurrent.accepted_snapshot_id.is_(None))
-            & (
-                DomainDNSPostureCurrent.requested_at.isnot(None)
-                | DomainDNSPostureCurrent.completed_at.is_(None)
-                | (
-                    max_age > 0
-                    and DomainDNSPostureCurrent.completed_at
-                    <= datetime.utcnow() - timedelta(seconds=max_age)
-                )
-            )
+        # Pending requests are due when requested; completed work is due when
+        # it was last attempted.  Ordering both classes on that timestamp
+        # prevents a stream of fresh ingest requests from starving stale
+        # low-volume domains.
+        due_at = case(
+            (DomainDNSPostureCurrent.requested_at.isnot(None), DomainDNSPostureCurrent.requested_at),
+            else_=func.coalesce(DomainDNSPostureCurrent.completed_at, Domain.created_at),
         )
         rows = (
             db.query(Domain.id, Domain.name)
@@ -104,8 +99,7 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
             .filter(Domain.active.is_(True))
             .filter(or_(*eligibility))
             .order_by(
-                DomainDNSPostureCurrent.requested_at.asc().nullslast(),
-                DomainDNSPostureCurrent.completed_at.asc().nullsfirst(),
+                due_at.asc(),
                 Domain.id.asc(),
             )
             .limit(limit)
@@ -209,6 +203,29 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
         db.rollback()
+        # A transport or resolver exception has no immutable observation to
+        # capture, but it is still a completed attempt.  Record only the
+        # exception type to avoid retaining provider details while preventing
+        # this domain from consuming every scheduled batch.
+        try:
+            domain = db.get(Domain, domain_id)
+            if domain is not None and domain.active:
+                current = (
+                    db.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one_or_none()
+                )
+                if current is None:
+                    current = DomainDNSPostureCurrent(
+                        domain_id=domain.id,
+                        workspace_id=domain.workspace_id,
+                    )
+                    db.add(current)
+                current.completed_at = datetime.utcnow()
+                current.requested_at = None
+                current.next_trigger = None
+                current.last_error = type(exc).__name__
+                db.commit()
+        except Exception:  # pylint: disable=broad-exception-caught
+            db.rollback()
         logger.warning(
             "DNS posture refresh failed for domain id=%s with %s", domain_id, type(exc).__name__
         )
