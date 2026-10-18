@@ -343,6 +343,16 @@ class TestMicrosoftGraphFetchReports:
         assert result["new_ingested_ids"] == []
         assert result["errors"]
 
+    def test_retry_message_does_not_mark_processing_failure_as_ingested(self, monkeypatch):
+        client = _make_client()
+        monkeypatch.setattr(client, "_request", lambda *_args, **_kwargs: {"id": "message-one"})
+        monkeypatch.setattr(client, "_process_message", lambda _message, _stats: -1)
+
+        result = client.retry_message("message-one")
+
+        assert result["success"] is False
+        assert result["new_ingested_ids"] == []
+
     def test_test_connection_reads_shared_mailbox(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
             assert url.endswith("/users/shared%40example.com/mailFolders/inbox/messages")

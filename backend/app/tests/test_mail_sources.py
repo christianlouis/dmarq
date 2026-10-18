@@ -473,6 +473,35 @@ class TestMailSourceImportRecovery:
         assert response.json()["success"] is False
         assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == ["message-b"]
 
+    def test_gmail_retry_persists_refreshed_tokens(self, authed_client, db_session):
+        workspace, source, row = self._history(db_session)
+        source.gmail_access_token = "old-access-token"
+        source.gmail_refresh_token = "old-refresh-token"
+        db_session.commit()
+
+        with (
+            patch.object(GmailClient, "_build_service", return_value=MagicMock()),
+            patch.object(GmailClient, "_process_message", return_value=0),
+            patch.object(
+                GmailClient,
+                "get_refreshed_tokens",
+                return_value={
+                    "access_token": "refreshed-access",
+                    "refresh_token": "refreshed-refresh",
+                },
+            ),
+        ):
+            response = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "message-a"},
+            )
+
+        assert response.status_code == 200
+        persisted = db_session.get(MailSource, source.id)
+        assert persisted.gmail_access_token == "refreshed-access"
+        assert persisted.gmail_refresh_token == "refreshed-refresh"
+
     def test_m365_retry_persists_refreshed_tokens_on_success_and_failure(
         self, authed_client, db_session
     ):
@@ -534,6 +563,17 @@ class TestMailSourceImportRecovery:
         assert changed.status_code == 409
 
         source.folder = "INBOX"
+        metadata = json.loads(row.recovery_metadata)
+        metadata[0]["source_id"] = source.id + 1
+        row.recovery_metadata = json.dumps(metadata)
+        db_session.commit()
+        forged = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+        assert forged.status_code == 404
+
         row.recovery_metadata = "{not-json"
         db_session.commit()
         malformed = authed_client.post(
@@ -621,6 +661,29 @@ class TestMailSourceImportRecovery:
 
         assert retry.status_code == 409
         assert response.status_code == 409
+
+    def test_history_marks_legacy_imap_recovery_as_explicitly_unsupported(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Legacy recovery source",
+            method="IMAP",
+        )
+        db_session.add(source)
+        db_session.flush()
+
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {"success": False, "details": [{"status": "error", "message_id": "legacy-id"}]},
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        db_session.flush()
+
+        recovery = json.loads(attempt.recovery_metadata)
+        assert recovery[0]["supported"] is False
+        assert "UIDVALIDITY" in recovery[0]["unsupported_reason"]
 
     def test_history_recovers_only_error_or_full_already_ingested_message_ids(self, db_session):
         workspace = get_or_create_default_workspace(db_session)
