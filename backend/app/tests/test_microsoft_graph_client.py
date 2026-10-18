@@ -11,9 +11,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from app.models.delivery_event import DeliveryEvent
+from app.models.domain import Domain
 from app.models.report import DMARCReport
 from app.models.workspace import Workspace
 from app.services import microsoft_graph_client
@@ -980,15 +980,49 @@ class TestMicrosoftGraphFetchReports:
         with pytest.raises(ValueError, match="attachment count exceeds"):
             MicrosoftGraphClient._nested_mime_attachments(message)
 
-    def test_nested_mime_depth_includes_outer_attachment(self):
+    def test_presentation_multipart_wrappers_leave_a_valid_sibling_report_eligible(self):
+        presentation = EmailMessage()
+        presentation.set_content("Plain body")
+        presentation.add_alternative("<p>HTML body</p>", subtype="html")
+        for _ in range(2):
+            wrapper = MIMEMultipart("related")
+            wrapper.attach(presentation)
+            presentation = wrapper
+        outer = EmailMessage()
+        outer.make_mixed()
+        outer.attach(presentation)
+        outer.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-presentation",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(outer.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 1
+        assert stats["errors"] == []
+
+    def test_nested_message_attachments_include_outer_depth(self):
         report = EmailMessage()
         report.add_attachment(
             _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
         )
         deep = report
-        for _ in range(3):
-            wrapper = MIMEMultipart()
-            wrapper.attach(deep)
+        for _ in range(2):
+            wrapper = EmailMessage()
+            wrapper.set_content("Forwarded report")
+            wrapper.add_attachment(deep, filename="nested.eml")
             deep = wrapper
         client = _make_client()
         stats = initial_import_stats(client.import_context())
@@ -1007,7 +1041,50 @@ class TestMicrosoftGraphFetchReports:
         )
 
         assert found == -1
+        assert stats["details"][-1]["reason"] == "attachment_depth_exceeded"
+
+    def test_malformed_header_bearing_multipart_stays_retryable(self):
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+        malformed = b"Content-Type: multipart/mixed; boundary=missing\n\nbody without delimiter"
+
+        found = client._process_attachments(
+            "message-malformed-multipart",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(malformed).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == -1
         assert stats["details"][-1]["reason"] == "parse_failed"
+
+    def test_plain_body_only_mime_stays_neutral(self):
+        plain = EmailMessage()
+        plain.set_content("Forwarded message without a report")
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-plain-body",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(plain.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 0
+        assert stats["errors"] == []
 
     def test_nested_mime_partial_failure_keeps_valid_report_retryable(self, db_session):
         nested = EmailMessage()
@@ -1073,9 +1150,12 @@ class TestMicrosoftGraphFetchReports:
         def fail_first_save(*args, **kwargs):
             nonlocal calls
             calls += 1
+            saved = original_save(*args, **kwargs)
             if calls == 1:
-                raise IntegrityError("INSERT", {}, RuntimeError("forced flush failure"))
-            return original_save(*args, **kwargs)
+                db = args[0]
+                db.add(Domain(name=args[1]["domain"]))
+                db.flush()
+            return saved
 
         monkeypatch.setattr(microsoft_graph_client, "save_parsed_report", fail_first_save)
         stats = initial_import_stats(client.import_context())
@@ -1096,6 +1176,7 @@ class TestMicrosoftGraphFetchReports:
         assert calls == 2
         assert stats["reports_found"] == 1
         assert db_session.query(DMARCReport).count() == 1
+        assert db_session.query(Domain).filter_by(name="example.com").count() == 1
 
     def test_malformed_mime_attachment_keeps_message_retryable(self):
         client = _make_client()

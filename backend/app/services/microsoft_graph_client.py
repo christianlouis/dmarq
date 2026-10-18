@@ -846,7 +846,10 @@ class MicrosoftGraphClient(MailSourceConnector):
                 attachments.extend(
                     cls._nested_mime_attachments(
                         part,
-                        depth=depth + 1,
+                        # Multipart body presentation is not another attached
+                        # message.  It shares the current attachment depth;
+                        # the common part budget still bounds traversal.
+                        depth=depth,
                         attachment_count=attachment_count,
                     )
                 )
@@ -879,6 +882,8 @@ class MicrosoftGraphClient(MailSourceConnector):
             payload = parsed.get_payload(decode=True)
             if payload:
                 parsed = email.message_from_bytes(payload)
+        if parsed.get_content_maintype() == "multipart" and not parsed.is_multipart():
+            raise ValueError("RFC822 multipart attachment contains no usable parts")
         nested = self._nested_mime_attachments(
             parsed,
             depth=depth,
