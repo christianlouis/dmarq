@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.models.domain import Domain
 from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
-from app.services.source_read_projection import materialize_source_projection
 from app.models.workspace import Workspace
-from app.services.dns_posture_snapshots import request_dns_posture_refresh
 from app.services.demo_data import seed_demo_report_store
+from app.services.dns_posture_snapshots import request_dns_posture_refresh
 from app.services.organizations import require_organization_plan_limit
 from app.services.report_store import ReportStore
+from app.services.source_read_projection import materialize_source_projection
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 
@@ -373,8 +373,7 @@ def hydrate_report_store_from_db(
     else:
         store.clear()
     reports = query.order_by(DMARCReport.end_date.desc()).all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 
@@ -417,8 +416,7 @@ def hydrate_domain_report_store_from_db(
     if limit is not None:
         query = query.limit(max(1, int(limit)))
     reports = query.all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 
