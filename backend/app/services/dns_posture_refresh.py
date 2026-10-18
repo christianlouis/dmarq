@@ -90,7 +90,10 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
         # prevents a stream of fresh ingest requests from starving stale
         # low-volume domains.
         due_at = case(
-            (DomainDNSPostureCurrent.requested_at.isnot(None), DomainDNSPostureCurrent.requested_at),
+            (
+                DomainDNSPostureCurrent.requested_at.isnot(None),
+                DomainDNSPostureCurrent.requested_at,
+            ),
             else_=func.coalesce(DomainDNSPostureCurrent.completed_at, Domain.created_at),
         )
         rows = (
@@ -122,10 +125,7 @@ async def _refresh_side_checks(db, provider, domain: Domain) -> None:
             timeout = max(
                 0.1,
                 float(
-                    getattr(
-                        get_settings(), "DNS_POSTURE_SIDE_CHECK_TIMEOUT_SECONDS", 5.0
-                    )
-                    or 5.0
+                    getattr(get_settings(), "DNS_POSTURE_SIDE_CHECK_TIMEOUT_SECONDS", 5.0) or 5.0
                 ),
             )
             await asyncio.wait_for(
@@ -142,6 +142,27 @@ async def _refresh_side_checks(db, provider, domain: Domain) -> None:
                 domain.id,
                 type(exc).__name__,
             )
+
+
+def _record_refresh_failure(db, domain_id: int, exc: Exception) -> None:
+    """Record a failed attempt without retaining provider error details."""
+    try:
+        domain = db.get(Domain, domain_id)
+        if domain is not None and domain.active:
+            current = db.query(DomainDNSPostureCurrent).filter_by(domain_id=domain_id).one_or_none()
+            if current is None:
+                current = DomainDNSPostureCurrent(
+                    domain_id=domain_id,
+                    workspace_id=domain.workspace_id,
+                )
+                db.add(current)
+            current.completed_at = datetime.utcnow()
+            current.requested_at = None
+            current.next_trigger = None
+            current.last_error = type(exc).__name__
+            db.commit()
+    except Exception:  # pylint: disable=broad-exception-caught
+        db.rollback()
 
 
 async def refresh_domain_dns_posture(domain_id: int) -> bool:
@@ -207,25 +228,7 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         # capture, but it is still a completed attempt.  Record only the
         # exception type to avoid retaining provider details while preventing
         # this domain from consuming every scheduled batch.
-        try:
-            domain = db.get(Domain, domain_id)
-            if domain is not None and domain.active:
-                current = (
-                    db.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one_or_none()
-                )
-                if current is None:
-                    current = DomainDNSPostureCurrent(
-                        domain_id=domain.id,
-                        workspace_id=domain.workspace_id,
-                    )
-                    db.add(current)
-                current.completed_at = datetime.utcnow()
-                current.requested_at = None
-                current.next_trigger = None
-                current.last_error = type(exc).__name__
-                db.commit()
-        except Exception:  # pylint: disable=broad-exception-caught
-            db.rollback()
+        _record_refresh_failure(db, domain_id, exc)
         logger.warning(
             "DNS posture refresh failed for domain id=%s with %s", domain_id, type(exc).__name__
         )
