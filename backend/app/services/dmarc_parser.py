@@ -329,11 +329,17 @@ class DMARCParser:
         parsed["count"] = DMARCParser._safe_int(row.findtext("count", 0))
         policy_evaluated = row.find("policy_evaluated")
         if policy_evaluated is None:
+            # Some aggregate senders omit policy_evaluated while still
+            # providing authentication details. Keep the scalar columns
+            # present so those details can be persisted independently.
+            parsed["disposition"] = "none"
+            parsed["dkim_result"] = "unknown"
+            parsed["spf_result"] = "unknown"
             return parsed
 
         parsed["disposition"] = DMARCParser._text(policy_evaluated, "disposition", "none")
-        parsed["dkim_result"] = DMARCParser._text(policy_evaluated, "dkim").lower()
-        parsed["spf_result"] = DMARCParser._text(policy_evaluated, "spf").lower()
+        parsed["dkim_result"] = DMARCParser._text(policy_evaluated, "dkim").lower() or "unknown"
+        parsed["spf_result"] = DMARCParser._text(policy_evaluated, "spf").lower() or "unknown"
         reasons = DMARCParser._parse_policy_reasons(policy_evaluated)
         if reasons:
             parsed["policy_override_reasons"] = reasons

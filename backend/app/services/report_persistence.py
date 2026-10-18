@@ -66,6 +66,14 @@ def _json_or_none(value: Any) -> Optional[str]:
     return json.dumps(value, sort_keys=True)
 
 
+def _result_text(record: Dict[str, Any], key: str) -> str:
+    """Return a scalar evaluated result without discarding auth details."""
+    for value in (record.get(f"{key}_result"), record.get(key)):
+        if isinstance(value, str) and value:
+            return value
+    return "unknown"
+
+
 def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     policy = report.get("policy") or {}
     if isinstance(policy, str):
@@ -219,8 +227,8 @@ def save_parsed_report(
                 source_ip=record.get("source_ip") or "unknown",
                 count=_record_message_count(record),
                 disposition=record.get("disposition") or "none",
-                dkim=record.get("dkim_result") or record.get("dkim") or "unknown",
-                spf=record.get("spf_result") or record.get("spf") or "unknown",
+                dkim=_result_text(record, "dkim"),
+                spf=_result_text(record, "spf"),
                 header_from=record.get("header_from"),
                 envelope_from=record.get("envelope_from"),
                 envelope_to=record.get("envelope_to"),
@@ -243,7 +251,9 @@ def save_parsed_report(
     )
     # Do not resolve DNS while importing a report. Ingest only records the
     # selector inventory and lets the coalesced posture worker collect it.
-    observed_selectors = [item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()]
+    observed_selectors = [
+        item.strip() for item in (domain.dkim_selectors or "").split(",") if item.strip()
+    ]
     for record in report.get("records") or []:
         for dkim in record.get("dkim") or []:
             if isinstance(dkim, dict) and str(dkim.get("selector") or "").strip():
