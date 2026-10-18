@@ -40,6 +40,8 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
 
 
 def _extract_json_from_zip(file_content: bytes) -> Optional[bytes]:
+    if len(file_content) > MAX_TLS_REPORT_SIZE:
+        raise ValueError("TLS report is too large")
     try:
         with zipfile.ZipFile(io.BytesIO(file_content)) as archive:
             files = archive.infolist()
@@ -71,6 +73,8 @@ def _extract_json_content(file_content: bytes, filename: str) -> bytes:
             return extracted
         raise ValueError("Could not extract JSON content from ZIP TLS report")
     if lower.endswith((".gz", ".gzip")):
+        if len(file_content) > MAX_TLS_REPORT_SIZE:
+            raise ValueError("TLS report is too large")
         try:
             with gzip.GzipFile(fileobj=io.BytesIO(file_content)) as archive:
                 content = archive.read(MAX_TLS_UNCOMPRESSED_SIZE + 1)
@@ -87,7 +91,7 @@ def _extract_json_content(file_content: bytes, filename: str) -> bytes:
 def looks_like_tls_report(file_content: bytes, filename: str) -> bool:
     """Safely identify JSON TLS-RPT payloads before shared IMAP routing."""
     lower = filename.lower()
-    if lower.endswith(".json"):
+    if lower.endswith(".json") or ".json." in lower:
         return True
     if not lower.endswith((".gz", ".gzip", ".zip")):
         return False

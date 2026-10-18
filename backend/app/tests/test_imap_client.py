@@ -750,6 +750,16 @@ class TestProcessAttachments:
         assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
         assert db_session.query(DMARCReport).count() == 0
 
+    def test_processes_tls_rpt_zip_attachment_persists_report(self, db_session):
+        client = self._make_client(db=db_session)
+        archive = _make_zip_content(MINIMAL_TLS_RPT_JSON, "nested/tls-report.json")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("tls-report.zip", archive, "application/zip")
+        )
+
+        assert client._process_attachments(msg) == 1
+        assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
+
     def test_processes_tls_rpt_plain_json_attachment(self, db_session):
         client = self._make_client(db=db_session)
         msg = email.message_from_bytes(
@@ -791,7 +801,8 @@ class TestProcessAttachments:
         assert client._process_attachments(first, stats) == 2
         assert db_session.query(TLSReport).count() == 2
         assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
-        assert stats["skipped_attachments"] == 1
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "tls_parse_failed"
 
     def test_duplicate_tls_rpt_report_is_not_recounted(self, db_session):
         client = self._make_client(db=db_session)

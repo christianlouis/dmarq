@@ -9,14 +9,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.report import DMARCReport
+from app.models.report import DMARCReport, TLSReport
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.workspace import Workspace
 from app.services.imap_client import IMAPClient
 from app.services.mail_connector import initial_import_stats
 from app.services.import_history import record_import_attempt
-from app.tests.test_imap_client import _make_email_with_attachment
+from app.tests.test_imap_client import MINIMAL_TLS_RPT_JSON, _make_email_with_attachment
 
 
 def make_client(db, enabled=True, workspace_id=None):
@@ -103,6 +103,55 @@ def test_persisted_mail_source_two_fetches_retain_then_delete(db_session):
     assert first_stats["deleted"] == 0
     assert second_stats["deleted"] == 1
     second_mail.store.assert_any_call(b"2", "+FLAGS", "\\Deleted")
+
+
+def test_tls_duplicate_cleanup_and_commit_failure_are_durable(db_session):
+    tls_message = _make_email_with_attachment("tls.json", MINIMAL_TLS_RPT_JSON, "application/json")
+    first_client = make_client(db_session, enabled=False)
+    first_stats = initial_import_stats(deleted=True)
+    first_client._process_single_email(mailbox(tls_message), b"1", first_stats)
+    db_session.commit()
+    assert first_stats["reports_found"] == 1
+    assert first_stats["deleted"] == 0
+
+    second_mail = mailbox(tls_message)
+    second_stats = initial_import_stats(deleted=True)
+    make_client(db_session, enabled=True)._process_single_email(second_mail, b"2", second_stats)
+    assert second_stats["duplicate_reports"] == 1
+    assert second_stats["deleted"] == 1
+    assert db_session.query(TLSReport).count() == 1
+
+    failed_payload = json.loads(MINIMAL_TLS_RPT_JSON)
+    failed_payload["report-id"] = "tlsrpt-commit-failure"
+    failed_mail = mailbox(
+        _make_email_with_attachment(
+            "tls-failure.json", json.dumps(failed_payload).encode(), "application/json"
+        )
+    )
+    failed_stats = initial_import_stats(deleted=True)
+    with patch.object(db_session, "commit", side_effect=RuntimeError("commit failed")):
+        make_client(db_session, enabled=True)._process_single_email(failed_mail, b"3", failed_stats)
+    assert failed_stats["errors"]
+    assert failed_stats["deleted"] == 0
+    assert db_session.query(TLSReport).count() == 1
+
+
+def test_invalid_tls_sibling_dmarc_is_retained(db_session):
+    msg = email.message_from_bytes(
+        _make_email_with_attachment("invalid.json", b"{invalid", "application/json")
+    )
+    valid = email.message_from_bytes(_make_email_with_attachment())
+    for part in valid.get_payload()[1:]:
+        msg.attach(part)
+
+    mail = mailbox(msg.as_bytes())
+    stats = initial_import_stats(deleted=True)
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["deleted"] == 0
+    assert stats["errors"]
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
 
 
 @pytest.mark.parametrize("duplicate", [False, True])

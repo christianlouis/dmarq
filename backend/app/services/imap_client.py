@@ -709,11 +709,13 @@ class IMAPClient:
             parsed = TLSReportParser.parse_file(content, filename)
         except ValueError as exc:
             if stats is not None:
-                stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+                stats.setdefault("errors", []).append(
+                    sanitize_connector_error(f"Failed to parse TLS report {filename}: {exc}")
+                )
             self._append_detail(
                 stats,
-                status="skipped",
-                reason="unrelated_attachment",
+                status="error",
+                reason="tls_parse_failed",
                 message_id=message_id,
                 filename=filename,
                 error=str(exc),
@@ -730,7 +732,20 @@ class IMAPClient:
         with self.db.begin_nested():
             result = save_tls_report(self.db, parsed, workspace_id=self.workspace_id)
         stored = bool(result["created"])
-        if stored:
+        if result["rejected"]:
+            if stats is not None:
+                stats.setdefault("errors", []).append(
+                    f"TLS report contains {result['rejected']} unroutable policy entries"
+                )
+            self._append_detail(
+                stats,
+                status="error",
+                reason="tls_policy_unroutable",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        elif result["created"]:
             logger.info("Successfully processed TLS-RPT report: %s", filename)
             self._append_detail(
                 stats,
@@ -739,12 +754,23 @@ class IMAPClient:
                 filename=filename,
                 report_id=str(parsed.get("report_id", "")),
             )
-        else:
+        elif result["complete"]:
             if stats is not None:
                 stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
             self._append_detail(
                 stats,
                 status="duplicate",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        else:
+            if stats is not None:
+                stats.setdefault("errors", []).append("TLS report persistence was incomplete")
+            self._append_detail(
+                stats,
+                status="error",
+                reason="tls_policy_incomplete",
                 message_id=message_id,
                 filename=filename,
                 report_id=str(parsed.get("report_id", "")),
