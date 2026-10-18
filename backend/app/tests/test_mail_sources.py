@@ -26,11 +26,13 @@ from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
+from app.models.mail_source_ignored_message import MailSourceIgnoredMessage
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.gmail_client import GmailClient
 from app.services.import_history import record_import_attempt
 from app.services.workspace_access import ROLE_OPERATOR
 from app.services.workspaces import get_or_create_default_workspace
@@ -297,7 +299,10 @@ class TestMailSourceImportRecovery:
             )
         assert response.status_code == 200
         retry.assert_called_once()
-        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == ["message-b"]
+        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == [
+            "message-b",
+            "message-a",
+        ]
         metadata = json.loads(db_session.get(MailSourceImport, row.id).recovery_metadata)
         assert metadata[0]["disposition"] == "retried"
         assert metadata[1]["disposition"] == "pending"
@@ -316,6 +321,12 @@ class TestMailSourceImportRecovery:
             "message-a",
             "message-b",
         ]
+        ignored = db_session.query(MailSourceIgnoredMessage).one()
+        assert (ignored.workspace_id, ignored.mail_source_id, ignored.message_id) == (
+            workspace.id,
+            source.id,
+            "message-a",
+        )
         metadata = json.loads(db_session.get(MailSourceImport, row.id).recovery_metadata)
         assert metadata[0]["disposition"] == "ignored"
 
@@ -328,6 +339,100 @@ class TestMailSourceImportRecovery:
             json={"message_id": "message-b"},
         )
         assert forged.status_code == 404
+
+    def test_retry_uses_one_gmail_message_without_resetting_source_history(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        source.gmail_access_token = "access-token"
+        source.gmail_refresh_token = "refresh-token"
+        db_session.commit()
+
+        with (
+            patch.object(GmailClient, "_build_service", return_value=MagicMock()),
+            patch.object(GmailClient, "_process_message", return_value=0) as process,
+        ):
+            response = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "message-a"},
+            )
+
+        assert response.status_code == 200
+        assert process.call_args.args[1] == "message-a"
+        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == [
+            "message-b",
+            "message-a",
+        ]
+
+    def test_ignore_rejects_legacy_imap_recovery_item(self, authed_client, db_session):
+        workspace, source, row = self._history(db_session)
+        source.method = "IMAP"
+        row.recovery_metadata = json.dumps(
+            [
+                {
+                    "message_id": "message-a",
+                    "source_id": source.id,
+                    "workspace_id": workspace.id,
+                    "method": "IMAP",
+                    "folder": "INBOX",
+                    "account": "",
+                    "disposition": "pending",
+                    "supported": False,
+                    "unsupported_reason": "Legacy IMAP history lacks UIDVALIDITY-bound stable message metadata.",
+                }
+            ]
+        )
+        db_session.commit()
+
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+
+        assert response.status_code == 409
+
+    def test_history_recovers_only_error_or_full_already_ingested_message_ids(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Bound recovery metadata",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+            gmail_client_id="client-id",
+        )
+        db_session.add(source)
+        db_session.flush()
+
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": True,
+                "details": [
+                    {"status": "imported", "message_id": "not-actionable"},
+                    {
+                        "status": "skipped",
+                        "reason": "already_ingested_message",
+                        "message_id": "stable-old-message",
+                    },
+                    {"status": "error", "message_id": "failed-message"},
+                    {"status": "error", "message_id": "redacted..."},
+                ],
+            },
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        db_session.flush()
+
+        recovery = json.loads(attempt.recovery_metadata)
+        assert [item["message_id"] for item in recovery] == [
+            "stable-old-message",
+            "failed-message",
+        ]
+        assert all(item["account"] == "reports@example.com" for item in recovery)
+        assert all(item["client_id"] == "client-id" for item in recovery)
 
 
 def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):

@@ -24,7 +24,7 @@ from fastapi import (
     status,
 )
 from jose import JWTError, jwt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import present_datetime
@@ -44,6 +44,12 @@ from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.mail_source_backfill_worker import run_mail_source_backfill_job_by_id
+from app.services.mail_source_recovery import (
+    ignore_message,
+    ignored_message_ids,
+    recovery_binding,
+    restore_message,
+)
 from app.services.mailbox_recovery import (
     connection_diagnostic,
     connection_test_response,
@@ -227,7 +233,14 @@ class MailSourceBackfillCreate(BaseModel):
 
 
 class RecoveryItemRequest(BaseModel):
-    message_id: str
+    message_id: str = Field(..., min_length=1, max_length=512)
+
+    @validator("message_id")
+    def message_id_must_be_safe(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(ord(character) < 32 for character in value):
+            raise ValueError("message_id must be a non-empty provider message ID")
+        return value
 
 
 class MailSourceBackfillResponse(BaseModel):
@@ -781,21 +794,13 @@ def _recovery_item(row: MailSourceImport, message_id: str) -> Dict[str, Any]:
     for item in _decode_recovery_metadata(row.recovery_metadata):
         if item.get("message_id") == message_id:
             source = row.mail_source
-            current_account = str(
-                getattr(source, "gmail_email", None)
-                or getattr(source, "m365_mailbox", None)
-                or getattr(source, "username", None)
-                or ""
-            )
+            binding = recovery_binding(source)
             if (
                 item.get("source_id") != source.id
                 or item.get("workspace_id") != source.workspace_id
             ):
                 raise HTTPException(status_code=404, detail="Recovery item not found")
-            if (
-                item.get("folder") != (source.folder or "INBOX")
-                or item.get("account", "") != current_account
-            ):
+            if any(item.get(key, "") != value for key, value in binding.items()):
                 raise HTTPException(
                     status_code=409,
                     detail="Source mailbox context changed; refresh history before retrying.",
@@ -808,7 +813,7 @@ def _save_recovery_metadata(row: MailSourceImport, items: List[Dict[str, Any]]) 
     row.recovery_metadata = json.dumps(items)
 
 
-def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -> Dict[str, Any]:
+def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -> tuple:
     if not item.get("supported"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=item.get("unsupported_reason")
@@ -821,7 +826,8 @@ def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -
             client_secret=source.gmail_client_secret or "",
             access_token=source.gmail_access_token or "",
             refresh_token=source.gmail_refresh_token or "",
-            already_ingested_ids=GmailClient.load_ingested_ids(source.gmail_ingested_ids),
+            already_ingested_ids=GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+            + ignored_message_ids(db, source),
             db=db,
             workspace_id=source.workspace_id,
         )
@@ -836,7 +842,8 @@ def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -
             mailbox=source.m365_mailbox,
             folder=source.folder or "INBOX",
             folder_id=_safe_attr(source, "m365_folder_id"),
-            already_ingested_ids=MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids),
+            already_ingested_ids=MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+            + ignored_message_ids(db, source),
             db=db,
             workspace_id=source.workspace_id,
         )
@@ -845,7 +852,41 @@ def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -
             status_code=status.HTTP_409_CONFLICT,
             detail="This history item cannot be safely retried.",
         )
-    return client.retry_message(message_id)
+    return client.retry_message(message_id), client
+
+
+def _sync_recovery_ingested_id(source: MailSource, message_id: str, succeeded: bool) -> None:
+    """Retain only one successful recovered message in normal deduplication."""
+    method = str(source.method or "").upper()
+    if method == "GMAIL_API":
+        ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+        next_ids = [item_id for item_id in ids if item_id != message_id]
+        if succeeded:
+            next_ids.append(message_id)
+        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(dict.fromkeys(next_ids))
+    elif method == "M365_GRAPH":
+        ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+        next_ids = [item_id for item_id in ids if item_id != message_id]
+        if succeeded:
+            next_ids.append(message_id)
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(dict.fromkeys(next_ids))
+
+
+def _persist_recovery_refreshed_tokens(source: MailSource, client: Any) -> None:
+    """Persist provider refreshes performed during a synchronous recovery retry."""
+    if client is None:
+        return
+    refreshed = client.get_refreshed_tokens()
+    if not refreshed:
+        return
+    if str(source.method or "").upper() == "GMAIL_API":
+        source.gmail_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.gmail_refresh_token = refreshed["refresh_token"]
+    else:
+        source.m365_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.m365_refresh_token = refreshed["refresh_token"]
 
 
 def _auth_actor(auth_context: Dict[str, Any]) -> Optional[str]:
@@ -1193,9 +1234,8 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
             detail="Gmail account not yet authorised. Complete OAuth2 flow first.",
         )
 
-    already = GmailClient.load_ingested_ids(
-        source.gmail_ingested_ids
-    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
+    ingested_ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -1210,7 +1250,7 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
     results = client.fetch_reports()
 
     if results.get("new_ingested_ids"):
-        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
         source.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
 
     refreshed = client.get_refreshed_tokens()
@@ -1236,9 +1276,8 @@ def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[s
             ),
         )
 
-    already = MicrosoftGraphClient.load_ingested_ids(
-        source.m365_ingested_ids
-    ) + MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
+    ingested_ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",
@@ -1258,7 +1297,7 @@ def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[s
     results = client.fetch_reports(days=days)
 
     if results.get("new_ingested_ids"):
-        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
         source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
 
     refreshed = client.get_refreshed_tokens()
@@ -1432,7 +1471,7 @@ async def list_mail_source_imports(
 
 
 @router.post("/{source_id}/imports/{import_id}/retry", response_model=Dict[str, Any])
-async def retry_mail_source_import_item(
+def retry_mail_source_import_item(
     source_id: int,
     import_id: int,
     payload: RecoveryItemRequest,
@@ -1456,30 +1495,20 @@ async def retry_mail_source_import_item(
             status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
         )
     item = _recovery_item(row, payload.message_id)
-    results = _retry_history_item(source, item, db)
-    if str(source.method or "").upper() == "GMAIL_API":
-        ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
-        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(
-            item_id for item_id in ids if item_id != payload.message_id
-        )
-        ignored = GmailClient.load_ingested_ids(source.gmail_ignored_ids)
-        source.gmail_ignored_ids = GmailClient.dump_ingested_ids(
-            item_id for item_id in ignored if item_id != payload.message_id
-        )
-    elif str(source.method or "").upper() == "M365_GRAPH":
-        ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
-        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(
-            item_id for item_id in ids if item_id != payload.message_id
-        )
-        ignored = MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
-        source.m365_ignored_ids = MicrosoftGraphClient.dump_ingested_ids(
-            item_id for item_id in ignored if item_id != payload.message_id
-        )
+    retry_result = _retry_history_item(source, item, db)
+    if isinstance(retry_result, tuple):
+        results, client = retry_result
+    else:  # Compatibility for instrumented callers; production returns both values.
+        results, client = retry_result, None
+    succeeded = bool(results.get("success", False)) and not results.get("errors")
+    _sync_recovery_ingested_id(source, payload.message_id, succeeded)
+    restore_message(db, source, payload.message_id)
+    _persist_recovery_refreshed_tokens(source, client)
     items = _decode_recovery_metadata(row.recovery_metadata)
     for stored_item in items:
         if stored_item.get("message_id") == payload.message_id:
             stored_item["disposition"] = "retried"
-            stored_item["last_status"] = "success" if results.get("success", False) else "failed"
+            stored_item["last_status"] = "success" if succeeded else "failed"
     _save_recovery_metadata(row, items)
     record_import_attempt(
         db, source, results, started_at=datetime.utcnow(), trigger="recovery_retry"
@@ -1500,7 +1529,7 @@ async def retry_mail_source_import_item(
 
 
 @router.post("/{source_id}/imports/{import_id}/ignore", response_model=Dict[str, Any])
-async def ignore_mail_source_import_item(
+def ignore_mail_source_import_item(
     source_id: int,
     import_id: int,
     payload: RecoveryItemRequest,
@@ -1523,29 +1552,16 @@ async def ignore_mail_source_import_item(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
         )
-    _recovery_item(row, payload.message_id)
+    item = _recovery_item(row, payload.message_id)
+    if not item.get("supported"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=item.get("unsupported_reason")
+        )
     items = _decode_recovery_metadata(row.recovery_metadata)
     for item in items:
         if item.get("message_id") == payload.message_id:
             item["disposition"] = "ignored"
-    if str(source.method or "").upper() == "GMAIL_API":
-        ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
-        if payload.message_id not in ids:
-            ids.append(payload.message_id)
-        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(ids)
-        ignored = GmailClient.load_ingested_ids(source.gmail_ignored_ids)
-        if payload.message_id not in ignored:
-            ignored.append(payload.message_id)
-        source.gmail_ignored_ids = GmailClient.dump_ingested_ids(ignored)
-    elif str(source.method or "").upper() == "M365_GRAPH":
-        ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
-        if payload.message_id not in ids:
-            ids.append(payload.message_id)
-        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(ids)
-        ignored = MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
-        if payload.message_id not in ignored:
-            ignored.append(payload.message_id)
-        source.m365_ignored_ids = MicrosoftGraphClient.dump_ingested_ids(ignored)
+    ignore_message(db, source, payload.message_id)
     _save_recovery_metadata(row, items)
     record_workspace_audit_log(
         db,
@@ -2820,9 +2836,8 @@ async def gmail_fetch_reports(
             detail="Gmail account not yet authorised. Complete OAuth2 flow first.",
         )
 
-    already = GmailClient.load_ingested_ids(
-        source.gmail_ingested_ids
-    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
+    ingested_ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -2838,7 +2853,7 @@ async def gmail_fetch_reports(
 
     # Persist updated ingested IDs and any refreshed tokens
     if results.get("new_ingested_ids"):
-        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
         source.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
 
     refreshed = client.get_refreshed_tokens()

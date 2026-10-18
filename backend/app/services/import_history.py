@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.services.mail_source_recovery import recovery_binding
 from app.utils.stats_summarizer import StatsSummarizer
 
 MAX_STORED_ERRORS = 10
@@ -63,27 +64,28 @@ def _json_details(values: Optional[Iterable[Any]]) -> str:
 def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]]) -> str:
     """Persist only complete provider IDs and source binding for item recovery."""
     items = []
-    method = str(source.method or "").upper()
+    binding = recovery_binding(source)
+    method = binding["method"]
     for value in list(values or []):
         if not isinstance(value, dict):
             continue
+        if value.get("status") != "error" and value.get("reason") != "already_ingested_message":
+            continue
         message_id = str(value.get("message_id") or "")
-        if not message_id or message_id.endswith("..."):
+        if (
+            not message_id
+            or len(message_id) > 512
+            or message_id.endswith("...")
+            or any(ord(character) < 32 for character in message_id)
+        ):
             continue
         item = {
             "message_id": message_id,
             "source_id": int(source.id),
             "workspace_id": getattr(source, "workspace_id", None),
-            "method": method,
-            "folder": str(value.get("folder") or source.folder or "INBOX"),
-            "account": str(
-                getattr(source, "gmail_email", None)
-                or getattr(source, "m365_mailbox", None)
-                or getattr(source, "username", None)
-                or ""
-            ),
             "disposition": "pending",
             "supported": method in RECOVERY_METHODS,
+            **binding,
         }
         if method == "IMAP":
             item["unsupported_reason"] = (

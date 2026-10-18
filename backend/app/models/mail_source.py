@@ -49,7 +49,6 @@ class MailSource(Base):
     gmail_email = Column(String, nullable=True)
     # JSON-encoded list of Gmail message IDs that have already been ingested
     gmail_ingested_ids = Column(Text, nullable=True, default="[]")
-    gmail_ignored_ids = Column(Text, nullable=True, default="[]")
 
     # Microsoft 365 / Graph OAuth2 credentials (used by M365_GRAPH method)
     # ``delegated`` uses the interactive authorization-code flow; ``application``
@@ -73,7 +72,6 @@ class MailSource(Base):
     m365_email = Column(String, nullable=True)
     # JSON-encoded list of Graph message IDs that have already been ingested
     m365_ingested_ids = Column(Text, nullable=True, default="[]")
-    m365_ignored_ids = Column(Text, nullable=True, default="[]")
 
     # Polling behaviour
     polling_interval = Column(Integer, default=60)  # minutes

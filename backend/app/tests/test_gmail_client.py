@@ -935,6 +935,24 @@ class TestFetchReports:
         assert result["new_ingested_ids"] == []
         assert client.already_ingested_ids == []
 
+    def test_retry_message_marks_only_successful_processing_ingested(self):
+        client = _make_client()
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=0),
+        ):
+            successful = client.retry_message("one-message")
+        assert successful["success"] is True
+        assert successful["new_ingested_ids"] == ["one-message"]
+
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
+        ):
+            failed = client.retry_message("one-message")
+        assert failed["success"] is False
+        assert failed["new_ingested_ids"] == []
+
     def test_reports_new_domains(self):
         """fetch_reports should report domains that appear after ingestion."""
         from app.services.report_store import ReportStore
