@@ -29,7 +29,7 @@ def test_policy_none_is_protection_context_not_a_core_mail_health_penalty():
 
     assert health["score"] == 97
     assert health["grade"] == "A"
-    assert health["assessment_version"] == "3"
+    assert health["assessment_version"] == "4"
     assert health["core_mail_health"]["score"] == 97
     assert health["domain_protection"] == {
         "status": "monitoring",
@@ -86,7 +86,9 @@ def test_low_compliance_and_missing_dns_create_prioritized_actions():
     )
 
     action_types = [action["type"] for action in health["actions"]]
-    compliance_action = next(action for action in health["actions"] if action["type"] == "low_compliance")
+    compliance_action = next(
+        action for action in health["actions"] if action["type"] == "low_compliance"
+    )
 
     assert health["grade"] == "F"
     assert action_types[:2] == ["missing_dmarc", "low_compliance"]
@@ -95,6 +97,105 @@ def test_low_compliance_and_missing_dns_create_prioritized_actions():
         "failed",
     ]
     assert "missing_spf" in action_types
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        {"total_emails": 0, "report_count": 0},
+        {"total_emails": 0, "report_count": 3},
+    ],
+)
+def test_empty_report_window_does_not_present_compliance_failure(domain):
+    health = score_domain_health(
+        {
+            "domain_name": "quiet.example",
+            "pass_rate": 0,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "dmarc_policy": "reject",
+            "dmarc_warnings": [],
+            **domain,
+        }
+    )
+
+    assert health["score"] == 79
+    assert health["grade"] == "C"
+    assert health["status"] == "attention"
+    assert health["evidence_status"] == "insufficient_evidence"
+    assert health["unknown_factors"] == ["dmarc_compliance"]
+    assert health["factors"]["dmarc_compliance"] == 0.0
+    assert not any(action["type"] == "low_compliance" for action in health["actions"])
+    assert not any(item["factor"] == "dmarc_compliance" for item in health["path_to_100"]["items"])
+    assert sum(item["expected_score_delta"] for item in health["path_to_100"]["items"]) == 21
+    waiting = next(
+        item for item in health["path_to_100"]["items"] if item["kind"] == "waiting_for_evidence"
+    )
+    assert waiting["factor"] == "report_confidence"
+    assert waiting["expected_score_delta"] == 15
+
+
+def test_observed_mail_score_keeps_compliance_weight():
+    health = score_domain_health(
+        {
+            "domain_name": "active.example",
+            "total_emails": 1000,
+            "report_count": 10,
+            "pass_rate": 100,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "dmarc_policy": "reject",
+            "dmarc_warnings": [],
+        }
+    )
+
+    assert health["score"] == 96
+    assert health["evidence_status"] == "observed"
+    assert health["unknown_factors"] == []
+
+
+def test_empty_report_window_with_bad_dns_remains_visible():
+    health = score_domain_health(
+        {
+            "domain_name": "broken-quiet.example",
+            "total_emails": 0,
+            "report_count": 0,
+            "pass_rate": 0,
+            "dmarc_status": False,
+            "spf_status": False,
+            "dkim_status": False,
+            "dmarc_policy": "missing",
+            "dmarc_warnings": [],
+        }
+    )
+
+    assert health["grade"] == "F"
+    assert health["status"] == "critical"
+    assert any(action["type"] == "missing_dmarc" for action in health["actions"])
+
+
+def test_system_summary_keeps_quiet_domain_at_attention():
+    domain = {
+        "domain_name": "quiet.example",
+        "total_emails": 0,
+        "report_count": 0,
+        "pass_rate": 0,
+        "dmarc_status": True,
+        "spf_status": True,
+        "dkim_status": True,
+        "dmarc_policy": "reject",
+        "dmarc_warnings": [],
+    }
+    domain_health = [score_domain_health(domain)]
+
+    summary = build_health_summary([domain], domain_health)
+
+    assert summary["score"] == 79
+    assert summary["grade"] == "C"
+    assert summary["status"] == "attention"
+    assert summary["attention_domains"] == 1
 
 
 def test_path_to_100_excludes_policy_and_optional_hardening():
@@ -110,9 +211,7 @@ def test_path_to_100_excludes_policy_and_optional_hardening():
             "dkim_status": True,
             "dmarc_policy": "none",
             "dmarc_warnings": [],
-            "source_reputation": {
-                "summary": {"total_sources": 1, "highest_risk_score": 0}
-            },
+            "source_reputation": {"summary": {"total_sources": 1, "highest_risk_score": 0}},
         }
     )
 
@@ -183,12 +282,8 @@ def test_missing_dmarc_scores_worse_than_policy_none():
         "dkim_status": True,
         "dmarc_warnings": [],
     }
-    policy_none = score_domain_health(
-        {**shared, "dmarc_status": True, "dmarc_policy": "none"}
-    )
-    missing_record = score_domain_health(
-        {**shared, "dmarc_status": False, "dmarc_policy": "none"}
-    )
+    policy_none = score_domain_health({**shared, "dmarc_status": True, "dmarc_policy": "none"})
+    missing_record = score_domain_health({**shared, "dmarc_status": False, "dmarc_policy": "none"})
 
     assert missing_record["score"] < policy_none["score"]
     assert any(action["type"] == "missing_dmarc" for action in missing_record["actions"])
@@ -218,7 +313,9 @@ def test_dns_lookup_failure_preserves_report_policy_and_avoids_missing_dns_actio
     )
 
     action_types = [action["type"] for action in health["actions"]]
-    dns_action = next(action for action in health["actions"] if action["type"] == "dns_evidence_unavailable")
+    dns_action = next(
+        action for action in health["actions"] if action["type"] == "dns_evidence_unavailable"
+    )
     evidence = {item["label"]: item["value"] for item in dns_action["evidence"]}
 
     assert health["factors"]["policy_strength"] == 100.0
