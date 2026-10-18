@@ -3,6 +3,7 @@
 import base64
 import zipfile
 from email.message import EmailMessage
+from email.mime.message import MIMEMessage
 from email.mime.multipart import MIMEMultipart
 from io import BytesIO
 from types import SimpleNamespace
@@ -707,6 +708,37 @@ class TestMicrosoftGraphFetchReports:
         assert found == 1
         assert stats["errors"] == []
 
+    def test_mime_part_rfc822_accepts_message_payload(self):
+        nested = EmailMessage()
+        nested.set_content("Forwarded message")
+
+        attachment = MicrosoftGraphClient._mime_part_attachment(MIMEMessage(nested))
+
+        assert attachment is not None
+        assert base64.b64decode(attachment["contentBytes"]) == nested.as_bytes()
+
+    def test_mime_part_rfc822_accepts_a_single_message_payload(self):
+        nested = EmailMessage()
+        nested.set_content("Forwarded message")
+        part = EmailMessage()
+        part.set_type("message/rfc822")
+        part.set_payload(nested)
+
+        attachment = MicrosoftGraphClient._mime_part_attachment(part)
+
+        assert attachment is not None
+        assert base64.b64decode(attachment["contentBytes"]) == nested.as_bytes()
+
+    def test_mime_part_rfc822_decodes_a_raw_payload(self):
+        part = EmailMessage()
+        part.set_type("message/rfc822")
+        part.set_payload("Subject: forwarded report\n\nbody")
+
+        attachment = MicrosoftGraphClient._mime_part_attachment(part)
+
+        assert attachment is not None
+        assert base64.b64decode(attachment["contentBytes"]) == b"Subject: forwarded report\n\nbody"
+
     def test_base64_rfc822_leaf_is_decoded_before_serialization(self, db_session):
         nested = EmailMessage()
         nested.set_content("Attached report")
@@ -846,6 +878,65 @@ class TestMicrosoftGraphFetchReports:
         assert result == (1, False)
         assert paths[-1].endswith("/messages/message-fallback/$value")
 
+    def test_item_attachment_keeps_message_retryable_when_both_mime_reads_fail(self, monkeypatch):
+        client = _make_client()
+        monkeypatch.setattr(client, "_get_nested_attachments", lambda *_args: [])
+
+        def fail_read(_path):
+            raise MicrosoftGraphError("MIME endpoint unavailable")
+
+        monkeypatch.setattr(client, "_request_bytes", fail_read)
+        stats = initial_import_stats(client.import_context())
+
+        result = client._process_item_attachment(
+            "message-fallback-failure",
+            {"id": "item-1", "name": "forwarded.eml"},
+            stats,
+            depth=0,
+            attachment_count=[0],
+        )
+
+        assert result == (0, True)
+        assert stats["details"][-1]["reason"] == "nested_attachment_fetch_failed"
+        assert "raw MIME fallback failed" in stats["errors"][-1]
+
+    def test_item_attachment_without_id_is_reported_as_retryable(self):
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-item-without-id",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "name": "forwarded.eml",
+                    "item": {"attachments": []},
+                }
+            ],
+            stats,
+        )
+
+        assert found == -1
+        assert stats["details"][-1]["reason"] == "unsupported_attachment_type"
+
+    def test_non_file_attachment_with_report_name_is_skipped(self):
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-unsupported-type",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.referenceAttachment",
+                    "name": "report.zip",
+                }
+            ],
+            stats,
+        )
+
+        assert found == 0
+        assert stats["details"][-1]["reason"] == "unsupported_attachment_type"
+
     def test_nested_mime_leaves_are_not_counted_twice(self):
         nested = EmailMessage()
         nested.set_content("Attached notes")
@@ -871,6 +962,23 @@ class TestMicrosoftGraphFetchReports:
 
         assert found == 0
         assert stats["skipped_attachments"] == 50
+
+    def test_nested_mime_nonmultipart_container_is_neutral(self):
+        message = EmailMessage()
+        message.set_content("A forwarded-message body without attachments")
+
+        assert MicrosoftGraphClient._nested_mime_attachments(message) == []
+
+    def test_nested_mime_attachment_count_is_bounded(self):
+        message = EmailMessage()
+        message.set_content("A message with too many parts")
+        for index in range(101):
+            message.add_attachment(
+                b"notes", maintype="text", subtype="plain", filename=f"note-{index}.txt"
+            )
+
+        with pytest.raises(ValueError, match="attachment count exceeds"):
+            MicrosoftGraphClient._nested_mime_attachments(message)
 
     def test_nested_mime_depth_includes_outer_attachment(self):
         report = EmailMessage()

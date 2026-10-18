@@ -834,8 +834,6 @@ class MicrosoftGraphClient(MailSourceConnector):
         attachment_count = attachment_count or [0]
         attachments: List[Dict[str, Any]] = []
         children = message.get_payload() if message.is_multipart() else []
-        if not isinstance(children, list):
-            return attachments
         for part in children:
             attachment_count[0] += 1
             if attachment_count[0] > _MAX_ATTACHMENT_COUNT:
