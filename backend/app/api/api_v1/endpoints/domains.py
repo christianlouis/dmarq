@@ -61,7 +61,11 @@ from app.services.dns_cache import (
     resolve_domain_dns_cached,
 )
 from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
-from app.services.dns_posture_snapshots import accepted_dns_posture_result
+from app.services.dns_posture_refresh import refresh_domain_dns_posture
+from app.services.dns_posture_snapshots import (
+    accepted_dns_posture_result,
+    request_dns_posture_refresh,
+)
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
     provider_connector_registry,
@@ -7063,6 +7067,24 @@ async def apply_domain_dns_change_plan(  # noqa: C901 - orchestration keeps prev
     result_payload["plan_id"] = payload.plan_id
     result_payload["plan_version"] = plan_version
     result_payload["correlation_id"] = correlation_id
+    if result.applied:
+        domain = (
+            db.query(Domain)
+            .filter(Domain.name == resolved_domain, Domain.workspace_id == workspace.id)
+            .one_or_none()
+        )
+        if domain is not None:
+            request_dns_posture_refresh(
+                db,
+                domain=domain,
+                selectors=[
+                    item.strip()
+                    for item in (domain.dkim_selectors or "").split(",")
+                    if item.strip()
+                ],
+                trigger="provider_verification",
+            )
+            db.commit()
     return result_payload
 
 
@@ -7129,6 +7151,26 @@ async def _build_domain_posture_dashboard_for_workspace(
     """Build a posture dashboard, optionally persisting the current health snapshot."""
     if store is None or domain_name is None:
         domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+
+    if refresh and capture_snapshot:
+        domain = (
+            db.query(Domain)
+            .filter(Domain.name == domain_name, Domain.workspace_id == workspace.id)
+            .one_or_none()
+        )
+        if domain is not None:
+            request_dns_posture_refresh(
+                db,
+                domain=domain,
+                selectors=[
+                    item.strip()
+                    for item in (domain.dkim_selectors or "").split(",")
+                    if item.strip()
+                ],
+                trigger="operator_refresh",
+            )
+            db.commit()
+            await refresh_domain_dns_posture(domain.id)
 
     health_kwargs: Dict[str, Any] = {"refresh": refresh}
     grade_kwargs: Dict[str, Any] = {"refresh": refresh}

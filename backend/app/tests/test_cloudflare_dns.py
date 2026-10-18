@@ -20,6 +20,7 @@ from app.core.credential_encryption import encrypt_secret
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
+from app.models.dns_posture_snapshot import DomainDNSPostureCurrent
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
@@ -3693,7 +3694,9 @@ def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
     authed_client: TestClient,
     db_session,
 ):
-    db_session.add(Domain(name=DOMAIN, verified=True))
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name=DOMAIN, workspace=workspace, verified=True, dkim_selectors="mail")
+    db_session.add(domain)
     db_session.commit()
     plan = _cname_migration_plan()
     original = _record(
@@ -3755,6 +3758,9 @@ def test_dns_change_plan_applies_reviewed_cname_to_txt_migration_and_audits(
     assert details["mutation"]["current_record_type"] == "CNAME"
     assert details["mutation"]["effective_value"] == plan["effective_value"]
     assert details["rollback"]["previous_record_type"] == "CNAME"
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
+    assert current.workspace_id == workspace.id
+    assert current.next_trigger == "provider_verification"
 
 
 def test_dns_change_plan_apply_rejects_tampered_cname_migration_value(

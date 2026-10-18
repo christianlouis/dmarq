@@ -28,6 +28,7 @@ from app.api.api_v1.endpoints.domains import (
     _spf_fix_hint,
 )
 from app.models.dns_cache import DNSCache, DNSRecordChange
+from app.models.dns_posture_snapshot import DomainDNSPostureCurrent
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
@@ -2642,11 +2643,20 @@ def test_posture_dashboard_weights_optional_controls_below_core_authentication(
 
 
 def test_posture_dashboard_refreshes_health_grade_dns(
-    authed_client: TestClient,
+    authed_client: TestClient, db_session
 ):
     """refresh=true must refresh both posture checks and the domain health grade."""
+    workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="other-posture-refresh", name="Other posture refresh")
+    domain = Domain(name=DOMAIN, workspace=workspace, active=True)
+    other_domain = Domain(
+        name="other-posture-refresh.example", workspace=other_workspace, active=True
+    )
+    db_session.add_all([other_workspace, domain, other_domain])
+    db_session.commit()
     checked_at = datetime(2026, 5, 23, 12, 0, 0)
     resolver = AsyncMock(return_value=(MOCK_DNS_RESULT, False, checked_at))
+    refresh_posture = AsyncMock(return_value=True)
     mta_sts = MTAStsResult(status="missing")
     bimi = BIMIResult(status="missing")
 
@@ -2663,6 +2673,10 @@ def test_posture_dashboard_refreshes_health_grade_dns(
             "app.api.api_v1.endpoints.domains.check_bimi_cached",
             new=AsyncMock(return_value=(bimi, False, None)),
         ),
+        patch(
+            "app.api.api_v1.endpoints.domains.refresh_domain_dns_posture",
+            new=refresh_posture,
+        ),
     ):
         response = authed_client.get(f"/api/v1/domains/{DOMAIN}/posture?refresh=true")
 
@@ -2670,6 +2684,16 @@ def test_posture_dashboard_refreshes_health_grade_dns(
     assert response.json()["health"]["domain"] == DOMAIN
     assert resolver.await_count == 2
     assert all(call.kwargs["refresh"] is True for call in resolver.await_args_list)
+    refresh_posture.assert_awaited_once_with(domain.id)
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
+    assert current.workspace_id == workspace.id
+    assert current.next_trigger == "operator_refresh"
+    assert (
+        db_session.query(DomainDNSPostureCurrent)
+        .filter_by(domain_id=other_domain.id)
+        .one_or_none()
+        is None
+    )
 
 
 def test_posture_dashboard_returns_404_for_unknown_domain(authed_client: TestClient):

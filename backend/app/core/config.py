@@ -174,6 +174,9 @@ class Settings(BaseSettings):
     DNS_POSTURE_REFRESH_INTERVAL_SECONDS: int = 300
     DNS_POSTURE_REFRESH_STARTUP_DELAY_SECONDS: int = 10
     DNS_POSTURE_ABSENCE_CONFIRMATIONS: int = 2
+    # Re-resolve completed baselines older than this even without new reports.
+    DNS_POSTURE_MAX_AGE_SECONDS: int = 21600
+    DNS_POSTURE_SIDE_CHECK_TIMEOUT_SECONDS: float = 5.0
     DNS_SUMMARY_REFRESH_CONCURRENCY: int = 6
     DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS: float = 10.0
     # Health scores are materialized from cached DNS and sender evidence. UI
