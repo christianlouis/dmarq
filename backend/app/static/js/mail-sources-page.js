@@ -457,11 +457,11 @@ function mailSourcesApp() {
             delete this.backfillPollTimers[sourceId];
         },
 
-        async loadImportHistory(source) {
+        async loadImportHistory(source, preserveFeedback = false) {
             this.historySource = source;
             this.importHistory = [];
             this.historyLoading = true;
-            this.feedback = { message: '', type: '' };
+            if (!preserveFeedback) this.feedback = this.emptyFeedback();
             try {
                 const resp = await fetch(`/api/v1/mail-sources/${source.id}/imports?limit=20`);
                 if (!resp.ok) {
@@ -486,7 +486,16 @@ function mailSourcesApp() {
                 });
                 const body = await resp.json();
                 if (!resp.ok) throw new Error(body.detail || 'Retry failed');
-                await this.loadImportHistory(this.historySource);
+                const diagnostic = this.diagnosticFromResult(body);
+                this.feedback = {
+                    ...this.emptyFeedback(),
+                    ...diagnostic,
+                    message: body.success
+                        ? 'Message retry completed.'
+                        : (diagnostic.diagnostic_summary || 'Message retry completed with errors.'),
+                    type: body.success ? 'success' : 'error',
+                };
+                await this.loadImportHistory(this.historySource, true);
             } catch (e) {
                 this.feedback = { message: `Error: ${e.message}`, type: 'error' };
             } finally { item.loading = false; }

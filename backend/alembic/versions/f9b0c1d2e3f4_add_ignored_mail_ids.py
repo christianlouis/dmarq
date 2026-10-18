@@ -16,15 +16,17 @@ def upgrade() -> None:
         sa.Column("workspace_id", sa.Integer(), nullable=False),
         sa.Column("mail_source_id", sa.Integer(), nullable=False),
         sa.Column("provider", sa.String(), nullable=False),
+        sa.Column("binding_key", sa.String(length=64), nullable=False),
         sa.Column("message_id", sa.String(length=512), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["mail_source_id"], ["mail_sources.id"]),
+        sa.ForeignKeyConstraint(["mail_source_id"], ["mail_sources.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
             "workspace_id",
             "mail_source_id",
             "provider",
+            "binding_key",
             "message_id",
             name="uq_mail_source_ignored_message",
         ),
@@ -32,7 +34,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_mail_source_ignored_message_source_provider",
         "mail_source_ignored_messages",
-        ["mail_source_id", "provider"],
+        ["mail_source_id", "provider", "binding_key"],
     )
     op.create_index(
         op.f("ix_mail_source_ignored_messages_workspace_id"),

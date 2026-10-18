@@ -1,5 +1,7 @@
 """Persistence helpers for bounded, source-scoped mail recovery actions."""
 
+import hashlib
+import json
 from typing import List
 
 from sqlalchemy.orm import Session
@@ -32,9 +34,18 @@ def recovery_binding(source: MailSource) -> dict:
     return binding
 
 
+def recovery_binding_key(source: MailSource) -> str:
+    """Return a stable, non-reversible key for the current provider context."""
+    encoded = json.dumps(recovery_binding(source), sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def ignored_message_ids(db: Session, source: MailSource) -> List[str]:
     """Return durable local ignore IDs for the source's current provider."""
     provider = str(source.method or "").upper()
+    binding_key = recovery_binding_key(source)
     workspace_id = getattr(source, "workspace_id", None)
     source_id = getattr(source, "id", None)
     if not isinstance(workspace_id, int) or not isinstance(source_id, int):
@@ -47,6 +58,7 @@ def ignored_message_ids(db: Session, source: MailSource) -> List[str]:
                 MailSourceIgnoredMessage.workspace_id == workspace_id,
                 MailSourceIgnoredMessage.mail_source_id == source_id,
                 MailSourceIgnoredMessage.provider == provider,
+                MailSourceIgnoredMessage.binding_key == binding_key,
             )
             .all()
         )
@@ -56,12 +68,14 @@ def ignored_message_ids(db: Session, source: MailSource) -> List[str]:
 def ignore_message(db: Session, source: MailSource, message_id: str) -> None:
     """Persist an ignore without evicting earlier dispositions."""
     provider = str(source.method or "").upper()
+    binding_key = recovery_binding_key(source)
     exists = (
         db.query(MailSourceIgnoredMessage.id)
         .filter(
             MailSourceIgnoredMessage.workspace_id == source.workspace_id,
             MailSourceIgnoredMessage.mail_source_id == source.id,
             MailSourceIgnoredMessage.provider == provider,
+            MailSourceIgnoredMessage.binding_key == binding_key,
             MailSourceIgnoredMessage.message_id == message_id,
         )
         .first()
@@ -72,6 +86,7 @@ def ignore_message(db: Session, source: MailSource, message_id: str) -> None:
                 workspace_id=source.workspace_id,
                 mail_source_id=source.id,
                 provider=provider,
+                binding_key=binding_key,
                 message_id=message_id,
             )
         )
@@ -80,12 +95,14 @@ def ignore_message(db: Session, source: MailSource, message_id: str) -> None:
 def restore_message(db: Session, source: MailSource, message_id: str) -> None:
     """Remove only the requested source-scoped local ignore disposition."""
     provider = str(source.method or "").upper()
+    binding_key = recovery_binding_key(source)
     (
         db.query(MailSourceIgnoredMessage)
         .filter(
             MailSourceIgnoredMessage.workspace_id == source.workspace_id,
             MailSourceIgnoredMessage.mail_source_id == source.id,
             MailSourceIgnoredMessage.provider == provider,
+            MailSourceIgnoredMessage.binding_key == binding_key,
             MailSourceIgnoredMessage.message_id == message_id,
         )
         .delete(synchronize_session=False)

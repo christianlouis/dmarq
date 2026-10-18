@@ -34,6 +34,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.gmail_client import GmailClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_source_recovery import ignore_message, ignored_message_ids
 from app.services.workspace_access import ROLE_OPERATOR
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -339,6 +340,49 @@ class TestMailSourceImportRecovery:
             json={"message_id": "message-b"},
         )
         assert forged.status_code == 404
+
+    def test_ignored_messages_do_not_survive_source_deletion_with_foreign_keys_enabled(
+        self, db_session
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Deletable recovery source",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+        )
+        db_session.add(source)
+        db_session.commit()
+        db_session.execute(text("PRAGMA foreign_keys = ON"))
+        ignore_message(db_session, source, "ignored-before-delete")
+        db_session.commit()
+
+        db_session.delete(source)
+        db_session.commit()
+
+        assert db_session.query(MailSourceIgnoredMessage).count() == 0
+
+    def test_ignored_messages_are_bound_to_the_current_provider_account(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Account-bound recovery source",
+            method="GMAIL_API",
+            gmail_email="first@example.com",
+            gmail_client_id="client-id",
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        ignore_message(db_session, source, "same-provider-message")
+        db_session.commit()
+        assert ignored_message_ids(db_session, source) == ["same-provider-message"]
+
+        source.gmail_email = "second@example.com"
+        db_session.commit()
+
+        assert ignored_message_ids(db_session, source) == []
+        assert db_session.query(MailSourceIgnoredMessage).count() == 1
 
     def test_retry_uses_one_gmail_message_without_resetting_source_history(
         self, authed_client, db_session
