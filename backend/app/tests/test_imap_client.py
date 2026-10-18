@@ -7,6 +7,7 @@ and report fetching with mocked IMAP connections.
 
 import email
 import imaplib
+import json
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -19,7 +20,7 @@ from zipfile import ZipFile
 import pytest
 
 from app.models.delivery_event import DeliveryEvent
-from app.models.report import DMARCReport, ForensicReport
+from app.models.report import DMARCReport, ForensicReport, TLSReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.dmarc_parser import DMARCParser
@@ -78,6 +79,31 @@ MINIMAL_DMARC_XML = b"""\
     </auth_results>
   </record>
 </feedback>
+"""
+
+
+MINIMAL_TLS_RPT_JSON = b"""\
+{
+  "organization-name": "Test Reporter",
+  "date-range": {
+    "start-datetime": "2026-09-23T00:00:00Z",
+    "end-datetime": "2026-09-23T23:59:59Z"
+  },
+  "contact-info": "reporting@example.com",
+  "report-id": "tlsrpt-abc-123",
+  "policies": [
+    {
+      "policy": {
+        "policy-type": "sts",
+        "policy-domain": "bbnetworks.nl"
+      },
+      "summary": {
+        "total-successful-session-count": 42,
+        "total-failure-session-count": 0
+      }
+    }
+  ]
+}
 """
 
 
@@ -702,6 +728,97 @@ class TestProcessAttachments:
         assert client._process_attachments(msg, stats) == 1
         assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
         assert stats["errors"]
+
+    def test_processes_tls_rpt_gzip_attachment_persists_report(self, db_session):
+        # Real-world TLS-RPT reports use the exact same
+        # sender!domain!start!end!seq.json.gz naming convention as DMARC
+        # aggregate reports, so routing must key off the decompressed
+        # content, not the filename.
+        client = self._make_client(db=db_session)
+        gzip_content = _make_gzip_content(MINIMAL_TLS_RPT_JSON, "report.json")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment(
+                "google.com!bbnetworks.nl!1789948800!1790035199!001.json.gz",
+                gzip_content,
+                "application/gzip",
+            )
+        )
+
+        count = client._process_attachments(msg)
+
+        assert count == 1
+        assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
+        assert db_session.query(DMARCReport).count() == 0
+
+    def test_processes_tls_rpt_zip_attachment_persists_report(self, db_session):
+        client = self._make_client(db=db_session)
+        archive = _make_zip_content(MINIMAL_TLS_RPT_JSON, "nested/tls-report.json")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("tls-report.zip", archive, "application/zip")
+        )
+
+        assert client._process_attachments(msg) == 1
+        assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
+
+    def test_processes_tls_rpt_plain_json_attachment(self, db_session):
+        client = self._make_client(db=db_session)
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.json", MINIMAL_TLS_RPT_JSON, "application/json")
+        )
+
+        count = client._process_attachments(msg)
+
+        assert count == 1
+        assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
+
+    def test_tls_multi_policy_and_invalid_tls_followed_by_dmarc(self, db_session):
+        client = self._make_client(db=db_session)
+        multi_policy = json.loads(MINIMAL_TLS_RPT_JSON)
+        multi_policy["policies"].append(
+            {
+                "policy": {"policy-type": "no-policy-found", "policy-domain": "other.example"},
+                "summary": {
+                    "total-successful-session-count": 3,
+                    "total-failure-session-count": 2,
+                },
+            }
+        )
+        first = email.message_from_bytes(
+            _make_email_with_attachment("tls.json", b"{invalid", "application/json")
+        )
+        valid_tls = email.message_from_bytes(
+            _make_email_with_attachment(
+                "tls2.json", json.dumps(multi_policy).encode(), "application/json"
+            )
+        )
+        valid_dmarc = email.message_from_bytes(
+            _make_email_with_attachment("dmarc.xml", MINIMAL_DMARC_XML, "application/xml")
+        )
+        for part in valid_tls.get_payload()[1:] + valid_dmarc.get_payload()[1:]:
+            first.attach(part)
+
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        assert client._process_attachments(first, stats) == 2
+        assert db_session.query(TLSReport).count() == 2
+        assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "tls_parse_failed"
+
+    def test_duplicate_tls_rpt_report_is_not_recounted(self, db_session):
+        client = self._make_client(db=db_session)
+        gzip_content = _make_gzip_content(MINIMAL_TLS_RPT_JSON, "report.json")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.json.gz", gzip_content, "application/gzip")
+        )
+
+        first = client._process_attachments(msg)
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        second = client._process_attachments(msg, stats, message_id="dup")
+
+        assert first == 1
+        assert second == 0
+        assert stats["duplicate_reports"] == 1
+        assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
 
     def test_duplicate_report_adds_detail(self):
         client = self._make_client()

@@ -21,6 +21,8 @@ from app.services.mail_connector import (
 )
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.tls_report_parser import TLSReportParser, looks_like_tls_report
+from app.services.tls_report_persistence import save_tls_report
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -536,6 +538,7 @@ class IMAPClient:
                     "application/x-gzip",
                     "application/xml",
                     "text/xml",
+                    "application/json",
                 ):
                     return True
 
@@ -549,6 +552,7 @@ class IMAPClient:
             or lower.endswith(".zip")
             or lower.endswith(".gz")
             or lower.endswith(".gzip")
+            or lower.endswith(".json")
         )
 
     @staticmethod
@@ -693,6 +697,142 @@ class IMAPClient:
             )
             return False
 
+    def _process_tls_report_attachment(
+        self,
+        content: bytes,
+        *,
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        try:
+            parsed = TLSReportParser.parse_file(content, filename)
+        except ValueError as exc:
+            if stats is not None:
+                stats.setdefault("errors", []).append(
+                    sanitize_connector_error(f"Failed to parse TLS report {filename}: {exc}")
+                )
+            self._append_detail(
+                stats,
+                status="error",
+                reason="tls_parse_failed",
+                message_id=message_id,
+                filename=filename,
+                error=str(exc),
+            )
+            return False
+
+        if self.db is None:
+            logger.warning("No database session available; dropping TLS report %s", filename)
+            return False
+
+        connection = self.db.connection()
+        if connection.dialect.name == "sqlite" and not connection.connection.in_transaction:
+            connection.exec_driver_sql("BEGIN")
+        with self.db.begin_nested():
+            result = save_tls_report(self.db, parsed, workspace_id=self.workspace_id)
+        return self._record_tls_report_result(
+            result,
+            parsed=parsed,
+            filename=filename,
+            stats=stats,
+            message_id=message_id,
+        )
+
+    def _record_tls_report_result(
+        self,
+        result: Dict[str, Any],
+        *,
+        parsed: Dict[str, Any],
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        stored = bool(result["created"])
+        if result["rejected"]:
+            if stats is not None:
+                stats.setdefault("errors", []).append(
+                    f"TLS report contains {result['rejected']} unroutable policy entries"
+                )
+            self._append_detail(
+                stats,
+                status="error",
+                reason="tls_policy_unroutable",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        elif result["created"]:
+            logger.info("Successfully processed TLS-RPT report: %s", filename)
+            self._append_detail(
+                stats,
+                status="imported",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        elif result["complete"]:
+            if stats is not None:
+                stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
+            self._append_detail(
+                stats,
+                status="duplicate",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        else:
+            if stats is not None:
+                stats.setdefault("errors", []).append("TLS report persistence was incomplete")
+            self._append_detail(
+                stats,
+                status="error",
+                reason="tls_policy_incomplete",
+                message_id=message_id,
+                filename=filename,
+                report_id=str(parsed.get("report_id", "")),
+            )
+        return stored
+
+    def _process_dmarc_content(
+        self,
+        content: bytes,
+        *,
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        if looks_like_tls_report(content, filename):
+            return self._process_tls_report_attachment(
+                content,
+                filename=filename,
+                stats=stats,
+                message_id=message_id,
+            )
+
+        try:
+            report = DMARCParser.parse_file(content, filename)
+        except NoXMLContentError:
+            if stats is not None:
+                stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+            self._append_detail(
+                stats,
+                status="skipped",
+                reason="unrelated_attachment",
+                message_id=message_id,
+                filename=filename,
+            )
+            return False
+        stored = self._store_report_if_new(
+            report,
+            filename=filename,
+            stats=stats,
+            message_id=message_id,
+        )
+        if stored:
+            logger.info("Successfully processed DMARC report: %s", filename)
+        return stored
+
     def _process_dmarc_attachment(
         self,
         part: email.message.Message,
@@ -715,28 +855,12 @@ class IMAPClient:
                 )
                 return False
 
-            try:
-                report = DMARCParser.parse_file(content, filename)
-            except NoXMLContentError:
-                if stats is not None:
-                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
-                self._append_detail(
-                    stats,
-                    status="skipped",
-                    reason="unrelated_attachment",
-                    message_id=message_id,
-                    filename=filename,
-                )
-                return False
-            stored = self._store_report_if_new(
-                report,
+            return self._process_dmarc_content(
+                content,
                 filename=filename,
                 stats=stats,
                 message_id=message_id,
             )
-            if stored:
-                logger.info("Successfully processed DMARC report: %s", filename)
-            return stored
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error processing attachment %s: %s", filename, str(exc))
             if stats is not None:
