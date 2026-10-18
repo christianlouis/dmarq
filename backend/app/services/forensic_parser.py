@@ -195,10 +195,10 @@ class ForensicParser:
             if content_type == "text/rfc822-headers" and "dmarc" in _payload_text(part).lower():
                 return True
 
-        subject = _header(msg, "Subject", redact=False).lower()
-        return "dmarc" in subject and any(
-            term in subject for term in ("failure", "forensic", "ruf")
-        )
+        # A subject alone is insufficient evidence: newsletters and support
+        # notices commonly mention DMARC failures without carrying an ARF/RUF
+        # report.  Only report-specific MIME parts classify a message here.
+        return False
 
     @classmethod
     def parse_bytes(
