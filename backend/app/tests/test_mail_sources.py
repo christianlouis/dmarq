@@ -461,7 +461,11 @@ class TestMailSourceImportRecovery:
                         "reason": "already_ingested_message",
                         "message_id": "stable-old-message",
                     },
-                    {"status": "error", "message_id": "failed-message"},
+                    {
+                        "status": "error",
+                        "message_id": "failed-message",
+                        "filename": "aggregate-report.xml",
+                    },
                     {"status": "error", "message_id": "redacted..."},
                 ],
             },
@@ -477,6 +481,7 @@ class TestMailSourceImportRecovery:
         ]
         assert all(item["account"] == "reports@example.com" for item in recovery)
         assert all(item["client_id"] == "client-id" for item in recovery)
+        assert recovery[1]["label"] == "aggregate-report.xml"
 
 
 def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):

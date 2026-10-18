@@ -562,6 +562,13 @@ function mailSourcesApp() {
                 .join('-');
         },
 
+        recoveryItemLabel(item) {
+            const label = String((item && item.label) || '').trim();
+            if (label) return label;
+            const messageId = String((item && item.message_id) || '');
+            return messageId ? `Message …${messageId.slice(-10)}` : this.t('Provider message');
+        },
+
         detailMailboxFolder(detail) {
             return `${detail.mailbox || this.t('mailbox')} / ${detail.folder || this.t('folder')}`;
         },

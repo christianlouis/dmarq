@@ -28,6 +28,8 @@ const item = { message_id: 'ignored-message', supported: true, disposition: 'ign
 const entry = { id: 17, recovery_items: [item] };
 app.historySource = { id: 9 };
 app.importHistory = [entry];
+if (app.recoveryItemLabel({ label: 'report.xml', message_id: 'ignored-message' }) !== 'report.xml') process.exit(1);
+if (app.recoveryItemLabel({ message_id: 'provider-message-id' }) !== 'Message …message-id') process.exit(1);
 app.loadImportHistory = async (_source, preserveFeedback) => {
   app.reloaded = true;
   app.preservedFeedback = preserveFeedback;

@@ -14,6 +14,7 @@ MAX_STORED_ERRORS = 10
 MAX_ERROR_LENGTH = 500
 MAX_STORED_DETAILS = 50
 MAX_DETAIL_VALUE_LENGTH = 300
+MAX_RECOVERY_LABEL_LENGTH = 120
 DETAIL_FIELDS = {
     "status",
     "reason",
@@ -87,6 +88,15 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
             "supported": method in RECOVERY_METHODS,
             **binding,
         }
+        for field in ("filename", "report_id"):
+            label = _sanitize_detail_value(value.get(field) or "")
+            if label:
+                item["label"] = (
+                    label[: MAX_RECOVERY_LABEL_LENGTH - 3] + "..."
+                    if len(label) > MAX_RECOVERY_LABEL_LENGTH
+                    else label
+                )
+                break
         if method == "IMAP":
             item["unsupported_reason"] = (
                 "Legacy IMAP history lacks UIDVALIDITY-bound stable message metadata."

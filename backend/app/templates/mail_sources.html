@@ -313,6 +313,7 @@
                                             <template x-for="item in (entry.recovery_items || [])" :key="item.message_id">
                                                 <div class="flex items-center gap-1 mb-1">
                                                     <span class="badge badge-sm" x-text="item.disposition"></span>
+                                                    <span class="text-xs max-w-40 truncate" x-text="recoveryItemLabel(item)"></span>
                                                     <button class="btn btn-ghost btn-xs" data-mail-source-recovery-retry :data-import-id="entry.id" :data-message-id="item.message_id" :disabled="item.loading" x-show="item.supported">Retry</button>
                                                     <button class="btn btn-ghost btn-xs" data-mail-source-recovery-ignore :data-import-id="entry.id" :data-message-id="item.message_id" :disabled="item.loading" x-show="item.supported && item.disposition === 'pending'">Ignore</button>
                                                     <span class="text-muted-foreground text-xs" x-show="!item.supported" x-text="item.unsupported_reason || 'Recovery is unavailable for this provider message.'"></span>
