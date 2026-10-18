@@ -33,6 +33,7 @@ for module in pkgutil.iter_modules(app.models.__path__):
 from app.models.domain import Domain  # noqa: E402
 from app.models.report import DMARCReport, ReportRecord  # noqa: E402
 from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
+from app.services.source_read_projection import rebuild_source_projections  # noqa: E402
 
 
 def _plan(inventory: list[Dict[str, Any]]) -> Dict[str, Any]:
@@ -180,6 +181,7 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
     )
     if len(locked) != len(all_ids):
         raise RuntimeError("cleanup plan changed: candidate rows no longer exist")
+    report_domains = {report.id: report.domain_id for report in locked}
     # Reports reference mutable child rows. Lock them too so the semantic
     # preflight, backup and delete all observe the same payload.
     db.query(ReportRecord).filter(ReportRecord.report_id.in_(all_ids)).order_by(
@@ -199,6 +201,10 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
         if report.id in remove_set:
             db.delete(report)
     db.flush()
+    rebuild_source_projections(
+        db,
+        domain_ids=[report_domains[report_id] for report_id in remove_ids],
+    )
     after = _totals(db, workspace_id)
     expected = (before[0] - len(records), before[1] - sum(int(r.count or 0) for r in records))
     if after != expected:
@@ -222,6 +228,22 @@ def restore_backup(db, path: str) -> Dict[str, int]:
     existing_report_ids = {
         row[0] for row in db.query(DMARCReport.id).filter(DMARCReport.id.in_(report_ids)).all()
     }
+    missing_reports = [row for row in reports if int(row["id"]) not in existing_report_ids]
+    report_domains = {int(row["id"]): int(row["domain_id"]) for row in reports}
+    record_ids = [int(row["id"]) for row in records]
+    existing_record_ids = {
+        row[0] for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
+    }
+    missing_records = [row for row in records if int(row["id"]) not in existing_record_ids]
+    affected_domain_ids = {int(row["domain_id"]) for row in missing_reports} | {
+        report_domains[int(row["report_id"])]
+        for row in missing_records
+        if int(row["report_id"]) in report_domains
+    }
+    if affected_domain_ids:
+        db.query(Domain).filter(Domain.id.in_(affected_domain_ids)).order_by(
+            Domain.id
+        ).with_for_update().all()
     for row in reports:
         if int(row["id"]) in existing_report_ids:
             continue
@@ -231,14 +253,11 @@ def restore_backup(db, path: str) -> Dict[str, int]:
                 values[key] = datetime.fromisoformat(values[key].replace("Z", "+00:00"))
         db.add(DMARCReport(**values))
     db.flush()
-    record_ids = [int(row["id"]) for row in records]
-    existing_record_ids = {
-        row[0] for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
-    }
     for row in records:
         if int(row["id"]) not in existing_record_ids:
             db.add(ReportRecord(**row))
     db.flush()
+    rebuild_source_projections(db, domain_ids=affected_domain_ids)
     return {
         "reports": len(reports) - len(existing_report_ids),
         "records": len(records) - len(existing_record_ids),

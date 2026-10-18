@@ -16,10 +16,11 @@ import app.models.workspace  # noqa: E402, F401
 from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
 from app.core.database import Base  # noqa: E402
 from app.models.domain import Domain  # noqa: E402
-from app.models.report import DMARCReport, ReportRecord  # noqa: E402
+from app.models.report import DomainSourceDailyProjection, DMARCReport, ReportRecord  # noqa: E402
 from app.models.workspace import Workspace  # noqa: E402
 from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
 from app.services.report_persistence import _iso_from_timestamp, save_parsed_report  # noqa: E402
+from app.services.source_read_projection import rebuild_source_projections  # noqa: E402
 
 
 def _db():
@@ -289,6 +290,9 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
                 )
             )
         db.commit()
+        rebuild_source_projections(db, domain_ids=[domain.id])
+        db.commit()
+        assert db.query(DomainSourceDailyProjection).one().message_count == 8
         dry = reconcile(db, workspace_id=workspace.id, apply=False, backup=None)
         assert dry["mode"] == "dry-run"
         assert dry["plan"]["eligible_groups"] == 1
@@ -303,12 +307,14 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
         assert len(json.loads(backup.read_text())["reports"]) == 4
         assert db.query(DMARCReport).count() == 3
         assert db.query(ReportRecord).count() == 3
+        assert db.query(DomainSourceDailyProjection).one().message_count == 6
         restored = restore_backup(db, str(backup))
         db.commit()
         assert restored["reports"] == 1
         assert restored["records"] == 1
         assert db.query(DMARCReport).count() == 4
         assert db.query(ReportRecord).count() == 4
+        assert db.query(DomainSourceDailyProjection).one().message_count == 8
     finally:
         db.close()
         Base.metadata.drop_all(engine)
