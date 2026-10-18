@@ -643,7 +643,9 @@ function dashboardApp() {
                 
                 const lastCheckValue = data.latest_source_check || data.last_check;
                 if (lastCheckValue) {
-                    lastCheck.textContent = new Date(lastCheckValue).toLocaleString();
+                    lastCheck.textContent = typeof window.dmarqFormatDateTime === 'function'
+                        ? window.dmarqFormatDateTime(lastCheckValue, '—')
+                        : new Date(lastCheckValue).toLocaleString();
                 } else {
                     lastCheck.textContent = 'Never';
                 }

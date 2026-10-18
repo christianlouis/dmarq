@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -146,6 +147,70 @@ def _run_dashboard_expression(expression: str) -> str:
         process.stdout.write(String(new Function('app', `return ${expression};`)(app)));
         """
     return _run_dashboard_script(runner_body, expression)
+
+
+@pytest.mark.parametrize(
+    ("app_timezone", "timestamp", "expected_time"),
+    [
+        ("UTC", "2026-10-12T10:00:00+00:00", "10:00:00"),
+        ("Europe/Berlin", "2026-10-12T10:00:00+00:00", "12:00:00"),
+        ("Europe/Berlin", "2026-01-12T10:00:00+00:00", "11:00:00"),
+    ],
+)
+def test_dashboard_timestamp_formatter_ignores_browser_timezone(
+    app_timezone: str, timestamp: str, expected_time: str
+):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute dashboard timestamp formatting tests")
+
+    static_dir = Path(__file__).resolve().parents[1] / "static" / "js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const appTimezone = process.argv[3];
+        const timestamp = process.argv[4];
+        const lastCheck = {textContent: ''};
+        const element = () => ({
+            classList: {add: () => {}, remove: () => {}},
+            set textContent(value) { this.value = value; },
+            get textContent() { return this.value || ''; },
+        });
+        const document = {
+            addEventListener: () => {},
+            documentElement: {
+                dataset: {appTimezone, appLocale: 'en'},
+                lang: 'en',
+                classList: {add: () => {}, remove: () => {}},
+                setAttribute: () => {},
+            },
+            getElementById: (id) => id === 'imap-last-check' ? lastCheck : element(),
+        };
+        const window = {};
+        global.localStorage = {getItem: () => null, setItem: () => {}};
+        new Function('document', 'window', fs.readFileSync(process.argv[1], 'utf8'))(document, window);
+        const dashboardAppFactory = new Function(
+            'window', 'document', `${fs.readFileSync(process.argv[2], 'utf8')}\nreturn dashboardApp;`
+        )(window, document);
+        global.fetch = async () => ({
+            ok: true,
+            json: async () => ({
+                enabled_sources: 1,
+                latest_source_check: timestamp,
+                is_running: true,
+                attention_sources: 0,
+            }),
+        });
+        dashboardAppFactory().getReportIntakeStatus().then(() => process.stdout.write(lastCheck.textContent));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(static_dir / "base-layout.js"), str(static_dir / "dashboard-page.js"), app_timezone, timestamp],
+        check=True,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "TZ": "Europe/Berlin"},
+    )
+
+    assert expected_time in result.stdout
 
 
 def _operations_template() -> str:
