@@ -771,6 +771,46 @@ class TestProcessAttachments:
         assert count == 1
         assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
 
+    def test_tls_policy_rejection_is_recorded_as_error(self, db_session, monkeypatch):
+        client = self._make_client(db=db_session)
+        stats = {"errors": [], "details": []}
+        monkeypatch.setattr(
+            "app.services.imap_client.save_tls_report",
+            lambda *_args, **_kwargs: {"created": False, "rejected": 1, "complete": False},
+        )
+
+        assert (
+            client._process_tls_report_attachment(
+                MINIMAL_TLS_RPT_JSON,
+                filename="report.json",
+                stats=stats,
+                message_id="tls-rejected",
+            )
+            is False
+        )
+        assert stats["errors"] == ["TLS report contains 1 unroutable policy entries"]
+        assert stats["details"][0]["reason"] == "tls_policy_unroutable"
+
+    def test_incomplete_tls_persistence_is_retryable(self, db_session, monkeypatch):
+        client = self._make_client(db=db_session)
+        stats = {"errors": [], "details": []}
+        monkeypatch.setattr(
+            "app.services.imap_client.save_tls_report",
+            lambda *_args, **_kwargs: {"created": False, "rejected": 0, "complete": False},
+        )
+
+        assert (
+            client._process_tls_report_attachment(
+                MINIMAL_TLS_RPT_JSON,
+                filename="report.json",
+                stats=stats,
+                message_id="tls-incomplete",
+            )
+            is False
+        )
+        assert stats["errors"] == ["TLS report persistence was incomplete"]
+        assert stats["details"][0]["reason"] == "tls_policy_incomplete"
+
     def test_tls_multi_policy_and_invalid_tls_followed_by_dmarc(self, db_session):
         client = self._make_client(db=db_session)
         multi_policy = json.loads(MINIMAL_TLS_RPT_JSON)
