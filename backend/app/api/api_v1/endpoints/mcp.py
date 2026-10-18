@@ -60,16 +60,19 @@ def _negotiate_protocol_version(params: Dict[str, Any]) -> str:
     return MCP_DEFAULT_PROTOCOL_VERSION
 
 
-def _request_protocol_version(request: Request, params: Dict[str, Any]) -> str:
+def _request_protocol_version(
+    request: Request, params: Dict[str, Any], *, initializing: bool = False
+) -> str:
     """Resolve the protocol revision for this request without session state."""
     header_version = request.headers.get("MCP-Protocol-Version")
-    if header_version:
+    if "MCP-Protocol-Version" in request.headers:
         if header_version not in MCP_SUPPORTED_PROTOCOL_VERSIONS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported MCP-Protocol-Version: {header_version}",
             )
-        return header_version
+        if not initializing:
+            return header_version
     return _negotiate_protocol_version(params) if params else MCP_DEFAULT_PROTOCOL_VERSION
 
 
@@ -588,7 +591,9 @@ async def mcp_jsonrpc(
         PERMISSION_REPORTS_READ,
     )
     _require_advanced_integrations(db, workspace)
-    protocol_version = _request_protocol_version(request, payload.params)
+    protocol_version = _request_protocol_version(
+        request, payload.params, initializing=payload.method == "initialize"
+    )
     if payload.id is None and payload.method.startswith("notifications/"):
         # JSON-RPC notifications have no response body; MCP HTTP uses 202.
         return Response(status_code=status.HTTP_202_ACCEPTED)
