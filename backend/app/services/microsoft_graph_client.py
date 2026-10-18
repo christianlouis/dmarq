@@ -45,6 +45,8 @@ M365_AUTH_MODES = {M365_AUTH_MODE_DELEGATED, M365_AUTH_MODE_APPLICATION}
 
 _PAGE_SIZE = 100
 _MAX_FOLDER_DEPTH = 5
+_MAX_ATTACHMENT_DEPTH = 3
+_MAX_ATTACHMENT_COUNT = 100
 _MAX_GRAPH_RETRIES = 3
 _MAX_RETRY_DELAY_SECONDS = 30
 _RETRYABLE_STATUS_CODES = {429, 503, 504}
@@ -702,8 +704,22 @@ class MicrosoftGraphClient(MailSourceConnector):
         data = self._request(
             "GET",
             f"{mailbox_path}/messages/{quote(message_id, safe='')}/attachments",
+            params={"$expand": "microsoft.graph.itemAttachment/item($expand=attachments)"},
         )
         return list(data.get("value", []))
+
+    def _get_nested_attachments(self, message_id: str, attachment_id: str) -> List[Dict[str, Any]]:
+        """Load an item attachment and expand its child attachments."""
+        mailbox_path = self._mailbox_path()
+        data = self._request(
+            "GET",
+            f"{mailbox_path}/messages/{quote(message_id, safe='')}/attachments/"
+            f"{quote(attachment_id, safe='')}",
+            params={"$expand": "microsoft.graph.itemAttachment/item($expand=attachments)"},
+        )
+        item = data.get("item") if isinstance(data, dict) else None
+        children = item.get("attachments") if isinstance(item, dict) else None
+        return list(children or []) if isinstance(children, list) else []
 
     def _store_report_if_new(self, report: Dict[str, Any]) -> bool:
         domain = report.get("domain", "unknown")
@@ -723,19 +739,113 @@ class MicrosoftGraphClient(MailSourceConnector):
         self.report_store.add_report(report)
         return True
 
+    @staticmethod
+    def _is_mime_attachment(filename: str, content_type: str) -> bool:
+        return (
+            filename.lower().endswith((".eml", ".mime")) or content_type.lower() == "message/rfc822"
+        )
+
+    def _process_mime_attachment(
+        self,
+        message_id: str,
+        filename: str,
+        content: bytes,
+        stats: Dict[str, Any],
+        *,
+        depth: int,
+        attachment_count: List[int],
+    ) -> int:
+        """Walk one bounded RFC822 attachment and process its report parts."""
+        if depth >= _MAX_ATTACHMENT_DEPTH:
+            self._append_detail(
+                stats,
+                status="error",
+                reason="attachment_depth_exceeded",
+                message_id=message_id,
+                filename=filename,
+            )
+            return -1
+        if len(content) > MAX_DSN_BYTES:
+            raise ValueError("attachment exceeds the safe size limit")
+        parsed = email.message_from_bytes(content)
+        nested: List[Dict[str, Any]] = []
+        for part in parsed.walk():
+            part_filename = str(part.get_filename() or "")
+            content_type = str(part.get_content_type() or "")
+            if content_type.lower() == "message/rfc822":
+                payload = part.get_payload()
+                nested_bytes = (
+                    payload.as_bytes()
+                    if hasattr(payload, "as_bytes")
+                    else part.get_payload(decode=True)
+                )
+                if isinstance(payload, list) and payload and hasattr(payload[0], "as_bytes"):
+                    nested_bytes = payload[0].as_bytes()
+                if nested_bytes:
+                    nested.append(
+                        {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": part_filename or "attached-message.eml",
+                            "contentType": "message/rfc822",
+                            "contentBytes": base64.b64encode(nested_bytes).decode("ascii"),
+                        }
+                    )
+            elif part.is_multipart():
+                continue
+            elif part_filename:
+                payload = part.get_payload(decode=True)
+                if payload:
+                    nested.append(
+                        {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": part_filename,
+                            "contentType": content_type,
+                            "contentBytes": base64.b64encode(payload).decode("ascii"),
+                        }
+                    )
+        if not nested:
+            raise ValueError("RFC822 attachment contains no usable parts")
+        return self._process_attachments(
+            message_id,
+            nested,
+            stats,
+            depth=depth,
+            attachment_count=attachment_count,
+        )
+
     def _process_attachments(
         self,
         message_id: str,
         attachments: List[Dict[str, Any]],
         stats: Dict[str, Any],
+        *,
+        depth: int = 0,
+        attachment_count: Optional[List[int]] = None,
     ) -> int:
+        attachment_count = attachment_count or [0]
         reports_found = 0
+        had_error = False
 
         for attachment in attachments:
+            attachment_count[0] += 1
+            if attachment_count[0] > _MAX_ATTACHMENT_COUNT:
+                self._append_detail(
+                    stats,
+                    status="error",
+                    reason="attachment_limit_exceeded",
+                    message_id=message_id,
+                )
+                return -1
             filename = str(attachment.get("name") or "")
             if not filename:
                 continue
-            if not self._is_dmarc_attachment(filename):
+            attachment_type = str(attachment.get("@odata.type") or "").lower()
+            content_type = str(attachment.get("contentType") or "")
+            if (
+                not self._is_dmarc_attachment(filename)
+                and not self._is_mime_attachment(filename, content_type)
+                and "itemattachment" not in attachment_type
+            ):
                 self._append_detail(
                     stats,
                     status="skipped",
@@ -745,7 +855,56 @@ class MicrosoftGraphClient(MailSourceConnector):
                 )
                 continue
 
-            attachment_type = str(attachment.get("@odata.type") or "").lower()
+            if "itemattachment" in attachment_type:
+                if depth >= _MAX_ATTACHMENT_DEPTH:
+                    self._append_detail(
+                        stats,
+                        status="error",
+                        reason="attachment_depth_exceeded",
+                        message_id=message_id,
+                        filename=filename,
+                    )
+                    had_error = True
+                    continue
+                item = attachment.get("item")
+                nested = item.get("attachments") if isinstance(item, dict) else None
+                if not isinstance(nested, list):
+                    attachment_id = str(attachment.get("id") or "")
+                    if not attachment_id:
+                        self._append_detail(
+                            stats,
+                            status="skipped",
+                            reason="unsupported_attachment_type",
+                            message_id=message_id,
+                            filename=filename,
+                        )
+                        had_error = True
+                        continue
+                    try:
+                        nested = self._get_nested_attachments(message_id, attachment_id)
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
+                        self._append_detail(
+                            stats,
+                            status="error",
+                            reason="nested_attachment_fetch_failed",
+                            message_id=message_id,
+                            filename=filename,
+                            error=str(exc),
+                        )
+                        had_error = True
+                        continue
+                nested_found = self._process_attachments(
+                    message_id,
+                    nested,
+                    stats,
+                    depth=depth + 1,
+                    attachment_count=attachment_count,
+                )
+                if nested_found < 0:
+                    had_error = True
+                else:
+                    reports_found += nested_found
+                continue
             if "fileattachment" not in attachment_type:
                 self._append_detail(
                     stats,
@@ -768,7 +927,26 @@ class MicrosoftGraphClient(MailSourceConnector):
                 continue
 
             try:
+                max_encoded_size = ((MAX_DSN_BYTES + 2) // 3) * 4
+                if isinstance(content_b64, str) and len(content_b64) > max_encoded_size:
+                    raise ValueError("attachment exceeds the safe size limit")
                 content = base64.b64decode(content_b64)
+                if len(content) > MAX_DSN_BYTES:
+                    raise ValueError("attachment exceeds the safe size limit")
+                if self._is_mime_attachment(filename, str(attachment.get("contentType") or "")):
+                    mime_found = self._process_mime_attachment(
+                        message_id,
+                        filename,
+                        content,
+                        stats,
+                        depth=depth + 1,
+                        attachment_count=attachment_count,
+                    )
+                    if mime_found < 0:
+                        had_error = True
+                    else:
+                        reports_found += mime_found
+                    continue
                 report = DMARCParser.parse_file(content, filename)
                 domain = str(report.get("domain", "unknown"))
                 report_id = str(report.get("report_id", ""))
@@ -794,6 +972,7 @@ class MicrosoftGraphClient(MailSourceConnector):
                         report_id=report_id,
                     )
             except Exception as exc:  # pylint: disable=broad-exception-caught
+                had_error = True
                 logger.error("Failed to parse Graph DMARC attachment %s: %s", filename, exc)
                 stats["errors"].append(
                     sanitize_connector_error(f"Failed to parse {filename}: {exc}")
@@ -807,4 +986,4 @@ class MicrosoftGraphClient(MailSourceConnector):
                     error=str(exc),
                 )
 
-        return reports_found
+        return -1 if had_error else reports_found
