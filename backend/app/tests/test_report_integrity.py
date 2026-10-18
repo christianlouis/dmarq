@@ -5,21 +5,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-import app.models.domain  # noqa: F401
-import app.models.organization  # noqa: F401
-import app.models.report  # noqa: F401
-import app.models.user  # noqa: F401
-import app.models.workspace  # noqa: F401
-from app.core.database import Base
-from app.models.domain import Domain
-from app.models.report import DMARCReport, ReportRecord
-from app.models.workspace import Workspace
-from app.services.report_integrity import duplicate_report_inventory
-from app.services.report_persistence import _iso_from_timestamp, save_parsed_report
-from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup
+import app.models.domain  # noqa: E402, F401
+import app.models.organization  # noqa: E402, F401
+import app.models.report  # noqa: E402, F401
+import app.models.user  # noqa: E402, F401
+import app.models.workspace  # noqa: E402, F401
+from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
+from app.core.database import Base  # noqa: E402
+from app.models.domain import Domain  # noqa: E402
+from app.models.report import DMARCReport, ReportRecord  # noqa: E402
+from app.models.workspace import Workspace  # noqa: E402
+from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
+from app.services.report_persistence import _iso_from_timestamp, save_parsed_report  # noqa: E402
 
 
 def _db():
@@ -126,6 +126,97 @@ def test_duplicate_inventory_handles_none_and_text_record_fields():
         engine.dispose()
 
 
+def test_duplicate_inventory_compares_raw_data_and_source_evidence():
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="payload-conflicts", name="Payload Conflicts")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="payload-conflicts.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        for report_id, raw_data, source_evidence in (
+            ("raw", "<first/>", None),
+            ("raw", "<second/>", None),
+            ("evidence", "<same/>", '{"network":"first"}'),
+            ("evidence", "<same/>", '{"network":"second"}'),
+        ):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id=report_id,
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+                raw_data=raw_data,
+            )
+            db.add(report)
+            db.flush()
+            db.add(
+                ReportRecord(
+                    report_id=report.id,
+                    source_ip="192.0.2.3",
+                    count=1,
+                    disposition="none",
+                    dkim="pass",
+                    spf="pass",
+                    source_evidence=source_evidence,
+                )
+            )
+        db.commit()
+        result = duplicate_report_inventory(db, workspace_id=workspace.id)
+        assert [(item["report_id"], item["classification"]) for item in result] == [
+            ("evidence", "conflict"),
+            ("raw", "conflict"),
+        ]
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_duplicate_inventory_ignores_record_insertion_order():
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="record-order", name="Record Order")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="record-order.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        records = [
+            ("192.0.2.4", 1),
+            ("192.0.2.5", 2),
+        ]
+        for values in (records, list(reversed(records))):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id="same",
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+            )
+            db.add(report)
+            db.flush()
+            for source_ip, count in values:
+                db.add(
+                    ReportRecord(
+                        report_id=report.id,
+                        source_ip=source_ip,
+                        count=count,
+                        disposition="none",
+                        dkim="pass",
+                        spf="pass",
+                    )
+                )
+        db.commit()
+        result = duplicate_report_inventory(db, workspace_id=workspace.id)
+        assert result[0]["classification"] == "exact"
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
 def test_duplicate_import_returns_existing_row_without_second_persist(monkeypatch):
     engine, db = _db()
     try:
@@ -171,7 +262,12 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
         domain = Domain(name="cleanup.example", workspace_id=workspace.id)
         db.add(domain)
         db.flush()
-        for report_id, policy in (("same", "none"), ("same", "none"), ("blocked", "none"), ("blocked", "reject")):
+        for report_id, policy in (
+            ("same", "none"),
+            ("same", "none"),
+            ("blocked", "none"),
+            ("blocked", "reject"),
+        ):
             report = DMARCReport(
                 domain_id=domain.id,
                 report_id=report_id,

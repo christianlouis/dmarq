@@ -20,7 +20,7 @@ from typing import Any, Dict, Iterable
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import selectinload, sessionmaker
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "backend"))
 
 # Import every model module so SQLAlchemy can resolve all relationships in a
@@ -30,10 +30,9 @@ import app.models  # noqa: E402
 for module in pkgutil.iter_modules(app.models.__path__):
     importlib.import_module(f"app.models.{module.name}")
 
-from app.core.database import Base  # noqa: E402
+from app.models.domain import Domain  # noqa: E402
 from app.models.report import DMARCReport, ReportRecord  # noqa: E402
 from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
-from app.models.domain import Domain  # noqa: E402
 
 
 def _plan(inventory: list[Dict[str, Any]]) -> Dict[str, Any]:
@@ -87,6 +86,7 @@ def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
         db.query(DMARCReport)
         .options(selectinload(DMARCReport.records))
         .filter(DMARCReport.id.in_(ids))
+        .order_by(DMARCReport.id)
         .with_for_update()
         .all()
     )
@@ -99,7 +99,9 @@ def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
         "report_records": [],
     }
     for report in reports:
-        payload["reports"].append({key: _json_safe(value) for key, value in _row_dict(report).items()})
+        payload["reports"].append(
+            {key: _json_safe(value) for key, value in _row_dict(report).items()}
+        )
         for record in report.records:
             payload["report_records"].append(
                 {key: _json_safe(value) for key, value in _row_dict(record).items()}
@@ -125,13 +127,17 @@ def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
         except FileNotFoundError:
             pass
         raise
-    return {"path": str(destination), "reports": len(reports), "records": len(payload["report_records"])}
+    return {
+        "path": str(destination),
+        "reports": len(reports),
+        "records": len(payload["report_records"]),
+    }
 
 
 def _totals(db, workspace_id: int | None) -> tuple[int, int]:
-    query = db.query(func.count(ReportRecord.id), func.coalesce(func.sum(ReportRecord.count), 0)).join(
-        DMARCReport, ReportRecord.report_id == DMARCReport.id
-    )
+    query = db.query(
+        func.count(ReportRecord.id), func.coalesce(func.sum(ReportRecord.count), 0)
+    ).join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
     if workspace_id is not None:
         query = query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
             Domain.workspace_id == workspace_id
@@ -174,6 +180,12 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
     )
     if len(locked) != len(all_ids):
         raise RuntimeError("cleanup plan changed: candidate rows no longer exist")
+    # Reports reference mutable child rows. Lock them too so the semantic
+    # preflight, backup and delete all observe the same payload.
+    db.query(ReportRecord).filter(ReportRecord.report_id.in_(all_ids)).order_by(
+        ReportRecord.id
+    ).with_for_update().all()
+    db.expire_all()
     refreshed = _plan(duplicate_report_inventory(db, workspace_id=workspace_id))
     if refreshed != plan:
         raise RuntimeError("cleanup plan changed while acquiring locks; aborting")
@@ -192,7 +204,12 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
     if after != expected:
         raise RuntimeError(f"post-delete verification failed: expected {expected}, got {after}")
     result["backup"] = backup_result
-    result["applied"] = {"reports": len(remove_ids), "records": len(records), "before": before, "after": after}
+    result["applied"] = {
+        "reports": len(remove_ids),
+        "records": len(records),
+        "before": before,
+        "after": after,
+    }
     return result
 
 
@@ -203,8 +220,7 @@ def restore_backup(db, path: str) -> Dict[str, int]:
     records = payload.get("report_records") or []
     report_ids = [int(row["id"]) for row in reports]
     existing_report_ids = {
-        row[0]
-        for row in db.query(DMARCReport.id).filter(DMARCReport.id.in_(report_ids)).all()
+        row[0] for row in db.query(DMARCReport.id).filter(DMARCReport.id.in_(report_ids)).all()
     }
     for row in reports:
         if int(row["id"]) in existing_report_ids:
@@ -217,8 +233,7 @@ def restore_backup(db, path: str) -> Dict[str, int]:
     db.flush()
     record_ids = [int(row["id"]) for row in records]
     existing_record_ids = {
-        row[0]
-        for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
+        row[0] for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
     }
     for row in records:
         if int(row["id"]) not in existing_record_ids:
