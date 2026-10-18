@@ -409,6 +409,25 @@ class TestMailSourceImportRecovery:
             "message-a",
         ]
 
+    def test_retry_keeps_message_recoverable_when_gmail_initialization_fails(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        source.gmail_access_token = "access-token"
+        source.gmail_refresh_token = "refresh-token"
+        db_session.commit()
+
+        with patch.object(GmailClient, "_build_service", side_effect=RuntimeError("unavailable")):
+            response = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "message-a"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == ["message-b"]
+
     def test_ignore_rejects_legacy_imap_recovery_item(self, authed_client, db_session):
         workspace, source, row = self._history(db_session)
         source.method = "IMAP"

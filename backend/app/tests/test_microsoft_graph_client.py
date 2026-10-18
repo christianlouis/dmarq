@@ -305,6 +305,44 @@ class TestMicrosoftGraphOAuthHelpers:
 
 
 class TestMicrosoftGraphFetchReports:
+    def test_retry_message_fetches_one_encoded_graph_message(self, monkeypatch):
+        client = _make_client()
+        requests = []
+
+        def fetch(method, path, params=None):
+            requests.append((method, path, params))
+            return {"id": "message/one"}
+
+        monkeypatch.setattr(client, "_request", fetch)
+        monkeypatch.setattr(client, "_process_message", lambda _message, _stats: 0)
+
+        result = client.retry_message("message/one")
+
+        assert result["success"] is True
+        assert result["processed"] == 1
+        assert result["new_ingested_ids"] == ["message/one"]
+        assert requests == [
+            (
+                "GET",
+                "/me/messages/message%2Fone",
+                {"$select": "id,subject,from,hasAttachments,receivedDateTime"},
+            )
+        ]
+
+    def test_retry_message_returns_failure_without_marking_graph_id_ingested(self, monkeypatch):
+        client = _make_client()
+
+        def fail(*_args, **_kwargs):
+            raise MicrosoftGraphError("unavailable")
+
+        monkeypatch.setattr(client, "_request", fail)
+
+        result = client.retry_message("message-one")
+
+        assert result["success"] is False
+        assert result["new_ingested_ids"] == []
+        assert result["errors"]
+
     def test_test_connection_reads_shared_mailbox(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
             assert url.endswith("/users/shared%40example.com/mailFolders/inbox/messages")
