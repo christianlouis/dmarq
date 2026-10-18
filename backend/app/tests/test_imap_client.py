@@ -686,6 +686,23 @@ class TestProcessAttachments:
         assert count == 1
         assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
 
+    def test_failed_attachment_does_not_poison_following_attachment(self, db_session):
+        client = self._make_client(db=db_session)
+        invalid_xml = MINIMAL_DMARC_XML.replace(b"<count>1</count>", b"<count>-1</count>")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("invalid.xml", invalid_xml, "application/xml")
+        )
+        valid = email.message_from_bytes(
+            _make_email_with_attachment("valid.xml", MINIMAL_DMARC_XML, "application/xml")
+        )
+        for part in valid.get_payload()[1:]:
+            msg.attach(part)
+
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        assert client._process_attachments(msg, stats) == 1
+        assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
+        assert stats["errors"]
+
     def test_duplicate_report_adds_detail(self):
         client = self._make_client()
         msg = email.message_from_bytes(

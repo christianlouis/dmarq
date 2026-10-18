@@ -594,7 +594,13 @@ class IMAPClient:
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            # Isolate each attachment so one malformed report does not leave
+            # the shared session unusable for later reports in this poll.
+            connection = self.db.connection()
+            if connection.dialect.name == "sqlite" and not connection.connection.in_transaction:
+                connection.exec_driver_sql("BEGIN")
+            with self.db.begin_nested():
+                save_parsed_report(self.db, report, workspace_id=self.workspace_id)
         self.report_store.add_report(report)
         self._append_detail(
             stats,

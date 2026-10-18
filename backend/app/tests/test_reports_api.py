@@ -124,6 +124,26 @@ def test_save_parsed_report_materializes_daily_sender_facts(db_session):
     assert json.loads(projection.metadata_json)["report_generators"] == ["Workspace Test Org"]
 
 
+def test_save_parsed_report_empty_policy_evaluated_keeps_scalar_results(db_session):
+    """Empty policy results use scalar unknown values while retaining auth JSON."""
+    workspace = get_or_create_default_workspace(db_session)
+    report = _parsed_report(domain="degenerate.example", report_id="wp-pl-empty", count=0)
+    report["records"][0].update(
+        {
+            "dkim_result": "",
+            "spf_result": "",
+            "spf": [{"domain": "", "scope": "", "result": "", "human_result": ""}],
+        }
+    )
+
+    _persist_parsed_report(db_session, report, workspace_id=workspace.id)
+
+    row = db_session.query(ReportRecord).one()
+    assert row.spf == "unknown"
+    assert row.dkim == "unknown"
+    assert json.loads(row.spf_auth_details)[0]["domain"] == ""
+
+
 def test_source_projection_bounds_report_generator_per_source(db_session):
     """Report-controlled metadata cannot amplify an oversized value across source rows."""
     workspace = get_or_create_default_workspace(db_session)
@@ -1679,9 +1699,7 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
     started = time.monotonic()
-    response = authed_client.get(
-        "/api/v1/reports/large-ptr-dedupe-report?hydrate_enrichment=true"
-    )
+    response = authed_client.get("/api/v1/reports/large-ptr-dedupe-report?hydrate_enrichment=true")
     elapsed = time.monotonic() - started
 
     assert response.status_code == 200
