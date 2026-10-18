@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.models.domain import Domain
 from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord
-from app.services.source_read_projection import materialize_source_projection
 from app.models.workspace import Workspace
-from app.services.dns_posture_snapshots import request_dns_posture_refresh
 from app.services.demo_data import seed_demo_report_store
+from app.services.dns_posture_snapshots import request_dns_posture_refresh
 from app.services.organizations import require_organization_plan_limit
 from app.services.report_store import ReportStore
+from app.services.source_read_projection import materialize_source_projection
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 

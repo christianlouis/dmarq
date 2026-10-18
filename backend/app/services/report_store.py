@@ -680,8 +680,7 @@ class ReportStore:
 
         if days is None:
             sources = [
-                _source_public_entry(ip, data)
-                for ip, data in self.domain_sources[domain].items()
+                _source_public_entry(ip, data) for ip, data in self.domain_sources[domain].items()
             ]
             return sorted(sources, key=lambda source: source["count"], reverse=True)
 
@@ -693,10 +692,7 @@ class ReportStore:
             and observed_end >= cutoff
         ]
         aggregated_sources = _aggregate_sources(reports)
-        sources = [
-            _source_public_entry(ip, data)
-            for ip, data in aggregated_sources.items()
-        ]
+        sources = [_source_public_entry(ip, data) for ip, data in aggregated_sources.items()]
 
         # Sort sources by count (highest first)
         return sorted(sources, key=lambda s: s["count"], reverse=True)

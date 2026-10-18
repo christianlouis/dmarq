@@ -114,7 +114,8 @@ class TestReportStore:
         global_calls = []
         global_recompute = global_store._recompute_domain_stats
         global_store._recompute_domain_stats = lambda domain: (
-            global_calls.append(domain), global_recompute(domain)
+            global_calls.append(domain),
+            global_recompute(domain),
         )[1]
         assert (
             report_persistence.hydrate_report_store_from_db(
@@ -131,7 +132,8 @@ class TestReportStore:
         domain_calls = []
         domain_recompute = domain_store._recompute_domain_stats
         domain_store._recompute_domain_stats = lambda domain: (
-            domain_calls.append(domain), domain_recompute(domain)
+            domain_calls.append(domain),
+            domain_recompute(domain),
         )[1]
         assert (
             report_persistence.hydrate_domain_report_store_from_db(
@@ -159,17 +161,13 @@ class TestReportStore:
                 begin_timestamp=end_timestamp - 10,
                 end_timestamp=end_timestamp,
             )
-            report_persistence.save_parsed_report(
-                db_session, report, workspace_id=workspace.id
-            )
+            report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
         db_session.commit()
 
         store = ReportStore()
         store.add_report(_sample_report("stale.example"))
         assert (
-            report_persistence.hydrate_report_store_from_db(
-                db_session, store, workspace_id=99999
-            )
+            report_persistence.hydrate_report_store_from_db(db_session, store, workspace_id=99999)
             == 0
         )
         assert store.get_domains() == []
