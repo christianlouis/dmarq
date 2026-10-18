@@ -1,6 +1,7 @@
 """Read-only diagnostics for persisted DMARC report identity collisions."""
 
 import json
+import hashlib
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -108,6 +109,9 @@ def duplicate_report_inventory(
             rows.append(
                 {
                     "id": report.id,
+                    "semantic_signature": hashlib.sha256(
+                        repr(_report_signature(report)).encode("utf-8")
+                    ).hexdigest(),
                     "org_name": report.org_name or "",
                     "begin_timestamp": int(report.begin_date or 0),
                     "end_timestamp": int(report.end_date or 0),

@@ -1,4 +1,9 @@
+import json
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,6 +19,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.report_integrity import duplicate_report_inventory
 from app.services.report_persistence import _iso_from_timestamp, save_parsed_report
+from scripts.reconcile_dmarc_duplicates import reconcile
 
 
 def _db():
@@ -150,6 +156,57 @@ def test_duplicate_import_returns_existing_row_without_second_persist(monkeypatc
         assert created_again is False
         assert second.id == first.id
         assert db.query(DMARCReport).count() == 1
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="cleanup", name="Cleanup")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="cleanup.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        for report_id, policy in (("same", "none"), ("same", "none"), ("blocked", "none"), ("blocked", "reject")):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id=report_id,
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+                policy=policy,
+            )
+            db.add(report)
+            db.flush()
+            db.add(
+                ReportRecord(
+                    report_id=report.id,
+                    source_ip="192.0.2.1",
+                    count=2,
+                    disposition="none",
+                    dkim="pass",
+                    spf="pass",
+                )
+            )
+        db.commit()
+        dry = reconcile(db, workspace_id=workspace.id, apply=False, backup=None)
+        assert dry["mode"] == "dry-run"
+        assert dry["plan"]["eligible_groups"] == 1
+        assert db.query(DMARCReport).count() == 4
+
+        backup = tmp_path / "dmarc-backup.json"
+        applied = reconcile(db, workspace_id=workspace.id, apply=True, backup=str(backup))
+        db.commit()
+        assert applied["applied"]["reports"] == 1
+        assert applied["applied"]["records"] == 1
+        assert backup.exists()
+        assert len(json.loads(backup.read_text())["reports"]) == 1
+        assert db.query(DMARCReport).count() == 3
+        assert db.query(ReportRecord).count() == 3
     finally:
         db.close()
         Base.metadata.drop_all(engine)
