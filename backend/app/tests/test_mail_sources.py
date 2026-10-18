@@ -237,6 +237,99 @@ def _add_user(db_session: Session, email: str):
     return user
 
 
+class TestMailSourceImportRecovery:
+    """Per-message retry and ignore stay scoped to persisted source history."""
+
+    def _history(self, db_session: Session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Recovery Gmail",
+            method="GMAIL_API",
+            gmail_ingested_ids=json.dumps(["message-a", "message-b"]),
+        )
+        db_session.add(source)
+        db_session.flush()
+        row = MailSourceImport(
+            mail_source_id=source.id,
+            trigger="manual",
+            status="warning",
+            recovery_metadata=json.dumps(
+                [
+                    {
+                        "message_id": "message-a",
+                        "source_id": source.id,
+                        "workspace_id": workspace.id,
+                        "method": "GMAIL_API",
+                        "folder": "INBOX",
+                        "disposition": "pending",
+                        "supported": True,
+                    },
+                    {
+                        "message_id": "message-b",
+                        "source_id": source.id,
+                        "workspace_id": workspace.id,
+                        "method": "GMAIL_API",
+                        "folder": "INBOX",
+                        "disposition": "pending",
+                        "supported": True,
+                    },
+                ]
+            ),
+        )
+        db_session.add(row)
+        db_session.commit()
+        return workspace, source, row
+
+    def test_retry_targets_one_history_message_and_unignores_local_id(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        with patch.object(
+            mail_sources_endpoint,
+            "_retry_history_item",
+            return_value={"success": True, "processed": 1, "reports_found": 1, "details": []},
+        ) as retry:
+            response = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "message-a"},
+            )
+        assert response.status_code == 200
+        retry.assert_called_once()
+        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == ["message-b"]
+        metadata = json.loads(db_session.get(MailSourceImport, row.id).recovery_metadata)
+        assert metadata[0]["disposition"] == "retried"
+        assert metadata[1]["disposition"] == "pending"
+
+    def test_ignore_is_durable_and_cross_workspace_history_is_hidden(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+        assert response.status_code == 200
+        assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == [
+            "message-a",
+            "message-b",
+        ]
+        metadata = json.loads(db_session.get(MailSourceImport, row.id).recovery_metadata)
+        assert metadata[0]["disposition"] == "ignored"
+
+        other = Workspace(slug="other-recovery", name="Other Recovery")
+        db_session.add(other)
+        db_session.commit()
+        forged = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers={"X-DMARQ-Workspace-ID": str(other.id)},
+            json={"message_id": "message-b"},
+        )
+        assert forged.status_code == 404
+
+
 def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):
     membership = WorkspaceMembership(
         workspace_id=workspace.id,

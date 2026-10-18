@@ -212,6 +212,7 @@ class MailSourceImportResponse(BaseModel):
     new_domains: List[str]
     errors: List[str]
     details: List[Dict[str, str]]
+    recovery_items: List[Dict[str, Any]]
     started_at: datetime
     finished_at: datetime
     created_at: datetime
@@ -223,6 +224,10 @@ class MailSourceBackfillCreate(BaseModel):
     requested_start: Optional[datetime] = None
     requested_end: Optional[datetime] = None
     max_attempts: int = 3
+
+
+class RecoveryItemRequest(BaseModel):
+    message_id: str
 
 
 class MailSourceBackfillResponse(BaseModel):
@@ -741,6 +746,16 @@ def _decode_json_details(value: Optional[str]) -> List[Dict[str, str]]:
     return details
 
 
+def _decode_recovery_metadata(value: Optional[str]) -> List[Dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [item for item in decoded if isinstance(item, dict)] if isinstance(decoded, list) else []
+
+
 def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
     """Convert an import-history ORM row to an API response."""
     return MailSourceImportResponse(
@@ -755,10 +770,82 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
         new_domains=_decode_json_list(row.new_domains),
         errors=_decode_json_list(row.errors),
         details=_decode_json_details(row.details),
+        recovery_items=_decode_recovery_metadata(row.recovery_metadata),
         started_at=row.started_at,
         finished_at=row.finished_at,
         created_at=row.created_at,
     )
+
+
+def _recovery_item(row: MailSourceImport, message_id: str) -> Dict[str, Any]:
+    for item in _decode_recovery_metadata(row.recovery_metadata):
+        if item.get("message_id") == message_id:
+            source = row.mail_source
+            current_account = str(
+                getattr(source, "gmail_email", None)
+                or getattr(source, "m365_mailbox", None)
+                or getattr(source, "username", None)
+                or ""
+            )
+            if (
+                item.get("source_id") != source.id
+                or item.get("workspace_id") != source.workspace_id
+            ):
+                raise HTTPException(status_code=404, detail="Recovery item not found")
+            if (
+                item.get("folder") != (source.folder or "INBOX")
+                or item.get("account", "") != current_account
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Source mailbox context changed; refresh history before retrying.",
+                )
+            return item
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery item not found")
+
+
+def _save_recovery_metadata(row: MailSourceImport, items: List[Dict[str, Any]]) -> None:
+    row.recovery_metadata = json.dumps(items)
+
+
+def _retry_history_item(source: MailSource, item: Dict[str, Any], db: Session) -> Dict[str, Any]:
+    if not item.get("supported"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=item.get("unsupported_reason")
+        )
+    method = str(source.method or "").upper()
+    message_id = str(item["message_id"])
+    if method == "GMAIL_API":
+        client = GmailClient(
+            client_id=source.gmail_client_id or "",
+            client_secret=source.gmail_client_secret or "",
+            access_token=source.gmail_access_token or "",
+            refresh_token=source.gmail_refresh_token or "",
+            already_ingested_ids=GmailClient.load_ingested_ids(source.gmail_ingested_ids),
+            db=db,
+            workspace_id=source.workspace_id,
+        )
+    elif method == "M365_GRAPH":
+        client = MicrosoftGraphClient(
+            tenant_id=source.m365_tenant_id or "common",
+            client_id=source.m365_client_id or "",
+            client_secret=source.m365_client_secret or "",
+            access_token=source.m365_access_token,
+            refresh_token=source.m365_refresh_token or "",
+            auth_mode=_m365_auth_mode(source),
+            mailbox=source.m365_mailbox,
+            folder=source.folder or "INBOX",
+            folder_id=_safe_attr(source, "m365_folder_id"),
+            already_ingested_ids=MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids),
+            db=db,
+            workspace_id=source.workspace_id,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This history item cannot be safely retried.",
+        )
+    return client.retry_message(message_id)
 
 
 def _auth_actor(auth_context: Dict[str, Any]) -> Optional[str]:
@@ -1106,7 +1193,9 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
             detail="Gmail account not yet authorised. Complete OAuth2 flow first.",
         )
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = GmailClient.load_ingested_ids(
+        source.gmail_ingested_ids
+    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -1147,7 +1236,9 @@ def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[s
             ),
         )
 
-    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = MicrosoftGraphClient.load_ingested_ids(
+        source.m365_ingested_ids
+    ) + MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
     client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",
@@ -1338,6 +1429,142 @@ async def list_mail_source_imports(
         .all()
     )
     return [_import_to_response(row) for row in rows]
+
+
+@router.post("/{source_id}/imports/{import_id}/retry", response_model=Dict[str, Any])
+async def retry_mail_source_import_item(
+    source_id: int,
+    import_id: int,
+    payload: RecoveryItemRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Retry exactly one server-recorded provider message."""
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    row = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.id == import_id, MailSourceImport.mail_source_id == source.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
+        )
+    item = _recovery_item(row, payload.message_id)
+    results = _retry_history_item(source, item, db)
+    if str(source.method or "").upper() == "GMAIL_API":
+        ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(
+            item_id for item_id in ids if item_id != payload.message_id
+        )
+        ignored = GmailClient.load_ingested_ids(source.gmail_ignored_ids)
+        source.gmail_ignored_ids = GmailClient.dump_ingested_ids(
+            item_id for item_id in ignored if item_id != payload.message_id
+        )
+    elif str(source.method or "").upper() == "M365_GRAPH":
+        ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(
+            item_id for item_id in ids if item_id != payload.message_id
+        )
+        ignored = MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
+        source.m365_ignored_ids = MicrosoftGraphClient.dump_ingested_ids(
+            item_id for item_id in ignored if item_id != payload.message_id
+        )
+    items = _decode_recovery_metadata(row.recovery_metadata)
+    for stored_item in items:
+        if stored_item.get("message_id") == payload.message_id:
+            stored_item["disposition"] = "retried"
+            stored_item["last_status"] = "success" if results.get("success", False) else "failed"
+    _save_recovery_metadata(row, items)
+    record_import_attempt(
+        db, source, results, started_at=datetime.utcnow(), trigger="recovery_retry"
+    )
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_source.import_item_retried",
+        entity_type="mail_source_import",
+        entity_id=row.id,
+        entity_name=source.name,
+        details={"message_id": payload.message_id},
+        auth_context=_auth,
+        request=request,
+    )
+    db.commit()
+    return _fetch_response(source, results)
+
+
+@router.post("/{source_id}/imports/{import_id}/ignore", response_model=Dict[str, Any])
+async def ignore_mail_source_import_item(
+    source_id: int,
+    import_id: int,
+    payload: RecoveryItemRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> Dict[str, Any]:
+    """Durably ignore one history item without touching the provider message."""
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    row = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.id == import_id, MailSourceImport.mail_source_id == source.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
+        )
+    _recovery_item(row, payload.message_id)
+    items = _decode_recovery_metadata(row.recovery_metadata)
+    for item in items:
+        if item.get("message_id") == payload.message_id:
+            item["disposition"] = "ignored"
+    if str(source.method or "").upper() == "GMAIL_API":
+        ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+        if payload.message_id not in ids:
+            ids.append(payload.message_id)
+        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(ids)
+        ignored = GmailClient.load_ingested_ids(source.gmail_ignored_ids)
+        if payload.message_id not in ignored:
+            ignored.append(payload.message_id)
+        source.gmail_ignored_ids = GmailClient.dump_ingested_ids(ignored)
+    elif str(source.method or "").upper() == "M365_GRAPH":
+        ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+        if payload.message_id not in ids:
+            ids.append(payload.message_id)
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(ids)
+        ignored = MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
+        if payload.message_id not in ignored:
+            ignored.append(payload.message_id)
+        source.m365_ignored_ids = MicrosoftGraphClient.dump_ingested_ids(ignored)
+    _save_recovery_metadata(row, items)
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_source.import_item_ignored",
+        entity_type="mail_source_import",
+        entity_id=row.id,
+        entity_name=source.name,
+        details={"message_id": payload.message_id},
+        auth_context=_auth,
+        request=request,
+    )
+    db.commit()
+    return {
+        "source_id": source.id,
+        "import_id": row.id,
+        "message_id": payload.message_id,
+        "disposition": "ignored",
+    }
 
 
 @router.get("/{source_id}/backfills", response_model=List[MailSourceBackfillResponse])
@@ -2593,7 +2820,9 @@ async def gmail_fetch_reports(
             detail="Gmail account not yet authorised. Complete OAuth2 flow first.",
         )
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = GmailClient.load_ingested_ids(
+        source.gmail_ingested_ids
+    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",

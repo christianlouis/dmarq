@@ -276,6 +276,15 @@ class GmailClient:
         stats["new_domains"] = list(domains_after - domains_before)
         return stats
 
+    def retry_message(self, message_id: str) -> Dict[str, Any]:
+        """Reprocess one previously listed Gmail message without resetting history."""
+        stats = initial_import_stats()
+        stats["recovery_message_id"] = str(message_id)
+        service = self._build_service()
+        stats["processed"] = 1
+        self._process_message(service, str(message_id), stats)
+        return stats
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

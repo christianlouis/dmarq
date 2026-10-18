@@ -393,7 +393,9 @@ def _fetch_gmail_backfill_results(
     if not source.gmail_refresh_token:
         raise ValueError("Gmail authorization cannot be refreshed. Reconnect Gmail first.")
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = GmailClient.load_ingested_ids(
+        source.gmail_ingested_ids
+    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -452,7 +454,9 @@ def _fetch_m365_backfill_results(
             or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
         )
 
-    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = MicrosoftGraphClient.load_ingested_ids(
+        source.m365_ingested_ids
+    ) + MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
     client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",

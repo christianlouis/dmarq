@@ -251,6 +251,7 @@
                                     <th>New Domains</th>
                                     <th>Errors</th>
                                     <th>Details</th>
+                                    <th>Recovery</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -307,6 +308,16 @@
                                             <template x-if="!entry.details || entry.details.length === 0">
                                                 <span class="text-muted-foreground">None</span>
                                             </template>
+                                        </td>
+                                        <td>
+                                            <template x-for="item in (entry.recovery_items || [])" :key="item.message_id">
+                                                <div class="flex items-center gap-1 mb-1">
+                                                    <span class="badge badge-sm" x-text="item.disposition"></span>
+                                                    <button class="btn btn-ghost btn-xs" data-mail-source-recovery-retry :data-import-id="entry.id" :data-message-id="item.message_id" :disabled="item.loading" x-show="item.supported && item.disposition !== 'ignored'">Retry</button>
+                                                    <button class="btn btn-ghost btn-xs" data-mail-source-recovery-ignore :data-import-id="entry.id" :data-message-id="item.message_id" :disabled="item.loading" x-show="item.supported && item.disposition === 'pending'">Ignore</button>
+                                                </div>
+                                            </template>
+                                            <span class="text-muted-foreground text-xs" x-show="!(entry.recovery_items || []).length">None</span>
                                         </td>
                                     </tr>
                                 </template>

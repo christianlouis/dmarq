@@ -119,6 +119,16 @@ function mailSourcesApp() {
                 } else if (button.matches('[data-mail-source-history-close]')) {
                     event.preventDefault();
                     this.closeHistory();
+                } else if (button.matches('[data-mail-source-recovery-retry]')) {
+                    event.preventDefault();
+                    const entry = this.importHistory.find(item => String(item.id) === String(button.dataset.importId));
+                    const recovery = entry && (entry.recovery_items || []).find(item => item.message_id === button.dataset.messageId);
+                    if (entry && recovery) this.retryImportItem(entry, recovery);
+                } else if (button.matches('[data-mail-source-recovery-ignore]')) {
+                    event.preventDefault();
+                    const entry = this.importHistory.find(item => String(item.id) === String(button.dataset.importId));
+                    const recovery = entry && (entry.recovery_items || []).find(item => item.message_id === button.dataset.messageId);
+                    if (entry && recovery) this.ignoreImportItem(entry, recovery);
                 } else if (button.matches('[data-mail-source-backfill-refresh]') && source) {
                     event.preventDefault();
                     this.loadBackfills(source);
@@ -464,6 +474,38 @@ function mailSourcesApp() {
             } finally {
                 this.historyLoading = false;
             }
+        },
+
+        async retryImportItem(entry, item) {
+            if (!this.historySource || !item || !item.message_id) return;
+            item.loading = true;
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/retry`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: item.message_id }),
+                });
+                const body = await resp.json();
+                if (!resp.ok) throw new Error(body.detail || 'Retry failed');
+                await this.loadImportHistory(this.historySource);
+            } catch (e) {
+                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            } finally { item.loading = false; }
+        },
+
+        async ignoreImportItem(entry, item) {
+            if (!this.historySource || !item || !item.message_id) return;
+            item.loading = true;
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/ignore`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: item.message_id }),
+                });
+                const body = await resp.json();
+                if (!resp.ok) throw new Error(body.detail || 'Ignore failed');
+                await this.loadImportHistory(this.historySource);
+            } catch (e) {
+                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            } finally { item.loading = false; }
         },
 
         closeHistory() {

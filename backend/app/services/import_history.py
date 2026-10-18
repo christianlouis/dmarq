@@ -24,6 +24,7 @@ DETAIL_FIELDS = {
     "folder",
     "error",
 }
+RECOVERY_METHODS = {"GMAIL_API", "M365_GRAPH"}
 
 
 def _sanitize_error(value: object) -> str:
@@ -57,6 +58,40 @@ def _json_details(values: Optional[Iterable[Any]]) -> str:
         if entry:
             details.append(entry)
     return json.dumps(details)
+
+
+def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]]) -> str:
+    """Persist only complete provider IDs and source binding for item recovery."""
+    items = []
+    method = str(source.method or "").upper()
+    for value in list(values or []):
+        if not isinstance(value, dict):
+            continue
+        message_id = str(value.get("message_id") or "")
+        if not message_id or message_id.endswith("..."):
+            continue
+        item = {
+            "message_id": message_id,
+            "source_id": int(source.id),
+            "workspace_id": getattr(source, "workspace_id", None),
+            "method": method,
+            "folder": str(value.get("folder") or source.folder or "INBOX"),
+            "account": str(
+                getattr(source, "gmail_email", None)
+                or getattr(source, "m365_mailbox", None)
+                or getattr(source, "username", None)
+                or ""
+            ),
+            "disposition": "pending",
+            "supported": method in RECOVERY_METHODS,
+        }
+        if method == "IMAP":
+            item["unsupported_reason"] = (
+                "Legacy IMAP history lacks UIDVALIDITY-bound stable message metadata."
+            )
+        if not any(existing["message_id"] == message_id for existing in items):
+            items.append(item)
+    return json.dumps(items[:MAX_STORED_DETAILS])
 
 
 def _invalidate_imported_report_caches(source: MailSource, results: Dict[str, Any]) -> None:
@@ -105,6 +140,7 @@ def record_import_attempt(
         new_domains=_json_list(results.get("new_domains", [])),
         errors=json.dumps(errors),
         details=_json_details(results.get("details", [])),
+        recovery_metadata=_json_recovery_metadata(source, results.get("details", [])),
         started_at=started_at,
         finished_at=datetime.utcnow(),
     )

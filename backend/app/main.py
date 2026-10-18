@@ -190,7 +190,9 @@ def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
     try:
         src = db.query(MailSource).get(source.id)
         poll_source = src or source
-        already = GmailClient.load_ingested_ids(poll_source.gmail_ingested_ids)
+        already = GmailClient.load_ingested_ids(
+            poll_source.gmail_ingested_ids
+        ) + GmailClient.load_ingested_ids(poll_source.gmail_ignored_ids)
         client = GmailClient(
             client_id=poll_source.gmail_client_id or "",
             client_secret=poll_source.gmail_client_secret or "",
@@ -256,7 +258,9 @@ def _poll_single_m365_source(source: MailSource) -> None:
     try:
         src = db.query(MailSource).get(source.id)
         poll_source = src or source
-        already = MicrosoftGraphClient.load_ingested_ids(poll_source.m365_ingested_ids)
+        already = MicrosoftGraphClient.load_ingested_ids(
+            poll_source.m365_ingested_ids
+        ) + MicrosoftGraphClient.load_ingested_ids(poll_source.m365_ignored_ids)
         client = MicrosoftGraphClient(
             tenant_id=poll_source.m365_tenant_id or "common",
             client_id=poll_source.m365_client_id or "",
@@ -1080,7 +1084,9 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     """Poll a single GMAIL_API source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = GmailClient.load_ingested_ids(
+        source.gmail_ingested_ids
+    ) + GmailClient.load_ingested_ids(source.gmail_ignored_ids)
     gmail_client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -1112,7 +1118,9 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     """Poll a single M365_GRAPH source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
-    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = MicrosoftGraphClient.load_ingested_ids(
+        source.m365_ingested_ids
+    ) + MicrosoftGraphClient.load_ingested_ids(source.m365_ignored_ids)
     graph_client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",
