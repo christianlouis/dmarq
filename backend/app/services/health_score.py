@@ -559,6 +559,32 @@ def _cap_path_items(items: List[Dict[str, Any]], score: int) -> List[Dict[str, A
     return capped_items
 
 
+def _path_items_for_factor(
+    *,
+    factor: str,
+    weight: float,
+    value: float,
+    confidence: float,
+    related: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    remaining = round(((100.0 - value) * weight), 1)
+    if remaining <= 0:
+        return []
+    if factor == "report_confidence" and confidence < 100:
+        return [_waiting_for_reports_item(factor, remaining)]
+    if related:
+        return [
+            _path_item_for_action(
+                factor=factor,
+                action=action,
+                expected_score_delta=round(remaining / len(related), 1),
+                primary=index == 0,
+            )
+            for index, action in enumerate(related)
+        ]
+    return [_review_path_item(factor, remaining)]
+
+
 def _path_to_100(
     *,
     score: int,
@@ -591,25 +617,15 @@ def _path_to_100(
         if unknown:
             weight = weight / known_weight_total
         value = _bounded(factors.get(factor))
-        remaining = round(((100.0 - value) * weight), 1)
-        if remaining <= 0:
-            continue
-        related = by_factor.get(factor) or []
-        if factor == "report_confidence" and confidence < 100:
-            items.append(_waiting_for_reports_item(factor, remaining))
-            continue
-        if related:
-            for index, action in enumerate(related):
-                items.append(
-                    _path_item_for_action(
-                        factor=factor,
-                        action=action,
-                        expected_score_delta=round(remaining / len(related), 1),
-                        primary=index == 0,
-                    )
-                )
-        else:
-            items.append(_review_path_item(factor, remaining))
+        items.extend(
+            _path_items_for_factor(
+                factor=factor,
+                weight=weight,
+                value=value,
+                confidence=confidence,
+                related=by_factor.get(factor) or [],
+            )
+        )
     planned_points = sum(float(item.get("expected_score_delta") or 0) for item in items)
     cap_points = max(0.0, float(100 - int(score)) - planned_points)
     if cap_points and unknown and confidence < 70:
