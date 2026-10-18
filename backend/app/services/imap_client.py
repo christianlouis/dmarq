@@ -731,6 +731,23 @@ class IMAPClient:
             connection.exec_driver_sql("BEGIN")
         with self.db.begin_nested():
             result = save_tls_report(self.db, parsed, workspace_id=self.workspace_id)
+        return self._record_tls_report_result(
+            result,
+            parsed=parsed,
+            filename=filename,
+            stats=stats,
+            message_id=message_id,
+        )
+
+    def _record_tls_report_result(
+        self,
+        result: Dict[str, Any],
+        *,
+        parsed: Dict[str, Any],
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
         stored = bool(result["created"])
         if result["rejected"]:
             if stats is not None:
@@ -777,6 +794,45 @@ class IMAPClient:
             )
         return stored
 
+    def _process_dmarc_content(
+        self,
+        content: bytes,
+        *,
+        filename: str,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        if looks_like_tls_report(content, filename):
+            return self._process_tls_report_attachment(
+                content,
+                filename=filename,
+                stats=stats,
+                message_id=message_id,
+            )
+
+        try:
+            report = DMARCParser.parse_file(content, filename)
+        except NoXMLContentError:
+            if stats is not None:
+                stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+            self._append_detail(
+                stats,
+                status="skipped",
+                reason="unrelated_attachment",
+                message_id=message_id,
+                filename=filename,
+            )
+            return False
+        stored = self._store_report_if_new(
+            report,
+            filename=filename,
+            stats=stats,
+            message_id=message_id,
+        )
+        if stored:
+            logger.info("Successfully processed DMARC report: %s", filename)
+        return stored
+
     def _process_dmarc_attachment(
         self,
         part: email.message.Message,
@@ -799,36 +855,12 @@ class IMAPClient:
                 )
                 return False
 
-            if looks_like_tls_report(content, filename):
-                return self._process_tls_report_attachment(
-                    content,
-                    filename=filename,
-                    stats=stats,
-                    message_id=message_id,
-                )
-
-            try:
-                report = DMARCParser.parse_file(content, filename)
-            except NoXMLContentError:
-                if stats is not None:
-                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
-                self._append_detail(
-                    stats,
-                    status="skipped",
-                    reason="unrelated_attachment",
-                    message_id=message_id,
-                    filename=filename,
-                )
-                return False
-            stored = self._store_report_if_new(
-                report,
+            return self._process_dmarc_content(
+                content,
                 filename=filename,
                 stats=stats,
                 message_id=message_id,
             )
-            if stored:
-                logger.info("Successfully processed DMARC report: %s", filename)
-            return stored
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error processing attachment %s: %s", filename, str(exc))
             if stats is not None:
