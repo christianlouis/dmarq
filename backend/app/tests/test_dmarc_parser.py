@@ -73,7 +73,9 @@ class TestDMARCParser:
             DMARCParser.parse_file(large_content, "report.xml")
 
     def test_report_record_count_is_bounded(self):
-        records = "".join("<record><row><count>1</count></row></record>" for _ in range(MAX_RECORDS + 1))
+        records = "".join(
+            "<record><row><count>1</count></row></record>" for _ in range(MAX_RECORDS + 1)
+        )
         xml = f"<feedback><policy_published><domain>example.com</domain></policy_published>{records}</feedback>"
         with pytest.raises(ValueError, match="too many records"):
             DMARCParser.parse_file(xml.encode(), "report.xml")
@@ -154,13 +156,13 @@ class TestDMARCParser:
             DMARCParser.parse_file(xml.encode(), "report.xml")
 
     def test_nested_record_extension_is_parsed(self):
-        xml = b"<feedback><record><vendor><source>mail-platform</source></vendor></record></feedback>"
+        xml = (
+            b"<feedback><record><vendor><source>mail-platform</source></vendor></record></feedback>"
+        )
 
         result = DMARCParser.parse_file(xml, "report.xml")
 
-        assert result["records"][0]["extensions"] == {
-            "vendor": {"source": "mail-platform"}
-        }
+        assert result["records"][0]["extensions"] == {"vendor": {"source": "mail-platform"}}
 
     def test_record_extension_bytes_are_bounded_across_report(self):
         value = "é" * 2048
@@ -263,6 +265,29 @@ class TestDMARCParser:
         assert result["domain"] == "example.com"
         assert result["records"] == []
         assert result["summary"]["total_count"] == 0
+
+    def test_parse_record_without_policy_evaluated_keeps_auth_results(self):
+        """Authentication details survive reports that omit policy_evaluated."""
+        xml = b"""
+        <feedback>
+            <policy_published><domain>example.com</domain><p>none</p></policy_published>
+            <record>
+                <row><source_ip>192.0.2.1</source_ip><count>2</count></row>
+                <auth_results>
+                    <spf><domain>example.com</domain><result>pass</result></spf>
+                    <dkim><domain>example.com</domain><selector>s1</selector><result>pass</result></dkim>
+                </auth_results>
+            </record>
+        </feedback>
+        """
+
+        record = DMARCParser.parse_file(xml, "report.xml")["records"][0]
+
+        assert record["disposition"] == "none"
+        assert record["dkim_result"] == "unknown"
+        assert record["spf_result"] == "unknown"
+        assert record["spf"][0]["result"] == "pass"
+        assert record["dkim"][0]["result"] == "pass"
 
     def test_parse_rfc9990_style_report_variant(self):
         """RFC 9990-era namespaces and optional fields should parse without breaking legacy shape."""

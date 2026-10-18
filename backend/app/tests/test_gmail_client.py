@@ -512,6 +512,26 @@ class TestProcessMessage:
         assert db_session.query(DMARCReport).count() == 0
         assert db_session.query(ForensicReport).count() == 1
 
+    def test_dmarc_newsletter_subject_does_not_enter_forensic_parser(self):
+        client = _make_client()
+        newsletter = MIMEMultipart("alternative")
+        newsletter["Subject"] = "Avoid DMARC Failure"
+        newsletter["From"] = "newsletter@example.test"
+        newsletter.attach(MIMEText("DMARC authentication tips", "plain"))
+        newsletter.attach(MIMEText("<p>DMARC authentication tips</p>", "html"))
+        service = MagicMock()
+        service.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            "raw": _b64_raw(newsletter.as_bytes())
+        }
+        stats = {"reports_found": 0, "errors": [], "details": []}
+
+        with patch.object(client, "_process_attachments", return_value=0) as process:
+            assert client._process_message(service, "newsletter", stats) == 0
+
+        process.assert_called_once()
+        assert not stats.get("forensic_reports_found")
+        assert not stats["errors"]
+
     def test_forensic_report_uses_configured_redaction_policy(self, db_session):
         setting = (
             db_session.query(Setting).filter(Setting.key == "forensics.redaction_mode").first()

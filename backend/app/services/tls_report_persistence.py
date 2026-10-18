@@ -149,11 +149,11 @@ def _save_policy_report(
             )
         )
 
-    db.add(row)
     try:
-        db.flush()
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
     except IntegrityError:
-        db.rollback()
         existing_query = db.query(TLSReport).filter(
             TLSReport.report_id == report_id,
             TLSReport.policy_domain == policy_domain,
@@ -183,7 +183,8 @@ def save_tls_report(
     """
     rows: List[TLSReport] = []
     created = 0
-    skipped = 0
+    duplicates = 0
+    rejected = 0
     for policy in parsed_report.get("policies") or []:
         row, was_created = _save_policy_report(
             db,
@@ -192,14 +193,22 @@ def save_tls_report(
             workspace_id=workspace_id,
         )
         if row is None:
-            skipped += 1
+            rejected += 1
             continue
         rows.append(row)
         if was_created:
             created += 1
         else:
-            skipped += 1
-    return {"rows": rows, "created": created, "skipped": skipped}
+            duplicates += 1
+    return {
+        "rows": rows,
+        "created": created,
+        "duplicates": duplicates,
+        "rejected": rejected,
+        "skipped": duplicates + rejected,
+        "complete": rejected == 0
+        and (created + duplicates) == len(parsed_report.get("policies") or []),
+    }
 
 
 def tls_report_to_dict(row: TLSReport) -> Dict[str, Any]:

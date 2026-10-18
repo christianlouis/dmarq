@@ -304,7 +304,7 @@ def test_arc_detail_headers_handles_missing_original_headers():
     assert _arc_detail_headers(None) == {}
 
 
-def test_is_forensic_report_detects_headers_and_subject_fallbacks():
+def test_is_forensic_report_requires_report_evidence():
     header_only = email.message_from_bytes(b"""\
 Subject: Delivery report
 MIME-Version: 1.0
@@ -320,7 +320,7 @@ Authentication-Results: mx; dmarc=fail
     subject_only = email.message_from_bytes(b"Subject: DMARC RUF failure\r\n\r\nbody")
 
     assert ForensicParser.is_forensic_report(header_only) is True
-    assert ForensicParser.is_forensic_report(subject_only) is True
+    assert ForensicParser.is_forensic_report(subject_only) is False
 
 
 def test_parse_forensic_email_rejects_empty_and_oversized_payloads():
@@ -385,4 +385,4 @@ Authentication-Results: mx; spf=pass
 --b--
 """)
 
-    assert ForensicParser.is_forensic_report(msg) is True
+    assert ForensicParser.is_forensic_report(msg) is False

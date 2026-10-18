@@ -1,3 +1,7 @@
+from copy import deepcopy
+
+from app.models.workspace import Workspace
+from app.services import report_persistence
 from app.services import report_store as report_store_module
 from app.services.report_store import ReportStore, _auth_status_from_counts, _dominant_result
 
@@ -41,6 +45,147 @@ class TestReportStore:
 
         domains = store.get_domains()
         assert any(d == "test.com" for d in domains)
+
+    def test_add_reports_matches_incremental_append_for_mixed_domains(self):
+        reports = []
+        for index, domain in enumerate(("a.example", "b.example", "a.example"), 1):
+            report = _sample_report(domain)
+            report["report_id"] = f"rpt-{index}"
+            report["records"][0]["source_ip"] = f"203.0.113.{index}"
+            reports.append(report)
+
+        incremental = ReportStore()
+        for report in reports:
+            incremental.add_report(deepcopy(report))
+
+        bulk = ReportStore()
+        assert bulk.add_reports(deepcopy(reports)) == len(reports)
+
+        assert bulk.domain_reports == incremental.domain_reports
+        assert bulk.domain_summary == incremental.domain_summary
+        assert bulk.domain_sources == incremental.domain_sources
+
+    def test_add_reports_recomputes_once_per_touched_domain_and_preserves_append(self):
+        store = ReportStore()
+        calls = []
+        original = store._recompute_domain_stats
+
+        def counted(domain):
+            calls.append(domain)
+            return original(domain)
+
+        store._recompute_domain_stats = counted
+        reports = []
+        for index, domain in enumerate(("a.example", "a.example", "b.example"), 1):
+            report = _sample_report(domain)
+            report["report_id"] = f"rpt-{index}"
+            reports.append(report)
+
+        assert store.add_reports(reports) == 3
+        assert calls == ["a.example", "b.example"]
+        assert [report["report_id"] for report in store.domain_reports["a.example"]] == [
+            "rpt-1",
+            "rpt-2",
+        ]
+
+        store.add_report(_sample_report("a.example"))
+        assert calls[-1] == "a.example"
+
+    def test_add_reports_empty_is_a_noop(self):
+        store = ReportStore()
+        assert store.add_reports([]) == 0
+        assert store.get_domains() == []
+
+    def test_hydration_functions_preserve_workspace_isolation(self, db_session):
+        first = Workspace(slug="first", name="First")
+        second = Workspace(slug="second", name="Second")
+        db_session.add_all([first, second])
+        db_session.commit()
+
+        first_report = _sample_report("first.example")
+        first_report["report_id"] = "first-report"
+        second_report = _sample_report("second.example")
+        second_report["report_id"] = "second-report"
+        report_persistence.save_parsed_report(db_session, first_report, workspace_id=first.id)
+        report_persistence.save_parsed_report(db_session, second_report, workspace_id=second.id)
+        db_session.commit()
+
+        global_store = ReportStore()
+        global_calls = []
+        global_recompute = global_store._recompute_domain_stats
+        global_store._recompute_domain_stats = lambda domain: (
+            global_calls.append(domain),
+            global_recompute(domain),
+        )[1]
+        assert (
+            report_persistence.hydrate_report_store_from_db(
+                db_session, global_store, workspace_id=first.id
+            )
+            == 1
+        )
+        assert [r["report_id"] for r in global_store.domain_reports["first.example"]] == [
+            "first-report"
+        ]
+        assert global_calls == ["first.example"]
+
+        domain_store = ReportStore()
+        domain_calls = []
+        domain_recompute = domain_store._recompute_domain_stats
+        domain_store._recompute_domain_stats = lambda domain: (
+            domain_calls.append(domain),
+            domain_recompute(domain),
+        )[1]
+        assert (
+            report_persistence.hydrate_domain_report_store_from_db(
+                db_session,
+                domain_store,
+                "second.example",
+                workspace_id=second.id,
+            )
+            == 1
+        )
+        assert [r["report_id"] for r in domain_store.domain_reports["second.example"]] == [
+            "second-report"
+        ]
+        assert domain_calls == ["second.example"]
+
+    def test_hydration_clears_empty_store_and_preserves_limit_order(self, db_session):
+        workspace = Workspace(slug="hydration", name="Hydration")
+        db_session.add(workspace)
+        db_session.commit()
+
+        for index, end_timestamp in enumerate((300, 200, 100), 1):
+            report = _sample_report("ordered.example")
+            report.update(
+                report_id=f"ordered-{index}",
+                begin_timestamp=end_timestamp - 10,
+                end_timestamp=end_timestamp,
+            )
+            report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
+        db_session.commit()
+
+        store = ReportStore()
+        store.add_report(_sample_report("stale.example"))
+        assert (
+            report_persistence.hydrate_report_store_from_db(db_session, store, workspace_id=99999)
+            == 0
+        )
+        assert store.get_domains() == []
+
+        assert (
+            report_persistence.hydrate_domain_report_store_from_db(
+                db_session,
+                store,
+                "ordered.example",
+                workspace_id=workspace.id,
+                limit=2,
+            )
+            == 2
+        )
+        assert [report["report_id"] for report in store.get_domain_reports("ordered.example")] == [
+            "ordered-1",
+            "ordered-2",
+        ]
 
     def test_domain_summary_after_add(self):
         store = ReportStore.get_instance()

@@ -2,6 +2,7 @@
 
 import base64
 import zipfile
+from email.message import EmailMessage
 from io import BytesIO
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -546,6 +547,206 @@ class TestMicrosoftGraphFetchReports:
         assert result["reports_found"] == 1
         assert result["new_ingested_ids"] == ["message-1"]
         assert db_session.query(DMARCReport).count() == 1
+
+    def test_fetch_reports_imports_file_inside_nested_item_attachment(
+        self, monkeypatch, db_session
+    ):
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            if url.endswith("/me/mailFolders/inbox/messages"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "message-nested",
+                                "subject": "DMARC aggregate report",
+                                "from": {"emailAddress": {"address": "reports@example.net"}},
+                                "hasAttachments": True,
+                            }
+                        ]
+                    },
+                )
+            if url.endswith("/me/messages/message-nested/attachments"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "attached-message",
+                                "@odata.type": "#microsoft.graph.itemAttachment",
+                                "name": "forwarded-report.eml",
+                                "item": {
+                                    "attachments": [
+                                        {
+                                            "@odata.type": "#microsoft.graph.fileAttachment",
+                                            "name": "report.xml",
+                                            "contentBytes": base64.b64encode(
+                                                SAMPLE_XML.encode()
+                                            ).decode(),
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                )
+            raise AssertionError(f"Unexpected Graph request: {method} {url} {params}")
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        result = _make_client(db=db_session).fetch_reports()
+
+        assert result["reports_found"] == 1
+        assert result["new_ingested_ids"] == ["message-nested"]
+        assert db_session.query(DMARCReport).count() == 1
+
+    def test_fetch_reports_imports_report_from_nested_mime_attachment(
+        self, monkeypatch, db_session
+    ):
+        nested = EmailMessage()
+        nested["Subject"] = "Forwarded DMARC report"
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        outer = nested.as_bytes()
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            if url.endswith("/me/mailFolders/inbox/messages"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "message-mime",
+                                "subject": "DMARC aggregate report",
+                                "hasAttachments": True,
+                            }
+                        ]
+                    },
+                )
+            if url.endswith("/me/messages/message-mime/attachments"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "@odata.type": "#microsoft.graph.fileAttachment",
+                                "name": "forwarded.eml",
+                                "contentType": "message/rfc822",
+                                "contentBytes": base64.b64encode(outer).decode(),
+                            }
+                        ]
+                    },
+                )
+            raise AssertionError(f"Unexpected Graph request: {method} {url} {params}")
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        result = _make_client(db=db_session).fetch_reports()
+
+        assert result["reports_found"] == 1
+        assert result["new_ingested_ids"] == ["message-mime"]
+        assert db_session.query(DMARCReport).count() == 1
+
+    def test_malformed_mime_attachment_keeps_message_retryable(self):
+        client = _make_client()
+        stats = {"details": [], "errors": []}
+        content = base64.b64encode(b"not an email").decode()
+
+        assert (
+            client._process_attachments(
+                "message",
+                [
+                    {
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "name": "broken.eml",
+                        "contentType": "message/rfc822",
+                        "contentBytes": content,
+                    }
+                ],
+                stats,
+            )
+            == -1
+        )
+        assert stats["details"][0]["reason"] == "parse_failed"
+
+    def test_nested_attachment_fetch_failure_keeps_message_retryable(self, monkeypatch):
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            if url.endswith("/me/mailFolders/inbox/messages"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "message-nested-failure",
+                                "subject": "DMARC aggregate report",
+                                "hasAttachments": True,
+                            }
+                        ]
+                    },
+                )
+            if url.endswith("/me/messages/message-nested-failure/attachments"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "attached-message",
+                                "@odata.type": "#microsoft.graph.itemAttachment",
+                                "name": "forwarded-report.eml",
+                            }
+                        ]
+                    },
+                )
+            if url.endswith("/me/messages/message-nested-failure/attachments/attached-message"):
+                return httpx.Response(
+                    503,
+                    json={"error": {"code": "ServerError", "message": "temporary failure"}},
+                )
+            raise AssertionError(f"Unexpected Graph request: {method} {url} {params}")
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        result = _make_client().fetch_reports()
+
+        assert result["new_ingested_ids"] == []
+        assert result["details"][0]["reason"] == "nested_attachment_fetch_failed"
+
+    def test_attachment_count_limit_is_bounded(self):
+        client = _make_client()
+        stats = {"details": [], "errors": []}
+        attachments = [
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": f"report-{index}.xml",
+                "contentBytes": base64.b64encode(b"bad").decode(),
+            }
+            for index in range(101)
+        ]
+
+        assert client._process_attachments("message", attachments, stats) == -1
+        assert any(
+            detail.get("reason") == "attachment_limit_exceeded" for detail in stats["details"]
+        )
+
+    def test_attachment_size_limit_is_bounded(self):
+        client = _make_client()
+        stats = {"details": [], "errors": []}
+        oversized = base64.b64encode(b"x" * (MAX_DSN_BYTES + 1)).decode()
+
+        assert (
+            client._process_attachments(
+                "message",
+                [
+                    {
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "name": "oversized.xml",
+                        "contentBytes": oversized,
+                    }
+                ],
+                stats,
+            )
+            == -1
+        )
+        assert stats["details"][0]["reason"] == "parse_failed"
 
     def test_fetch_reports_skips_already_ingested_message(self, monkeypatch, db_session):
         def fake_request(method, url, headers=None, params=None, timeout=None):
