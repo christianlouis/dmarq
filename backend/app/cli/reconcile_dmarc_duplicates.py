@@ -8,30 +8,31 @@ duplicate identities are always reported and skipped.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
+import pkgutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from sqlalchemy import create_engine, func
-from sqlalchemy.orm import joinedload, selectinload, sessionmaker
+from sqlalchemy.orm import selectinload, sessionmaker
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
-import app.models.domain  # noqa: F401,E402
-import app.models.organization  # noqa: F401,E402
-import app.models.report  # noqa: F401,E402
-import app.models.user  # noqa: F401,E402
-import app.models.workspace  # noqa: F401,E402
+# Import every model module so SQLAlchemy can resolve all relationships in a
+# production process, including relationships unrelated to DMARC reports.
+import app.models  # noqa: E402
+
+for module in pkgutil.iter_modules(app.models.__path__):
+    importlib.import_module(f"app.models.{module.name}")
+
 from app.core.database import Base  # noqa: E402
 from app.models.report import DMARCReport, ReportRecord  # noqa: E402
-from app.services.report_integrity import (  # noqa: E402
-    _report_signature,
-    duplicate_report_inventory,
-)
+from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
 from app.models.domain import Domain  # noqa: E402
 
 
@@ -105,13 +106,25 @@ def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
             )
     destination = Path(path).expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise FileExistsError(f"backup already exists: {destination}")
     temporary = destination.with_name(destination.name + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, sort_keys=True, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(destination)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.chmod(temporary, 0o600)
+            json.dump(payload, handle, sort_keys=True, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary, destination)
+        os.unlink(temporary)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
     return {"path": str(destination), "reports": len(reports), "records": len(payload["report_records"])}
 
 
@@ -142,50 +155,108 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
     if not remove_ids:
         result["applied"] = {"reports": 0, "records": 0}
         return result
+    all_ids = [row["id"] for group in inventory for row in group["rows"]]
+    domain_ids = [
+        row[0]
+        for row in db.query(DMARCReport.domain_id)
+        .filter(DMARCReport.id.in_(all_ids))
+        .distinct()
+        .all()
+    ]
+    db.query(Domain).filter(Domain.id.in_(domain_ids)).order_by(Domain.id).with_for_update().all()
     locked = (
         _scope_query(db, workspace_id)
-        .options(joinedload(DMARCReport.domain), selectinload(DMARCReport.records))
-        .filter(DMARCReport.id.in_(remove_ids))
+        .options(selectinload(DMARCReport.records))
+        .filter(DMARCReport.id.in_(all_ids))
+        .order_by(DMARCReport.id)
         .with_for_update()
         .all()
     )
-    if len(locked) != len(remove_ids):
+    if len(locked) != len(all_ids):
         raise RuntimeError("cleanup plan changed: candidate rows no longer exist")
     refreshed = _plan(duplicate_report_inventory(db, workspace_id=workspace_id))
     if refreshed != plan:
         raise RuntimeError("cleanup plan changed while acquiring locks; aborting")
     before = _totals(db, workspace_id)
-    backup_result = _write_backup(db, remove_ids, backup)
+    backup_result = _write_backup(db, all_ids, backup)
     records = db.query(ReportRecord).filter(ReportRecord.report_id.in_(remove_ids)).all()
     for record in records:
         db.delete(record)
+    remove_set = set(remove_ids)
     for report in locked:
-        db.delete(report)
+        if report.id in remove_set:
+            db.delete(report)
     db.flush()
     after = _totals(db, workspace_id)
     expected = (before[0] - len(records), before[1] - sum(int(r.count or 0) for r in records))
     if after != expected:
         raise RuntimeError(f"post-delete verification failed: expected {expected}, got {after}")
     result["backup"] = backup_result
-    result["applied"] = {"reports": len(locked), "records": len(records), "before": before, "after": after}
+    result["applied"] = {"reports": len(remove_ids), "records": len(records), "before": before, "after": after}
     return result
+
+
+def restore_backup(db, path: str) -> Dict[str, int]:
+    """Restore a backup into an empty-ID slot; never overwrites rows."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    reports = payload.get("reports") or []
+    records = payload.get("report_records") or []
+    report_ids = [int(row["id"]) for row in reports]
+    existing_report_ids = {
+        row[0]
+        for row in db.query(DMARCReport.id).filter(DMARCReport.id.in_(report_ids)).all()
+    }
+    for row in reports:
+        if int(row["id"]) in existing_report_ids:
+            continue
+        values = dict(row)
+        for key in ("processed_at", "source_projection_at"):
+            if values.get(key):
+                values[key] = datetime.fromisoformat(values[key].replace("Z", "+00:00"))
+        db.add(DMARCReport(**values))
+    db.flush()
+    record_ids = [int(row["id"]) for row in records]
+    existing_record_ids = {
+        row[0]
+        for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
+    }
+    for row in records:
+        if int(row["id"]) not in existing_record_ids:
+            db.add(ReportRecord(**row))
+    db.flush()
+    return {
+        "reports": len(reports) - len(existing_report_ids),
+        "records": len(records) - len(existing_record_ids),
+        "already_present_reports": len(existing_report_ids),
+        "already_present_records": len(existing_record_ids),
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--restore", action="store_true", help="restore a prior backup")
     parser.add_argument("--workspace-id", type=int)
     parser.add_argument("--apply", action="store_true", help="apply eligible exact duplicates")
     parser.add_argument("--backup", help="scoped JSON backup path; required with --apply")
     args = parser.parse_args()
-    engine = create_engine(args.database_url)
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        parser.error("DATABASE_URL environment variable is required")
+    if args.restore and args.apply:
+        parser.error("--restore and --apply are mutually exclusive")
+    if args.restore and not args.backup:
+        parser.error("--backup is required with --restore")
+    engine = create_engine(database_url)
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
-        result = reconcile(
-            db, workspace_id=args.workspace_id, apply=args.apply, backup=args.backup
-        )
-        if args.apply:
+        if args.restore:
+            result = {"mode": "restore", "restored": restore_backup(db, args.backup)}
+        else:
+            result = reconcile(
+                db, workspace_id=args.workspace_id, apply=args.apply, backup=args.backup
+            )
+        if args.apply or args.restore:
             db.commit()
         print(json.dumps(result, sort_keys=True, indent=2, default=str))
         return 0

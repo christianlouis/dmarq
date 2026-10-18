@@ -19,7 +19,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.report_integrity import duplicate_report_inventory
 from app.services.report_persistence import _iso_from_timestamp, save_parsed_report
-from scripts.reconcile_dmarc_duplicates import reconcile
+from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup
 
 
 def _db():
@@ -204,9 +204,15 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
         assert applied["applied"]["reports"] == 1
         assert applied["applied"]["records"] == 1
         assert backup.exists()
-        assert len(json.loads(backup.read_text())["reports"]) == 1
+        assert len(json.loads(backup.read_text())["reports"]) == 4
         assert db.query(DMARCReport).count() == 3
         assert db.query(ReportRecord).count() == 3
+        restored = restore_backup(db, str(backup))
+        db.commit()
+        assert restored["reports"] == 1
+        assert restored["records"] == 1
+        assert db.query(DMARCReport).count() == 4
+        assert db.query(ReportRecord).count() == 4
     finally:
         db.close()
         Base.metadata.drop_all(engine)
