@@ -7,6 +7,7 @@ and report fetching with mocked IMAP connections.
 
 import email
 import imaplib
+import json
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -752,15 +753,45 @@ class TestProcessAttachments:
     def test_processes_tls_rpt_plain_json_attachment(self, db_session):
         client = self._make_client(db=db_session)
         msg = email.message_from_bytes(
-            _make_email_with_attachment(
-                "report.json", MINIMAL_TLS_RPT_JSON, "application/json"
-            )
+            _make_email_with_attachment("report.json", MINIMAL_TLS_RPT_JSON, "application/json")
         )
 
         count = client._process_attachments(msg)
 
         assert count == 1
         assert db_session.query(TLSReport).filter_by(report_id="tlsrpt-abc-123").count() == 1
+
+    def test_tls_multi_policy_and_invalid_tls_followed_by_dmarc(self, db_session):
+        client = self._make_client(db=db_session)
+        multi_policy = json.loads(MINIMAL_TLS_RPT_JSON)
+        multi_policy["policies"].append(
+            {
+                "policy": {"policy-type": "no-policy-found", "policy-domain": "other.example"},
+                "summary": {
+                    "total-successful-session-count": 3,
+                    "total-failure-session-count": 2,
+                },
+            }
+        )
+        first = email.message_from_bytes(
+            _make_email_with_attachment("tls.json", b"{invalid", "application/json")
+        )
+        valid_tls = email.message_from_bytes(
+            _make_email_with_attachment(
+                "tls2.json", json.dumps(multi_policy).encode(), "application/json"
+            )
+        )
+        valid_dmarc = email.message_from_bytes(
+            _make_email_with_attachment("dmarc.xml", MINIMAL_DMARC_XML, "application/xml")
+        )
+        for part in valid_tls.get_payload()[1:] + valid_dmarc.get_payload()[1:]:
+            first.attach(part)
+
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        assert client._process_attachments(first, stats) == 2
+        assert db_session.query(TLSReport).count() == 2
+        assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
+        assert stats["skipped_attachments"] == 1
 
     def test_duplicate_tls_rpt_report_is_not_recounted(self, db_session):
         client = self._make_client(db=db_session)

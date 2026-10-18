@@ -151,9 +151,9 @@ def _save_policy_report(
 
     db.add(row)
     try:
-        db.flush()
+        with db.begin_nested():
+            db.flush()
     except IntegrityError:
-        db.rollback()
         existing_query = db.query(TLSReport).filter(
             TLSReport.report_id == report_id,
             TLSReport.policy_domain == policy_domain,

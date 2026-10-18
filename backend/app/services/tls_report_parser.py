@@ -45,13 +45,19 @@ def _extract_json_from_zip(file_content: bytes) -> Optional[bytes]:
             files = archive.infolist()
             if len(files) > MAX_TLS_FILES_IN_ARCHIVE:
                 raise ValueError("TLS report archive contains too many files")
+            if any(item.filename.lower().endswith((".zip", ".gz", ".gzip")) for item in files):
+                raise ValueError("Nested TLS report archives are not supported")
             if sum(item.file_size for item in files) > MAX_TLS_UNCOMPRESSED_SIZE:
                 raise ValueError("TLS report archive is too large after decompression")
-            for item in files:
-                if item.filename.lower().endswith(".json"):
-                    if item.file_size > MAX_TLS_UNCOMPRESSED_SIZE:
-                        raise ValueError("TLS report JSON is too large after decompression")
-                    return archive.read(item.filename)
+            json_files = [item for item in files if item.filename.lower().endswith(".json")]
+            if len(json_files) != 1:
+                if len(json_files) > 1:
+                    raise ValueError("TLS report archive contains multiple JSON files")
+                return None
+            item = json_files[0]
+            if item.file_size > MAX_TLS_UNCOMPRESSED_SIZE:
+                raise ValueError("TLS report JSON is too large after decompression")
+            return archive.read(item.filename)
     except zipfile.BadZipFile:
         return None
     return None
@@ -66,12 +72,29 @@ def _extract_json_content(file_content: bytes, filename: str) -> bytes:
         raise ValueError("Could not extract JSON content from ZIP TLS report")
     if lower.endswith((".gz", ".gzip")):
         try:
-            return gzip.decompress(file_content)
+            with gzip.GzipFile(fileobj=io.BytesIO(file_content)) as archive:
+                content = archive.read(MAX_TLS_UNCOMPRESSED_SIZE + 1)
+            if len(content) > MAX_TLS_UNCOMPRESSED_SIZE:
+                raise ValueError("TLS report is too large after decompression")
+            return content
         except gzip.BadGzipFile as exc:
             raise ValueError("Invalid gzip TLS report") from exc
     if lower.endswith(".json"):
         return file_content
     raise ValueError("Invalid TLS report file type. Upload .json, .json.gz, or .zip.")
+
+
+def looks_like_tls_report(file_content: bytes, filename: str) -> bool:
+    """Safely identify JSON TLS-RPT payloads before shared IMAP routing."""
+    lower = filename.lower()
+    if lower.endswith(".json"):
+        return True
+    if not lower.endswith((".gz", ".gzip", ".zip")):
+        return False
+    try:
+        return _extract_json_content(file_content, filename).lstrip().startswith(b"{")
+    except ValueError:
+        return False
 
 
 def _policy_domain(policy: Dict[str, Any]) -> str:

@@ -87,6 +87,32 @@ def test_parse_tls_report_rejects_zip_without_json_file():
         TLSReportParser.parse_file(archive.getvalue(), "tls-report.zip")
 
 
+def test_parse_tls_report_rejects_multiple_json_files():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("one.json", sample_tls_report_bytes())
+        zip_file.writestr("two.json", sample_tls_report_bytes())
+
+    with pytest.raises(ValueError, match="multiple JSON files"):
+        TLSReportParser.parse_file(archive.getvalue(), "tls-report.zip")
+
+
+def test_parse_tls_report_rejects_nested_archive():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("nested.zip", b"PK")
+
+    with pytest.raises(ValueError, match="Nested TLS report archives"):
+        TLSReportParser.parse_file(archive.getvalue(), "tls-report.zip")
+
+
+def test_parse_tls_report_limits_gzip_expansion(monkeypatch):
+    monkeypatch.setattr("app.services.tls_report_parser.MAX_TLS_UNCOMPRESSED_SIZE", 16)
+
+    with pytest.raises(ValueError, match="too large after decompression"):
+        TLSReportParser.parse_file(gzip.compress(b"x" * 17), "tls-report.json.gz")
+
+
 def test_parse_tls_report_rejects_bad_zip_file():
     with pytest.raises(ValueError, match="Could not extract JSON content"):
         TLSReportParser.parse_file(b"not a zip file", "tls-report.zip")
