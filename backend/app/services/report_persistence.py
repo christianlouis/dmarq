@@ -373,8 +373,7 @@ def hydrate_report_store_from_db(
     else:
         store.clear()
     reports = query.order_by(DMARCReport.end_date.desc()).all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 
@@ -417,8 +416,7 @@ def hydrate_domain_report_store_from_db(
     if limit is not None:
         query = query.limit(max(1, int(limit)))
     reports = query.all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 
