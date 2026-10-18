@@ -13,8 +13,8 @@ import pytest
 from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport
 from app.models.workspace import Workspace
-from app.services.mail_connector import initial_import_stats
 from app.services.dsn_parser import MAX_DSN_BYTES
+from app.services.mail_connector import initial_import_stats
 from app.services.microsoft_graph_client import (
     M365_APPLICATION_SCOPE,
     M365_SCOPES,
@@ -646,6 +646,79 @@ class TestMicrosoftGraphFetchReports:
         assert result["reports_found"] == 1
         assert result["new_ingested_ids"] == ["message-mime"]
         assert db_session.query(DMARCReport).count() == 1
+
+    def test_nested_rfc822_wrapper_is_not_traversed_twice(self, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        outer = EmailMessage()
+        outer.set_content("Forwarded message")
+        outer.add_attachment(nested, filename="forwarded.eml")
+        stats = {"details": [], "errors": [], "reports_found": 0}
+
+        result = _make_client(db=db_session)._process_attachments(
+            "message-rfc822",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(outer.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert result == 1
+        assert stats.get("duplicate_reports", 0) == 0
+        assert db_session.query(DMARCReport).count() == 1
+
+    def test_named_nested_unsupported_attachment_is_counted(self):
+        message = EmailMessage()
+        message.set_content("Forwarded message")
+        message.add_attachment(b"notes", maintype="text", subtype="plain", filename="notes.txt")
+        stats = {"details": [], "errors": []}
+
+        result = _make_client()._process_attachments(
+            "message-notes",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(message.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert result == 0
+        assert stats["skipped_attachments"] == 1
+        assert stats["details"][-1]["reason"] == "unsupported_attachment"
+
+    def test_item_attachment_uses_bounded_mime_value_fallback(self, monkeypatch, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        client = _make_client(db=db_session)
+        monkeypatch.setattr(client, "_get_nested_attachments", lambda *_args: [])
+        monkeypatch.setattr(client, "_request_bytes", lambda _path: nested.as_bytes())
+        stats = initial_import_stats(client.import_context())
+
+        result = client._process_item_attachment(
+            "message-fallback",
+            {"id": "item-1", "name": "forwarded.eml"},
+            stats,
+            depth=0,
+            attachment_count=[0],
+        )
+
+        assert result == (1, False)
+        assert stats["reports_found"] == 1
 
     def test_malformed_mime_attachment_keeps_message_retryable(self):
         client = _make_client()
