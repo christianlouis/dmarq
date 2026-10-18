@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from app.models.mail_source import MailSource
 
 
@@ -185,12 +186,16 @@ def test_poll_single_m365_source_persists_import_state():
 
     source = SimpleNamespace(
         id=2,
+        method="M365_GRAPH",
+        workspace_id=1,
         m365_access_token="tok",
         m365_tenant_id="organizations",
         m365_client_id="cid",
         m365_client_secret="csec",
         m365_refresh_token="ref",
         m365_mailbox="shared@example.com",
+        m365_auth_mode="delegated",
+        m365_folder_id="",
         m365_ingested_ids="[]",
         folder="INBOX",
     )
@@ -248,6 +253,8 @@ def test_poll_single_m365_application_source_runs_without_stored_token():
 
     source = SimpleNamespace(
         id=4,
+        method="M365_GRAPH",
+        workspace_id=1,
         m365_auth_mode="application",
         m365_access_token=None,
         m365_tenant_id="tenant-id",
@@ -255,6 +262,7 @@ def test_poll_single_m365_application_source_runs_without_stored_token():
         m365_client_secret="client-secret",
         m365_refresh_token=None,
         m365_mailbox="dmarc-reports@example.com",
+        m365_folder_id="",
         m365_ingested_ids="[]",
         folder="INBOX",
     )
