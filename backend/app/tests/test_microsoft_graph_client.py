@@ -675,6 +675,63 @@ class TestMicrosoftGraphFetchReports:
         assert stats.get("duplicate_reports", 0) == 0
         assert db_session.query(DMARCReport).count() == 1
 
+    def test_base64_octet_stream_eml_leaf_is_decoded(self, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        encoded = EmailMessage()
+        encoded.set_type("application/octet-stream")
+        encoded["Content-Disposition"] = 'attachment; filename="forwarded.eml"'
+        encoded["Content-Transfer-Encoding"] = "base64"
+        encoded.set_payload(base64.b64encode(nested.as_bytes()).decode("ascii"))
+        stats = initial_import_stats(_make_client(db=db_session).import_context())
+
+        found = _make_client(db=db_session)._process_attachments(
+            "message-octet",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(encoded.as_bytes()).decode("ascii"),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 1
+        assert stats["errors"] == []
+
+    def test_nested_alternative_body_with_valid_report_is_neutral(self, db_session):
+        alternative = EmailMessage()
+        alternative.set_content("Plain body")
+        alternative.add_alternative("<p>HTML body</p>", subtype="html")
+        outer = EmailMessage()
+        outer.set_content("Forwarded message")
+        outer.add_attachment(alternative, filename="body.eml")
+        outer.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        stats = initial_import_stats(_make_client(db=db_session).import_context())
+
+        found = _make_client(db=db_session)._process_attachments(
+            "message-alternative",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(outer.as_bytes()).decode("ascii"),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 1
+        assert stats["errors"] == []
+
     def test_named_nested_unsupported_attachment_is_counted(self):
         message = EmailMessage()
         message.set_content("Forwarded message")
