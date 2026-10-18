@@ -45,7 +45,8 @@ def _report_signature(report: DMARCReport) -> tuple[Any, ...]:
         report.raw_data,
     )
     record_signatures = sorted(
-        (
+        [
+            (
             record.source_ip,
             record.count,
             record.disposition,
@@ -59,8 +60,10 @@ def _report_signature(report: DMARCReport) -> tuple[Any, ...]:
             _canonical_json(record.policy_override_reasons),
             _canonical_json(record.record_extensions),
             _canonical_json(record.source_evidence),
-        )
-        for record in report.records
+            )
+            for record in report.records
+        ],
+        key=repr,
     )
     return report_fields + (tuple(record_signatures),)
 

@@ -79,6 +79,45 @@ def test_duplicate_inventory_separates_exact_and_conflicting_totals():
         engine.dispose()
 
 
+def test_duplicate_inventory_handles_none_and_text_record_fields():
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="stable-signature", name="Stable Signature")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="stable.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        for header_from in (None, "stable.example"):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id="same",
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+            )
+            db.add(report)
+            db.flush()
+            db.add(
+                ReportRecord(
+                    report_id=report.id,
+                    source_ip="192.0.2.2",
+                    count=1,
+                    disposition="none",
+                    dkim="pass",
+                    spf="pass",
+                    header_from=header_from,
+                )
+            )
+        db.commit()
+        result = duplicate_report_inventory(db, workspace_id=workspace.id)
+        assert result[0]["classification"] == "conflict"
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
 def test_duplicate_import_returns_existing_row_without_second_persist(monkeypatch):
     engine, db = _db()
     try:
