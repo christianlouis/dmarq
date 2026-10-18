@@ -422,7 +422,8 @@ def _next_sleep_seconds(
             finally:
                 db.close()
         intervals = [s.polling_interval or 60 for s in enabled_sources]
-        return max(min_sleep, min(intervals, default=3600) * 60)
+        # Intervals and the empty-source default are minutes; convert only once.
+        return max(min_sleep, min(intervals, default=60) * 60)
     except Exception:  # pylint: disable=broad-exception-caught
         return 3600
 
