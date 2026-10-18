@@ -24,8 +24,8 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
-from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.dsn_parser import MAX_DSN_BYTES
+from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_delivery_events import _dsn_bytes
