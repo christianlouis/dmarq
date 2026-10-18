@@ -2,6 +2,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
@@ -27,6 +28,96 @@ def _db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine)()
+
+
+class _InventoryQuery:
+    def __init__(self, reports):
+        self.reports = reports
+
+    def options(self, *args):
+        return self
+
+    def join(self, *args):
+        return self
+
+    def filter(self, *args):
+        return self
+
+    def order_by(self, *args):
+        return self
+
+    def all(self):
+        return self.reports
+
+
+class _InventoryDB:
+    def __init__(self, reports):
+        self.reports = reports
+
+    def query(self, model):
+        return _InventoryQuery(self.reports)
+
+
+def _inventory_report(report_id, domain_id, workspace_id, domain_name):
+    domain = SimpleNamespace(id=domain_id, workspace_id=workspace_id, name=domain_name)
+    record = SimpleNamespace(
+        source_ip="192.0.2.99",
+        count=1,
+        disposition="none",
+        dkim="pass",
+        spf="pass",
+        header_from=domain_name,
+        envelope_from=None,
+        envelope_to=None,
+        dkim_auth_details=None,
+        spf_auth_details=None,
+        policy_override_reasons=None,
+        record_extensions=None,
+        source_evidence=None,
+    )
+    return SimpleNamespace(
+        id=domain_id * 10,
+        domain_id=domain_id,
+        domain=domain,
+        report_id=report_id,
+        org_name="sender",
+        begin_date=100,
+        end_date=200,
+        source_email=None,
+        extra_contact_info=None,
+        generator=None,
+        report_errors=None,
+        policy="none",
+        subdomain_policy=None,
+        non_subdomain_policy=None,
+        adkim=None,
+        aspf=None,
+        percentage=None,
+        failure_options=None,
+        testing=None,
+        discovery_method=None,
+        schema_version=None,
+        report_variant=None,
+        xml_namespace=None,
+        report_extensions=None,
+        raw_data="<same/>",
+        records=[record],
+    )
+
+
+def test_duplicate_inventory_scopes_same_domain_name_by_owner_identity():
+    reports = [
+        _inventory_report("same", 1, 10, "shared.example"),
+        _inventory_report("same", 2, 20, "shared.example"),
+    ]
+    assert duplicate_report_inventory(_InventoryDB(reports)) == []
+
+    reports.append(_inventory_report("same", 1, 10, "shared.example"))
+    result = duplicate_report_inventory(_InventoryDB(reports))
+    assert len(result) == 1
+    assert result[0]["domain_id"] == 1
+    assert result[0]["workspace_id"] == 10
+    assert result[0]["row_count"] == 2
 
 
 def test_timestamp_serialization_is_utc_and_timezone_independent():

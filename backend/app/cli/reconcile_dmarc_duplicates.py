@@ -46,7 +46,9 @@ def _plan(inventory: list[Dict[str, Any]]) -> Dict[str, Any]:
         rows = sorted(group["rows"], key=lambda row: row["id"])
         eligible.append(
             {
+                "domain_id": group["domain_id"],
                 "domain": group["domain"],
+                "workspace_id": group["workspace_id"],
                 "report_id": group["report_id"],
                 "survivor_id": rows[0]["id"],
                 "remove_ids": [row["id"] for row in rows[1:]],
