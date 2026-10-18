@@ -1613,6 +1613,29 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     )
     assert unsupported_header.status_code == 400
 
+    empty_header = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret, "MCP-Protocol-Version": ""},
+        json={"jsonrpc": "2.0", "id": 12, "method": "tools/list"},
+    )
+    assert empty_header.status_code == 400
+
+    initialize_header = client.post(
+        "/api/v1/mcp",
+        headers={
+            "X-API-Key": token.secret,
+            "MCP-Protocol-Version": "2025-06-18",
+        },
+        json={
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26"},
+        },
+    )
+    assert initialize_header.status_code == 200
+    assert initialize_header.json()["result"]["protocolVersion"] == "2025-03-26"
+
     unsupported_method = client.post(
         "/api/v1/mcp",
         headers={"X-API-Key": token.secret},
