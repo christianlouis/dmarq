@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -39,6 +40,37 @@ class MCPRequest(BaseModel):
     id: Optional[Any] = None
     method: str
     params: Dict[str, Any] = {}
+
+
+# MCP protocol revisions supported by this HTTP endpoint, ordered newest first.
+# Keep the legacy revision for clients that still negotiate it explicitly.
+MCP_SUPPORTED_PROTOCOL_VERSIONS = (
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+MCP_DEFAULT_PROTOCOL_VERSION = "2025-03-26"
+
+
+def _negotiate_protocol_version(params: Dict[str, Any]) -> str:
+    """Select a supported protocol revision for initialize negotiation."""
+    requested = params.get("protocolVersion")
+    if requested in MCP_SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return MCP_DEFAULT_PROTOCOL_VERSION
+
+
+def _request_protocol_version(request: Request, params: Dict[str, Any]) -> str:
+    """Resolve the protocol revision for this request without session state."""
+    header_version = request.headers.get("MCP-Protocol-Version")
+    if header_version:
+        if header_version not in MCP_SUPPORTED_PROTOCOL_VERSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported MCP-Protocol-Version: {header_version}",
+            )
+        return header_version
+    return _negotiate_protocol_version(params) if params else MCP_DEFAULT_PROTOCOL_VERSION
 
 
 READ_ONLY_TOOLS = [
@@ -541,13 +573,13 @@ async def _call_read_only_tool(
     raise KeyError(name)
 
 
-@router.post("")
+@router.post("", response_model=None)
 async def mcp_jsonrpc(
     payload: MCPRequest,
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_api_token_scope(MCP_READ_SCOPE)),
-) -> Dict[str, Any]:
+) -> Dict[str, Any] | Response:
     """Handle a small read-only MCP tool surface over JSON-RPC."""
     _require_mcp_enabled(db)
     workspace = resolve_authorized_workspace(
@@ -556,11 +588,15 @@ async def mcp_jsonrpc(
         PERMISSION_REPORTS_READ,
     )
     _require_advanced_integrations(db, workspace)
+    protocol_version = _request_protocol_version(request, payload.params)
+    if payload.id is None and payload.method.startswith("notifications/"):
+        # JSON-RPC notifications have no response body; MCP HTTP uses 202.
+        return Response(status_code=status.HTTP_202_ACCEPTED)
     if payload.method == "initialize":
         return _jsonrpc_response(
             payload.id,
             {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_version,
                 "serverInfo": {"name": "dmarq", "version": "1"},
                 "capabilities": {"tools": {}},
             },
@@ -603,10 +639,11 @@ async def mcp_jsonrpc(
         request=request,
     )
     db.commit()
-    return _jsonrpc_response(
-        payload.id,
-        {
-            "content": [{"type": "json", "json": jsonable_encoder(result)}],
-            "isError": False,
-        },
-    )
+    encoded = jsonable_encoder(result)
+    tool_result = {
+        "content": [{"type": "text", "text": json.dumps(encoded)}],
+        "isError": False,
+    }
+    if protocol_version == "2025-06-18":
+        tool_result["structuredContent"] = encoded
+    return _jsonrpc_response(payload.id, tool_result)

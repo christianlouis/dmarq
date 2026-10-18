@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import json
 import sys
 import time
 from types import SimpleNamespace
@@ -1444,7 +1445,7 @@ def test_mcp_export_catalog_returns_workspace_exports(
         },
     )
     assert response.status_code == 200
-    result = response.json()["result"]["content"][0]["json"]
+    result = json.loads(response.json()["result"]["content"][0]["text"])
 
     assert result["token"]["name"] == "mcp catalog"
     assert result["mcp"]["available"] is True
@@ -1571,6 +1572,47 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     assert initialized.status_code == 200
     assert initialized.json()["result"]["serverInfo"]["name"] == "dmarq"
 
+    negotiated = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
+    )
+    assert negotiated.status_code == 200
+    assert negotiated.json()["result"]["protocolVersion"] == "2024-11-05"
+
+    fallback = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "initialize",
+            "params": {"protocolVersion": "unsupported"},
+        },
+    )
+    assert fallback.status_code == 200
+    assert fallback.json()["result"]["protocolVersion"] == "2025-03-26"
+
+    notified = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+    )
+    assert notified.status_code == 202
+    assert notified.content == b""
+
+    unsupported_header = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret, "MCP-Protocol-Version": "unsupported"},
+        json={"jsonrpc": "2.0", "id": 11, "method": "tools/list"},
+    )
+    assert unsupported_header.status_code == 400
+
     unsupported_method = client.post(
         "/api/v1/mcp",
         headers={"X-API-Key": token.secret},
@@ -1590,8 +1632,29 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         },
     )
     assert called.status_code == 200
-    result = called.json()["result"]["content"][0]["json"]
+    result = json.loads(called.json()["result"]["content"][0]["text"])
     assert result["summary"]["domain"] == DOMAIN
+    content = called.json()["result"]["content"]
+    assert content[0]["type"] == "text"
+    assert json.loads(content[0]["text"]) == result
+    assert "structuredContent" not in called.json()["result"]
+
+    modern_called = client.post(
+        "/api/v1/mcp",
+        headers={
+            "X-API-Key": token.secret,
+            "MCP-Protocol-Version": "2025-06-18",
+        },
+        json={
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "domain_summary", "arguments": {"domain": DOMAIN}},
+        },
+    )
+    assert modern_called.status_code == 200
+    modern_result = modern_called.json()["result"]["structuredContent"]
+    assert json.loads(modern_called.json()["result"]["content"][0]["text"]) == modern_result
 
     source_intelligence = client.post(
         "/api/v1/mcp",
@@ -1604,7 +1667,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         },
     )
     assert source_intelligence.status_code == 200
-    source_result = source_intelligence.json()["result"]["content"][0]["json"]
+    source_result = json.loads(source_intelligence.json()["result"]["content"][0]["text"])
     assert source_result["domain"] == DOMAIN
     assert "regions" in source_result
 
@@ -1633,6 +1696,40 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     )
     assert unsupported_tool.status_code == 200
     assert unsupported_tool.json()["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("protocol_version", mcp_endpoint.MCP_SUPPORTED_PROTOCOL_VERSIONS)
+def test_mcp_initialize_negotiates_each_supported_version(
+    client: TestClient,
+    db_session: Session,
+    protocol_version: str,
+):
+    _persist_report(db_session)
+    token = create_api_token(db_session, name="mcp initialize", scopes=[MCP_READ_SCOPE])
+    _set_setting(db_session, "mcp.enabled", "true", "mcp")
+
+    response = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": protocol_version},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"]["protocolVersion"] == protocol_version
+
+
+def test_mcp_notification_requires_authentication(client: TestClient):
+    response = client.post(
+        "/api/v1/mcp",
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+    )
+
+    assert response.status_code in {401, 403}
 
 
 def test_mcp_requires_advanced_integrations_entitlement(client: TestClient, db_session: Session):
