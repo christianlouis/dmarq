@@ -375,6 +375,29 @@ class MicrosoftGraphClient(MailSourceConnector):
         stats["new_domains"] = list(domains_after - domains_before)
         return stats
 
+    def retry_message(self, message_id: str) -> Dict[str, Any]:
+        """Fetch and reprocess one stable Graph message ID."""
+        safe_id = str(message_id)
+        stats = initial_import_stats(self.import_context())
+        stats["recovery_message_id"] = safe_id
+        try:
+            message = self._request(
+                "GET",
+                f"{self._mailbox_path()}/messages/{quote(safe_id, safe='')}",
+                params={"$select": "id,subject,from,hasAttachments,receivedDateTime"},
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return connector_failure_stats(
+                stats, "Failed to fetch Microsoft Graph message.", error=exc
+            )
+        stats["processed"] = 1
+        found = self._process_message(message, stats)
+        if found < 0 or stats["errors"]:
+            stats["success"] = False
+        else:
+            stats["new_ingested_ids"].append(safe_id)
+        return stats
+
     @staticmethod
     def _token_url(tenant_id: str) -> str:
         tenant = quote(tenant_id or "common", safe="")

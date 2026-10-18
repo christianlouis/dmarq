@@ -52,8 +52,9 @@ class TestDashboardStatistics:
     def test_mail_health_summary_localizes_primary_guidance_without_changing_facts(
         self, authed_client: TestClient
     ):
-        english = authed_client.get("/api/v1/stats/mail-health/summary?lang=en").json()
-        german = authed_client.get("/api/v1/stats/mail-health/summary?lang=de").json()
+        query = "interval=custom&start_date=2026-01-01&end_date=2026-01-31"
+        english = authed_client.get(f"/api/v1/stats/mail-health/summary?lang=en&{query}").json()
+        german = authed_client.get(f"/api/v1/stats/mail-health/summary?lang=de&{query}").json()
 
         assert english["assessment"]["assessment_id"] == german["assessment"]["assessment_id"]
         assert german["assessment"]["presentation"]["locale"] == "de"

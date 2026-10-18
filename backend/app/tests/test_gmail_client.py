@@ -24,8 +24,8 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
-from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.dsn_parser import MAX_DSN_BYTES
+from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_delivery_events import _dsn_bytes
@@ -934,6 +934,24 @@ class TestFetchReports:
 
         assert result["new_ingested_ids"] == []
         assert client.already_ingested_ids == []
+
+    def test_retry_message_marks_only_successful_processing_ingested(self):
+        client = _make_client()
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=0),
+        ):
+            successful = client.retry_message("one-message")
+        assert successful["success"] is True
+        assert successful["new_ingested_ids"] == ["one-message"]
+
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
+        ):
+            failed = client.retry_message("one-message")
+        assert failed["success"] is False
+        assert failed["new_ingested_ids"] == []
 
     def test_reports_new_domains(self):
         """fetch_reports should report domains that appear after ingestion."""

@@ -59,6 +59,7 @@ from app.services.import_history import record_import_attempt
 from app.services.mail_connector import initial_import_stats
 from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
+from app.services.mail_source_recovery import ignored_message_ids
 from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
 from app.services.microsoft_graph_client import (
     M365_AUTH_MODE_APPLICATION,
@@ -190,7 +191,8 @@ def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
     try:
         src = db.query(MailSource).get(source.id)
         poll_source = src or source
-        already = GmailClient.load_ingested_ids(poll_source.gmail_ingested_ids)
+        ingested_ids = GmailClient.load_ingested_ids(poll_source.gmail_ingested_ids)
+        already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, poll_source)))
         client = GmailClient(
             client_id=poll_source.gmail_client_id or "",
             client_secret=poll_source.gmail_client_secret or "",
@@ -205,7 +207,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
         results = client.fetch_reports()
         if src:
             if results.get("new_ingested_ids"):
-                all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+                all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
                 src.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
 
             refreshed = client.get_refreshed_tokens()
@@ -256,7 +258,8 @@ def _poll_single_m365_source(source: MailSource) -> None:
     try:
         src = db.query(MailSource).get(source.id)
         poll_source = src or source
-        already = MicrosoftGraphClient.load_ingested_ids(poll_source.m365_ingested_ids)
+        ingested_ids = MicrosoftGraphClient.load_ingested_ids(poll_source.m365_ingested_ids)
+        already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, poll_source)))
         client = MicrosoftGraphClient(
             tenant_id=poll_source.m365_tenant_id or "common",
             client_id=poll_source.m365_client_id or "",
@@ -276,7 +279,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
         results = client.fetch_reports(days=7)
         if src:
             if results.get("new_ingested_ids"):
-                all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+                all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
                 src.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
 
             refreshed = client.get_refreshed_tokens()
@@ -1080,7 +1083,8 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     """Poll a single GMAIL_API source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    ingested_ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     gmail_client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -1095,7 +1099,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     last_check_time = datetime.now()
 
     if results.get("new_ingested_ids"):
-        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
         source.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
     refreshed = gmail_client.get_refreshed_tokens()
     if refreshed:
@@ -1112,7 +1116,8 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     """Poll a single M365_GRAPH source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
-    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    ingested_ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     graph_client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",
@@ -1132,7 +1137,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     last_check_time = datetime.now()
 
     if results.get("new_ingested_ids"):
-        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
         source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
     refreshed = graph_client.get_refreshed_tokens()
     if refreshed:
