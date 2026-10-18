@@ -764,6 +764,12 @@ class MicrosoftGraphClient(MailSourceConnector):
             return False
 
         if self.db is not None:
+            # SQLite does not reliably open an outer transaction before its
+            # first SAVEPOINT.  Start it explicitly so a failed nested write
+            # rolls back only that report and cannot commit partial state.
+            connection = self.db.connection()
+            if connection.dialect.name == "sqlite" and not connection.connection.in_transaction:
+                connection.exec_driver_sql("BEGIN")
             with self.db.begin_nested():
                 save_parsed_report(self.db, report, workspace_id=self.workspace_id)
         self.report_store.add_report(report)
@@ -782,7 +788,13 @@ class MicrosoftGraphClient(MailSourceConnector):
         content_type = str(part.get_content_type() or "")
         if content_type.lower() == "message/rfc822":
             payload = part.get_payload()
-            if isinstance(payload, list) and payload and hasattr(payload[0], "as_bytes"):
+            if str(part.get("Content-Transfer-Encoding") or "").lower() == "base64":
+                # The email parser may eagerly turn the encoded RFC822 body
+                # into a list containing the still-encoded message.  Decode
+                # the serialized body instead of re-serializing that list.
+                _, _, encoded_body = part.as_bytes().partition(b"\n\n")
+                nested_bytes = base64.b64decode(encoded_body.strip())
+            elif isinstance(payload, list) and payload and hasattr(payload[0], "as_bytes"):
                 nested_bytes = payload[0].as_bytes()
             elif hasattr(payload, "as_bytes"):
                 nested_bytes = payload.as_bytes()
@@ -869,7 +881,11 @@ class MicrosoftGraphClient(MailSourceConnector):
             payload = parsed.get_payload(decode=True)
             if payload:
                 parsed = email.message_from_bytes(payload)
-        nested = self._nested_mime_attachments(parsed, attachment_count=attachment_count)
+        nested = self._nested_mime_attachments(
+            parsed,
+            depth=depth,
+            attachment_count=attachment_count,
+        )
         if not nested:
             if not parsed.keys():
                 raise ValueError("RFC822 attachment contains no usable parts")
@@ -880,6 +896,7 @@ class MicrosoftGraphClient(MailSourceConnector):
             stats,
             depth=depth,
             attachment_count=attachment_count,
+            count_attachments=False,
         )
 
     def _process_item_attachment(
@@ -1084,21 +1101,23 @@ class MicrosoftGraphClient(MailSourceConnector):
         *,
         depth: int = 0,
         attachment_count: Optional[List[int]] = None,
+        count_attachments: bool = True,
     ) -> int:
         attachment_count = attachment_count or [0]
         reports_found = 0
         had_error = False
 
         for attachment in attachments:
-            attachment_count[0] += 1
-            if attachment_count[0] > _MAX_ATTACHMENT_COUNT:
-                self._append_detail(
-                    stats,
-                    status="error",
-                    reason="attachment_limit_exceeded",
-                    message_id=message_id,
-                )
-                return -1
+            if count_attachments:
+                attachment_count[0] += 1
+                if attachment_count[0] > _MAX_ATTACHMENT_COUNT:
+                    self._append_detail(
+                        stats,
+                        status="error",
+                        reason="attachment_limit_exceeded",
+                        message_id=message_id,
+                    )
+                    return -1
             filename = str(attachment.get("name") or "")
             if not filename:
                 continue

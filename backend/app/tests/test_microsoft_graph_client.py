@@ -3,16 +3,19 @@
 import base64
 import zipfile
 from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
 from io import BytesIO
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.models.delivery_event import DeliveryEvent
 from app.models.report import DMARCReport
 from app.models.workspace import Workspace
+from app.services import microsoft_graph_client
 from app.services.dsn_parser import MAX_DSN_BYTES
 from app.services.mail_connector import initial_import_stats
 from app.services.microsoft_graph_client import (
@@ -704,6 +707,39 @@ class TestMicrosoftGraphFetchReports:
         assert found == 1
         assert stats["errors"] == []
 
+    def test_base64_rfc822_leaf_is_decoded_before_serialization(self, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        encoded = base64.b64encode(nested.as_bytes())
+        raw = (
+            b'Content-Type: multipart/mixed; boundary="rfc822-boundary"\n'
+            b"MIME-Version: 1.0\n\n"
+            b"--rfc822-boundary\n"
+            b"Content-Type: message/rfc822\n"
+            b'Content-Disposition: attachment; filename="forwarded.eml"\n'
+            b"Content-Transfer-Encoding: base64\n\n" + encoded + b"\n--rfc822-boundary--\n"
+        )
+        stats = initial_import_stats(_make_client(db=db_session).import_context())
+
+        found = _make_client(db=db_session)._process_attachments(
+            "message-rfc822-base64",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(raw).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 1
+        assert stats["errors"] == []
+
     def test_nested_alternative_body_with_valid_report_is_neutral(self, db_session):
         alternative = EmailMessage()
         alternative.set_content("Plain body")
@@ -776,6 +812,182 @@ class TestMicrosoftGraphFetchReports:
 
         assert result == (1, False)
         assert stats["reports_found"] == 1
+
+    def test_item_attachment_uses_message_mime_after_item_value_failure(
+        self, monkeypatch, db_session
+    ):
+        client = _make_client(db=db_session)
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        paths = []
+
+        monkeypatch.setattr(client, "_get_nested_attachments", lambda *_args: [])
+
+        def fetch(path):
+            paths.append(path)
+            if path.endswith("/attachments/item-1/$value"):
+                raise MicrosoftGraphError("item MIME unavailable")
+            return nested.as_bytes()
+
+        monkeypatch.setattr(client, "_request_bytes", fetch)
+        stats = initial_import_stats(client.import_context())
+
+        result = client._process_item_attachment(
+            "message-fallback",
+            {"id": "item-1", "name": "forwarded.eml"},
+            stats,
+            depth=0,
+            attachment_count=[0],
+        )
+
+        assert result == (1, False)
+        assert paths[-1].endswith("/messages/message-fallback/$value")
+
+    def test_nested_mime_leaves_are_not_counted_twice(self):
+        nested = EmailMessage()
+        nested.set_content("Attached notes")
+        for index in range(50):
+            nested.add_attachment(
+                b"notes", maintype="text", subtype="plain", filename=f"note-{index}.txt"
+            )
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-count",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(nested.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == 0
+        assert stats["skipped_attachments"] == 50
+
+    def test_nested_mime_depth_includes_outer_attachment(self):
+        report = EmailMessage()
+        report.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        deep = report
+        for _ in range(3):
+            wrapper = MIMEMultipart()
+            wrapper.attach(deep)
+            deep = wrapper
+        client = _make_client()
+        stats = initial_import_stats(client.import_context())
+
+        found = client._process_attachments(
+            "message-depth",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(deep.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == -1
+        assert stats["details"][-1]["reason"] == "parse_failed"
+
+    def test_nested_mime_partial_failure_keeps_valid_report_retryable(self, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached reports")
+        nested.add_attachment(
+            b"not a DMARC report", maintype="application", subtype="zip", filename="bad.zip"
+        )
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="good.zip"
+        )
+        attachment = {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": "forwarded.eml",
+            "contentType": "message/rfc822",
+            "contentBytes": base64.b64encode(nested.as_bytes()).decode(),
+        }
+        client = _make_client(db=db_session)
+
+        first_stats = initial_import_stats(client.import_context())
+        second_stats = initial_import_stats(client.import_context())
+        assert client._process_attachments("message-partial", [attachment], first_stats) == -1
+        assert first_stats["reports_found"] == 1
+        assert db_session.query(DMARCReport).count() == 1
+        assert client._process_attachments("message-partial", [attachment], second_stats) == -1
+        assert second_stats["duplicate_reports"] == 1
+
+    def test_nested_mime_duplicate_only_is_successful(self, db_session):
+        nested = EmailMessage()
+        nested.set_content("Attached report")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
+        )
+        attachment = {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": "forwarded.eml",
+            "contentType": "message/rfc822",
+            "contentBytes": base64.b64encode(nested.as_bytes()).decode(),
+        }
+        client = _make_client(db=db_session)
+        first_stats = initial_import_stats(client.import_context())
+        duplicate_stats = initial_import_stats(client.import_context())
+
+        assert client._process_attachments("message-duplicate", [attachment], first_stats) == 1
+        assert client._process_attachments("message-duplicate", [attachment], duplicate_stats) == 0
+        assert duplicate_stats["errors"] == []
+        assert duplicate_stats["duplicate_reports"] == 1
+
+    def test_nested_mime_savepoint_keeps_session_usable_after_flush_failure(
+        self, db_session, monkeypatch
+    ):
+        nested = EmailMessage()
+        nested.set_content("Attached reports")
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="first.zip"
+        )
+        nested.add_attachment(
+            _zip_xml(), maintype="application", subtype="zip", filename="second.zip"
+        )
+        client = _make_client(db=db_session)
+        original_save = microsoft_graph_client.save_parsed_report
+        calls = 0
+
+        def fail_first_save(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise IntegrityError("INSERT", {}, RuntimeError("forced flush failure"))
+            return original_save(*args, **kwargs)
+
+        monkeypatch.setattr(microsoft_graph_client, "save_parsed_report", fail_first_save)
+        stats = initial_import_stats(client.import_context())
+        found = client._process_attachments(
+            "message-savepoint",
+            [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "forwarded.eml",
+                    "contentType": "message/rfc822",
+                    "contentBytes": base64.b64encode(nested.as_bytes()).decode(),
+                }
+            ],
+            stats,
+        )
+
+        assert found == -1
+        assert calls == 2
+        assert stats["reports_found"] == 1
+        assert db_session.query(DMARCReport).count() == 1
 
     def test_malformed_mime_attachment_keeps_message_retryable(self):
         client = _make_client()
