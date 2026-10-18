@@ -284,6 +284,51 @@ class TestMailSourceImportRecovery:
         db_session.commit()
         return workspace, source, row
 
+    def _m365_history(self, db_session: Session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Recovery Microsoft 365",
+            method="M365_GRAPH",
+            folder="DMARC",
+            m365_tenant_id="tenant.example.com",
+            m365_client_id="client-id",
+            m365_client_secret="client-secret",
+            m365_access_token="old-access-token",
+            m365_refresh_token="old-refresh-token",
+            m365_mailbox="reports@example.com",
+            m365_folder_id="dmarc-folder-id",
+            m365_ingested_ids=json.dumps(["older-message"]),
+        )
+        db_session.add(source)
+        db_session.flush()
+        row = MailSourceImport(
+            mail_source_id=source.id,
+            trigger="manual",
+            status="warning",
+            recovery_metadata=json.dumps(
+                [
+                    {
+                        "message_id": "graph-message",
+                        "source_id": source.id,
+                        "workspace_id": workspace.id,
+                        "method": "M365_GRAPH",
+                        "folder": "DMARC",
+                        "account": "reports@example.com",
+                        "auth_mode": "delegated",
+                        "tenant_id": "tenant.example.com",
+                        "client_id": "client-id",
+                        "folder_id": "dmarc-folder-id",
+                        "disposition": "pending",
+                        "supported": True,
+                    }
+                ]
+            ),
+        )
+        db_session.add(row)
+        db_session.commit()
+        return workspace, source, row
+
     def test_retry_targets_one_history_message_and_unignores_local_id(
         self, authed_client, db_session
     ):
@@ -428,6 +473,121 @@ class TestMailSourceImportRecovery:
         assert response.json()["success"] is False
         assert json.loads(db_session.get(MailSource, source.id).gmail_ingested_ids) == ["message-b"]
 
+    def test_m365_retry_persists_refreshed_tokens_on_success_and_failure(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._m365_history(db_session)
+        success = {"success": True, "processed": 1, "reports_found": 1, "details": []}
+        failure = {
+            "success": False,
+            "processed": 1,
+            "reports_found": 0,
+            "details": [],
+            "errors": ["provider unavailable"],
+        }
+        with (
+            patch.object(
+                mail_sources_endpoint.MicrosoftGraphClient,
+                "retry_message",
+                side_effect=[success, failure],
+            ) as retry,
+            patch.object(
+                mail_sources_endpoint.MicrosoftGraphClient,
+                "get_refreshed_tokens",
+                side_effect=[
+                    {"access_token": "success-access", "refresh_token": "success-refresh"},
+                    {"access_token": "failure-access", "refresh_token": "failure-refresh"},
+                ],
+            ),
+        ):
+            first = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "graph-message"},
+            )
+            second = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "graph-message"},
+            )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["success"] is True
+        assert second.json()["success"] is False
+        assert retry.call_count == 2
+        persisted = db_session.get(MailSource, source.id)
+        assert persisted.m365_access_token == "failure-access"
+        assert persisted.m365_refresh_token == "failure-refresh"
+        assert json.loads(persisted.m365_ingested_ids) == ["older-message"]
+
+    def test_retry_rejects_changed_or_malformed_recovery_context(self, authed_client, db_session):
+        workspace, source, row = self._history(db_session)
+        source.folder = "Changed folder"
+        db_session.commit()
+
+        changed = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+        assert changed.status_code == 409
+
+        source.folder = "INBOX"
+        row.recovery_metadata = "{not-json"
+        db_session.commit()
+        malformed = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+        assert malformed.status_code == 404
+
+    def test_retry_and_ignore_reject_missing_or_other_source_history(
+        self, authed_client, db_session
+    ):
+        workspace, source, _ = self._history(db_session)
+        other_source = MailSource(
+            workspace_id=workspace.id,
+            name="Other recovery source",
+            method="GMAIL_API",
+        )
+        db_session.add(other_source)
+        db_session.flush()
+        other_row = MailSourceImport(
+            mail_source_id=other_source.id,
+            trigger="manual",
+            status="warning",
+        )
+        db_session.add(other_row)
+        db_session.commit()
+        headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{other_row.id}/retry",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+        ignore = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{other_row.id}/ignore",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+
+        assert retry.status_code == 404
+        assert ignore.status_code == 404
+
+    def test_retry_rejects_control_characters_in_message_id(self, authed_client, db_session):
+        workspace, source, row = self._history(db_session)
+
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a\nsecond-line"},
+        )
+
+        assert response.status_code == 422
+
     def test_ignore_rejects_legacy_imap_recovery_item(self, authed_client, db_session):
         workspace, source, row = self._history(db_session)
         source.method = "IMAP"
@@ -448,12 +608,18 @@ class TestMailSourceImportRecovery:
         )
         db_session.commit()
 
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
         response = authed_client.post(
             f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
             headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
             json={"message_id": "message-a"},
         )
 
+        assert retry.status_code == 409
         assert response.status_code == 409
 
     def test_history_recovers_only_error_or_full_already_ingested_message_ids(self, db_session):
