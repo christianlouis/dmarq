@@ -24,7 +24,7 @@ from fastapi import (
     status,
 )
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import present_datetime
@@ -96,7 +96,10 @@ class MailSourceBase(BaseModel):
     password: Optional[str] = None
     use_ssl: bool = True
     folder: str = "INBOX"
-    polling_interval: int = 60
+    polling_interval: int = Field(
+        60,
+        description="Minutes between polls, not seconds. A value of 60 polls once per hour.",
+    )
     enabled: bool = True
     # Gmail API OAuth2 fields (only relevant when method == GMAIL_API)
     gmail_client_id: Optional[str] = None
@@ -125,7 +128,10 @@ class MailSourceUpdate(BaseModel):
     password: Optional[str] = None
     use_ssl: Optional[bool] = None
     folder: Optional[str] = None
-    polling_interval: Optional[int] = None
+    polling_interval: Optional[int] = Field(
+        None,
+        description="Minutes between polls, not seconds. A value of 60 polls once per hour.",
+    )
     enabled: Optional[bool] = None
     gmail_client_id: Optional[str] = None
     gmail_client_secret: Optional[str] = None
