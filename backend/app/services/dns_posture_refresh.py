@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import List, Tuple
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent
 from app.models.domain import Domain
+from app.services.bimi import check_bimi_cached
+from app.services.dane import check_dane_cached
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_posture_snapshots import capture_dns_posture_snapshot
 from app.services.dns_resolver import get_default_provider
+from app.services.mta_sts import check_mta_sts_cached
 from app.services.report_persistence import hydrate_domain_report_store_from_db
 from app.services.report_store import ReportStore
 
@@ -33,6 +37,13 @@ def _try_acquire_refresh_lock(db) -> bool:
             {"lock_key": _DNS_POSTURE_REFRESH_LOCK_KEY},
         ).scalar()
     )
+
+
+def _baseline_expired(current: DomainDNSPostureCurrent) -> bool:
+    max_age = int(getattr(get_settings(), "DNS_POSTURE_MAX_AGE_SECONDS", 0) or 0)
+    if max_age <= 0 or current.completed_at is None:
+        return max_age > 0
+    return current.completed_at <= datetime.utcnow() - timedelta(seconds=max_age)
 
 
 def _selectors(db, domain: Domain) -> list[str]:
@@ -61,12 +72,39 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
     try:
         # Work explicitly requested by ingestion first, then establish a
         # baseline for active domains that have never been materialized.
+        max_age = int(getattr(get_settings(), "DNS_POSTURE_MAX_AGE_SECONDS", 0) or 0)
+        eligibility = [
+            DomainDNSPostureCurrent.id.is_(None),
+            DomainDNSPostureCurrent.requested_at.isnot(None),
+            DomainDNSPostureCurrent.completed_at.is_(None),
+        ]
+        if max_age > 0:
+            eligibility.append(
+                DomainDNSPostureCurrent.completed_at
+                <= datetime.utcnow() - timedelta(seconds=max_age)
+            )
+        # An unaccepted result is retried when explicitly requested, when no
+        # observation exists, or after the normal age window; failures cannot
+        # consume every bounded worker batch forever.
+        eligibility.append(
+            (DomainDNSPostureCurrent.accepted_snapshot_id.is_(None))
+            & (
+                DomainDNSPostureCurrent.requested_at.isnot(None)
+                | DomainDNSPostureCurrent.completed_at.is_(None)
+                | (
+                    max_age > 0
+                    and DomainDNSPostureCurrent.completed_at
+                    <= datetime.utcnow() - timedelta(seconds=max_age)
+                )
+            )
+        )
         rows = (
             db.query(Domain.id, Domain.name)
             .outerjoin(DomainDNSPostureCurrent, DomainDNSPostureCurrent.domain_id == Domain.id)
             .filter(Domain.active.is_(True))
+            .filter(or_(*eligibility))
             .order_by(
-                DomainDNSPostureCurrent.requested_at.desc().nullslast(),
+                DomainDNSPostureCurrent.requested_at.asc().nullslast(),
                 DomainDNSPostureCurrent.completed_at.asc().nullsfirst(),
                 Domain.id.asc(),
             )
@@ -76,6 +114,40 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
         return [(int(row.id), str(row.name)) for row in rows if row.name]
     finally:
         db.close()
+
+
+async def _refresh_side_checks(db, provider, domain: Domain) -> None:
+    """Best-effort refresh of optional posture caches, isolated per check."""
+    checks = (
+        ("MTA-STS", check_mta_sts_cached, {}),
+        ("BIMI", check_bimi_cached, {}),
+        ("DANE", check_dane_cached, {"derive_suggestions": True}),
+    )
+    for label, check, kwargs in checks:
+        try:
+            timeout = max(
+                0.1,
+                float(
+                    getattr(
+                        get_settings(), "DNS_POSTURE_SIDE_CHECK_TIMEOUT_SECONDS", 5.0
+                    )
+                    or 5.0
+                ),
+            )
+            await asyncio.wait_for(
+                check(db, provider, domain.name, refresh=True, **kwargs), timeout=timeout
+            )
+            db.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            db.rollback()
+            logger.warning(
+                "DNS %s side-check refresh failed for domain id=%s with %s",
+                label,
+                domain.id,
+                type(exc).__name__,
+            )
 
 
 async def refresh_domain_dns_posture(domain_id: int) -> bool:
@@ -88,9 +160,14 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         if domain is None or not domain.active:
             return False
         current = db.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one_or_none()
-        # A completed baseline is refreshed only after an ingest/operator
-        # request. This avoids periodic network work unrelated to new data.
-        if current is not None and current.requested_at is None and current.accepted_snapshot_id:
+        # Refresh requested work, new baselines, and completed baselines that
+        # have aged out. This keeps low-volume domains from staying stale.
+        if (
+            current is not None
+            and current.requested_at is None
+            and current.accepted_snapshot_id
+            and not _baseline_expired(current)
+        ):
             return False
         provider = get_default_provider(db)
         selectors = _selectors(db, domain)
@@ -120,6 +197,7 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
             ),
         )
         db.commit()
+        await _refresh_side_checks(db, provider, domain)
         logger.info(
             "Materialized DNS posture snapshot id=%s for domain id=%s accepted=%s",
             snapshot.id,
