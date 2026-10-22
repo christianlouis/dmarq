@@ -15,6 +15,7 @@ import dns.resolver
 import dns.zone
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.dns_zone_baseline import DNSZoneBaseline
 
 SUPPORTED_TYPES = {"SOA", "NS", "MX", "A", "AAAA", "TXT", "CNAME"}
@@ -166,8 +167,8 @@ def baseline_payload(item: DNSZoneBaseline) -> Dict[str, Any]:
         "source": item.source,
         "record_count": len(json.loads(item.records_json)),
         "comparison": json.loads(item.comparison_json or "[]"),
-        "imported_at": item.imported_at.isoformat(),
-        "expires_at": item.expires_at.isoformat(),
+        "imported_at": ensure_utc(item.imported_at).isoformat(),
+        "expires_at": ensure_utc(item.expires_at).isoformat(),
         "expired": item.expires_at <= datetime.utcnow(),
         "removed": item.removed_at is not None,
         "provenance": "imported_zone_baseline",

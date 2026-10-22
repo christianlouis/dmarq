@@ -392,7 +392,7 @@ function dashboardApp() {
 
         get domainSummaryLoadedAtLabel() {
             if (!this.domainSummaryLoadedAt) return '';
-            return new Date(this.domainSummaryLoadedAt).toLocaleString();
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(this.domainSummaryLoadedAt) : this.domainSummaryLoadedAt;
         },
         
         init() {
@@ -645,7 +645,7 @@ function dashboardApp() {
                 if (lastCheckValue) {
                     lastCheck.textContent = typeof window.dmarqFormatDateTime === 'function'
                         ? window.dmarqFormatDateTime(lastCheckValue, '—')
-                        : new Date(lastCheckValue).toLocaleString();
+                        : String(lastCheckValue);
                 } else {
                     lastCheck.textContent = 'Never';
                 }
@@ -2745,7 +2745,7 @@ function dashboardApp() {
         remediationActivityText(remediation) {
             if (!remediation || !remediation.latest_at) return '';
             const label = remediation.latest_label || this.remediationStatusLabel(remediation.status);
-            const timestamp = new Date(remediation.latest_at).toLocaleString();
+            const timestamp = window.dmarqFormatDateTime ? window.dmarqFormatDateTime(remediation.latest_at) : String(remediation.latest_at);
             return `${label} · ${timestamp}`;
         },
 

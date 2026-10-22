@@ -10,6 +10,7 @@ from typing import Iterable, List, Optional, Set
 import bcrypt
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.api_token import APIToken
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -181,9 +182,9 @@ def token_to_dict(token: APIToken) -> dict:
         "key_prefix": token.key_prefix,
         "scopes": sorted(parse_scopes(token.scopes)),
         "active": token.active,
-        "created_at": token.created_at.isoformat() if token.created_at else None,
-        "last_used_at": token.last_used_at.isoformat() if token.last_used_at else None,
+        "created_at": ensure_utc(token.created_at).isoformat() if token.created_at else None,
+        "last_used_at": ensure_utc(token.last_used_at).isoformat() if token.last_used_at else None,
         "last_used_ip": token.last_used_ip,
         "usage_count": token.usage_count,
-        "revoked_at": token.revoked_at.isoformat() if token.revoked_at else None,
+        "revoked_at": ensure_utc(token.revoked_at).isoformat() if token.revoked_at else None,
     }

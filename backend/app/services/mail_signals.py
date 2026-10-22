@@ -13,6 +13,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.core.app_timezone import ensure_utc
+
 MAIL_SIGNAL_SCHEMA_VERSION = "dmarq.mail_signal.v1"
 
 SIGNAL_FAMILIES = frozenset(
@@ -291,7 +293,7 @@ def build_delivery_event_signal(event: Any) -> dict[str, Any]:
         domain=getattr(event, "domain", None),
         correlation_key=event_id,
         observed_at=(
-            getattr(event, "occurred_at", None).isoformat()
+            ensure_utc(getattr(event, "occurred_at", None)).isoformat()
             if getattr(event, "occurred_at", None)
             else None
         ),

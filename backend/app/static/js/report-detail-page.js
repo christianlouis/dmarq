@@ -188,7 +188,7 @@ function reportDetailApp(reportId = '') {
 
         formatDate(timestamp) {
             if (!timestamp) return '—';
-            return new Date(timestamp * 1000).toLocaleString();
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(timestamp * 1000) : String(timestamp);
         },
 
         formatNumber(value) {
@@ -715,7 +715,7 @@ function reportDetailApp(reportId = '') {
             if (!reputation?.checked_at) return 'not checked yet';
             const date = new Date(reputation.checked_at);
             if (Number.isNaN(date.getTime())) return reputation.checked_at;
-            return `checked ${date.toLocaleString()}`;
+            return `checked ${window.dmarqFormatDateTime ? window.dmarqFormatDateTime(reputation.checked_at) : reputation.checked_at}`;
         },
 
         reputationAgeLabel(reputation) {
@@ -747,7 +747,7 @@ function reportDetailApp(reportId = '') {
                 if (diffDays === 1) return 'yesterday';
                 if (diffDays < 90) return `${diffDays} days ago`;
             }
-            return date.toLocaleDateString();
+            return window.dmarqFormatDate ? window.dmarqFormatDate(date) : date.toISOString();
         },
     };
 }

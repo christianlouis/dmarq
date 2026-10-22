@@ -2105,7 +2105,7 @@ def test_mta_sts_endpoint_returns_cached_posture(authed_client: TestClient):
     data = response.json()
     assert data["status"] == "fail"
     assert data["cached"] is True
-    assert data["checked_at"] == checked_at.isoformat()
+    assert data["checked_at"] == checked_at.isoformat() + "+00:00"
     assert data["errors"] == ["No _mta-sts TXT record was found."]
 
 
@@ -2216,7 +2216,7 @@ def test_bimi_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["query_name"] == f"default._bimi.{DOMAIN}"
     assert data["logo_url"] == "https://example.com/logo.svg"
     assert data["cached"] is True
-    assert data["checked_at"] == checked_at.isoformat()
+    assert data["checked_at"] == checked_at.isoformat() + "+00:00"
 
 
 def test_bimi_endpoint_cached_only_disables_live_lookup(authed_client: TestClient):
@@ -2389,7 +2389,7 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["records"][0]["valid"] is True
     assert data["suggested_records"] == []
     assert data["cached"] is True
-    assert data["checked_at"] == checked_at.isoformat()
+    assert data["checked_at"] == checked_at.isoformat() + "+00:00"
     assert live_response.status_code == 200
     live_data = live_response.json()
     assert live_data["suggested_records"][0]["record"].startswith("3 1 1 ")
@@ -2642,9 +2642,7 @@ def test_posture_dashboard_weights_optional_controls_below_core_authentication(
     assert missing_mta_sts["severity"] == "info"
 
 
-def test_posture_dashboard_refreshes_health_grade_dns(
-    authed_client: TestClient, db_session
-):
+def test_posture_dashboard_refreshes_health_grade_dns(authed_client: TestClient, db_session):
     """refresh=true must refresh both posture checks and the domain health grade."""
     workspace = get_or_create_default_workspace(db_session)
     other_workspace = Workspace(slug="other-posture-refresh", name="Other posture refresh")
@@ -2689,9 +2687,7 @@ def test_posture_dashboard_refreshes_health_grade_dns(
     assert current.workspace_id == workspace.id
     assert current.next_trigger == "operator_refresh"
     assert (
-        db_session.query(DomainDNSPostureCurrent)
-        .filter_by(domain_id=other_domain.id)
-        .one_or_none()
+        db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=other_domain.id).one_or_none()
         is None
     )
 

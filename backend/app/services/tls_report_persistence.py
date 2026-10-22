@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.app_timezone import ensure_utc
 from app.models.domain import Domain
 from app.models.report import TLSReport, TLSReportFailure
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
@@ -221,11 +222,11 @@ def tls_report_to_dict(row: TLSReport) -> Dict[str, Any]:
         "contact_info": row.contact_info,
         "policy_domain": row.policy_domain,
         "policy_type": row.policy_type,
-        "begin_date": row.begin_date.isoformat() if row.begin_date else None,
-        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "begin_date": ensure_utc(row.begin_date).isoformat() if row.begin_date else None,
+        "end_date": ensure_utc(row.end_date).isoformat() if row.end_date else None,
         "total_successful_sessions": row.total_successful_sessions,
         "total_failure_sessions": row.total_failure_sessions,
-        "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+        "processed_at": ensure_utc(row.processed_at).isoformat() if row.processed_at else None,
         "failures": [
             {
                 "result_type": failure.result_type,

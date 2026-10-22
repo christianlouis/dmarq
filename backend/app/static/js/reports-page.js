@@ -152,8 +152,8 @@ function reportsApp() {
                 return '';
             }
             return window.dmarqFormatDate
-                ? window.dmarqFormatDate(date)
-                : date.toLocaleDateString();
+                ? window.dmarqFormatDate(dateStr)
+                : String(dateStr);
         },
 
         normalizeReport(report) {

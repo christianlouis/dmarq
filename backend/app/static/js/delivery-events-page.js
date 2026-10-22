@@ -38,7 +38,7 @@ function deliveryEventsApp() {
             return 'bg-gray-100 text-gray-700';
         },
         causeLabel(cause) { return String(cause || 'unknown other').replaceAll('_', ' '); },
-        formatDate(value) { return value ? new Date(value).toLocaleString() : 'Time unavailable'; },
+        formatDate(value) { return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(value, 'Time unavailable') : String(value || 'Time unavailable'); },
         nextStep(event) {
             const steps = {
                 authentication_policy_rejection: 'Open the affected domain sender setup and repair aligned DKIM or SPF before retrying.',
