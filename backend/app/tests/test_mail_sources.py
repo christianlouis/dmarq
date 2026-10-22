@@ -5112,6 +5112,7 @@ class TestTriggerPollEndpoint:
             assert data["sources"][0]["success"] is True
             assert mock_result == data["sources"][0]
             assert mock_poll.call_args.kwargs["days"] == 30
+            assert data["timestamp"] is None or data["timestamp"].endswith("+00:00")
         finally:
             main_app.dependency_overrides.clear()
 
@@ -5150,6 +5151,7 @@ class TestTriggerPollEndpoint:
         assert data["source_labels"] == ["Gmail API: dmarc-reports@example.com"]
         assert data["sources"][0]["connection_status"] == "connected"
         assert data["latest_source_check"] == "2026-07-02T12:00:00+00:00"
+        assert data["last_check"] is None or data["last_check"].endswith("+00:00")
         assert data["authenticated_by"] == "session"
 
     def test_poll_status_surfaces_gmail_reauth_attention(self):

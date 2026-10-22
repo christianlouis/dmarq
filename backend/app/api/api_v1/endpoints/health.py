@@ -3,6 +3,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints.setup import setup_status
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
@@ -49,7 +50,7 @@ async def release_info():
 
 
 def _iso(value):
-    return value.isoformat() if value else None
+    return ensure_utc(value).isoformat() if value else None
 
 
 def _latest_imports_by_source(db: Session, source_ids):

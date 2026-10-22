@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.app_timezone import (
     DEFAULT_APP_TIMEZONE,
+    ensure_utc,
     format_datetime_for_display,
     present_datetime,
     resolve_app_timezone_name,
@@ -59,6 +60,12 @@ def test_present_datetime_applies_offset_and_keeps_utc_instant() -> None:
     assert presented.hour == 12
     assert presented.utcoffset().total_seconds() == 2 * 3600
     assert presented.astimezone(timezone.utc).replace(tzinfo=None) == stored
+
+
+def test_ensure_utc_serializes_naive_and_aware_instants_explicitly() -> None:
+    assert ensure_utc(datetime(2026, 7, 16, 10, 0)).isoformat() == ("2026-07-16T10:00:00+00:00")
+    aware = datetime(2026, 7, 16, 12, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    assert ensure_utc(aware).isoformat() == "2026-07-16T10:00:00+00:00"
 
 
 def test_format_datetime_for_display_includes_offset() -> None:
