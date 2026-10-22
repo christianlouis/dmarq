@@ -70,7 +70,9 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
     for value in list(values or []):
         if not isinstance(value, dict):
             continue
-        if value.get("status") != "error" and value.get("reason") != "already_ingested_message":
+        is_error = value.get("status") == "error"
+        is_already_ingested = value.get("reason") == "already_ingested_message"
+        if not is_error and not is_already_ingested:
             continue
         message_id = str(value.get("message_id") or "")
         if (
@@ -84,7 +86,11 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
             "message_id": message_id,
             "source_id": int(source.id),
             "workspace_id": getattr(source, "workspace_id", None),
-            "disposition": "pending",
+            # An already-ingested observation is useful audit history, but it
+            # is not an operator recovery case. Keep it settled from the
+            # moment it is recorded so polling cannot manufacture work.
+            "disposition": "pending" if is_error else "settled",
+            "reason": str(value.get("reason") or "") if is_already_ingested else "",
             "supported": method in RECOVERY_METHODS,
             **binding,
         }
@@ -104,6 +110,82 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
         if not any(existing["message_id"] == message_id for existing in items):
             items.append(item)
     return json.dumps(items[:MAX_STORED_DETAILS])
+
+
+def _recovery_case_key(item: Dict[str, Any]) -> tuple:
+    """Identify one provider message within one source mailbox context."""
+    binding_keys = (
+        "method",
+        "folder",
+        "account",
+        "auth_mode",
+        "tenant_id",
+        "client_id",
+        "folder_id",
+    )
+    return (
+        str(item.get("message_id") or ""),
+        tuple((key, str(item.get(key) or "")) for key in binding_keys),
+    )
+
+
+def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tuple, str]:
+    outcomes: Dict[tuple, str] = {}
+    binding = recovery_binding(source)
+    for value in list(results.get("details") or []):
+        if not isinstance(value, dict):
+            continue
+        message_id = str(value.get("message_id") or "")
+        if not message_id:
+            continue
+        item = {"message_id": message_id, **binding}
+        if value.get("status") == "error":
+            outcomes[_recovery_case_key(item)] = "failed"
+        elif value.get("status") == "imported" or value.get("reason") == "already_ingested_message":
+            outcomes[_recovery_case_key(item)] = "settled"
+    return outcomes
+
+
+def _reconcile_recovery_row(row: MailSourceImport, outcomes: Dict[tuple, str]) -> None:
+    try:
+        items = json.loads(row.recovery_metadata or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return
+    if not isinstance(items, list):
+        return
+    changed = False
+    for item in items:
+        if not isinstance(item, dict) or item.get("disposition") != "pending":
+            continue
+        outcome = outcomes.get(_recovery_case_key(item))
+        if outcome == "failed":
+            item["disposition"] = "superseded"
+            item["last_status"] = "failed"
+            changed = True
+        elif outcome == "settled":
+            item["disposition"] = "settled"
+            item["last_status"] = "success"
+            changed = True
+    if changed:
+        row.recovery_metadata = json.dumps(items)
+
+
+def _reconcile_recovery_history(
+    db: Session,
+    source: MailSource,
+    results: Dict[str, Any],
+) -> None:
+    """Settle or supersede exact prior recovery cases without deleting history."""
+    outcomes = _recovery_outcomes(source, results)
+    if not outcomes:
+        return
+    prior_rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id == source.id)
+        .all()
+    )
+    for row in prior_rows:
+        _reconcile_recovery_row(row, outcomes)
 
 
 def _invalidate_imported_report_caches(source: MailSource, results: Dict[str, Any]) -> None:
@@ -156,6 +238,7 @@ def record_import_attempt(
         started_at=started_at,
         finished_at=datetime.utcnow(),
     )
+    _reconcile_recovery_history(db, source, results)
     db.add(attempt)
     _invalidate_imported_report_caches(source, results)
     return attempt

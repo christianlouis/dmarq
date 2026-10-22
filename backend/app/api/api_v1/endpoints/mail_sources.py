@@ -1507,7 +1507,9 @@ def retry_mail_source_import_item(
     items = _decode_recovery_metadata(row.recovery_metadata)
     for stored_item in items:
         if stored_item.get("message_id") == payload.message_id:
-            stored_item["disposition"] = "retried"
+            # Keep the public retry disposition for compatibility; the UI
+            # treats it as settled and only offers actions for pending items.
+            stored_item["disposition"] = "retried" if succeeded else "pending"
             stored_item["last_status"] = "success" if succeeded else "failed"
     _save_recovery_metadata(row, items)
     record_import_attempt(

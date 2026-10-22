@@ -731,6 +731,76 @@ class TestMailSourceImportRecovery:
         assert all(item["client_id"] == "client-id" for item in recovery)
         assert recovery[1]["label"] == "aggregate-report.xml"
 
+    def test_already_ingested_history_is_settled_and_keeps_detail(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Settled skip source",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+        )
+        db_session.add(source)
+        db_session.flush()
+
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": True,
+                "details": [
+                    {
+                        "status": "skipped",
+                        "reason": "already_ingested_message",
+                        "message_id": "stable-message",
+                    }
+                ],
+            },
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        recovery = json.loads(attempt.recovery_metadata)
+        assert recovery[0]["disposition"] == "settled"
+        assert recovery[0]["reason"] == "already_ingested_message"
+        assert json.loads(attempt.details)[0]["reason"] == "already_ingested_message"
+
+    def test_repeated_failure_is_superseded_and_success_settles_current_case(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Reconciled recovery source",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+        )
+        db_session.add(source)
+        db_session.flush()
+        failure = {
+            "success": False,
+            "details": [{"status": "error", "message_id": "failed-message"}],
+        }
+        first = record_import_attempt(
+            db_session, source, failure, started_at=datetime.utcnow(), trigger="scheduled"
+        )
+        db_session.flush()
+        second = record_import_attempt(
+            db_session, source, failure, started_at=datetime.utcnow(), trigger="scheduled"
+        )
+        db_session.flush()
+        assert json.loads(first.recovery_metadata)[0]["disposition"] == "superseded"
+        assert json.loads(second.recovery_metadata)[0]["disposition"] == "pending"
+
+        settled = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": True,
+                "details": [{"status": "imported", "message_id": "failed-message"}],
+            },
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        assert json.loads(second.recovery_metadata)[0]["disposition"] == "settled"
+        assert settled.recovery_metadata == "[]"
+
 
 def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):
     membership = WorkspaceMembership(
