@@ -96,12 +96,16 @@ def source_recovery_lock(db: Session, source_id: int) -> Iterator[None]:
                     raise RecoveryLockBusy from exc
             yield
         finally:
-            if lock_file is not None:
-                import fcntl
+            try:
+                if lock_file is not None:
+                    import fcntl
 
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                lock_file.close()
-            mutex.release()
+                    try:
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    finally:
+                        lock_file.close()
+            finally:
+                mutex.release()
         return
 
     raise RecoveryLockBusy

@@ -1,7 +1,9 @@
 """Focused regressions for import-history recovery lifecycle behavior."""
 
 import json
+import fcntl
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
@@ -255,6 +257,35 @@ def test_postgres_recovery_lock_invalidates_connection_when_unlock_fails():
         pass
     assert connection.invalidated == 1
     assert connection.closed == 1
+
+
+def test_sqlite_recovery_lock_releases_file_and_mutex_when_unlock_fails(tmp_path, monkeypatch):
+    database = tmp_path / "dmarq.db"
+    bind = SimpleNamespace(
+        dialect=SimpleNamespace(name="sqlite"),
+        url=SimpleNamespace(database=str(database)),
+    )
+    session = _FakePgSession(bind)
+    original_flock = fcntl.flock
+    calls = []
+
+    def fail_unlock(fd, operation):
+        calls.append(operation)
+        if operation == fcntl.LOCK_UN:
+            raise OSError("unlock failed")
+        return original_flock(fd, operation)
+
+    monkeypatch.setattr(fcntl, "flock", fail_unlock)
+    try:
+        with source_recovery_lock(session, 43):
+            pass
+    except OSError:
+        pass
+    assert calls == [fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN]
+
+    monkeypatch.setattr(fcntl, "flock", original_flock)
+    with source_recovery_lock(session, 43):
+        pass
 
 
 def test_retry_rejects_older_pending_case_after_newer_ignore(authed_client, db_session):
