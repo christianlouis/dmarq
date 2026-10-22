@@ -1,5 +1,6 @@
 """Read-only diagnostics for persisted DMARC report identity collisions."""
 
+import hashlib
 import json
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
@@ -73,7 +74,7 @@ def duplicate_report_inventory(
 ) -> List[Dict[str, Any]]:
     """Return deterministic duplicate identities without changing persisted data.
 
-    Reports are grouped by the intended identity (domain, report ID).  A
+    Reports are grouped by the owning domain ID and report ID.  A
     group is ``exact`` when every persisted semantic field and record matches;
     otherwise it is ``conflict``.  The helper deliberately
     reports every row and never selects, deletes, or rewrites a canonical row.
@@ -86,13 +87,21 @@ def duplicate_report_inventory(
             Domain.workspace_id == workspace_id
         )
 
-    grouped: Dict[tuple[str, str], List[DMARCReport]] = defaultdict(list)
+    grouped: Dict[tuple[int, int, str, str], List[DMARCReport]] = defaultdict(list)
     for report in query.order_by(DMARCReport.id.asc()).all():
         domain_name = report.domain.name if report.domain else "unknown"
-        grouped[(domain_name, report.report_id)].append(report)
+        workspace_id = report.domain.workspace_id if report.domain else None
+        grouped[
+            (
+                int(report.domain_id or 0),
+                int(workspace_id or 0),
+                domain_name,
+                report.report_id,
+            )
+        ].append(report)
 
     inventory: List[Dict[str, Any]] = []
-    for (domain_name, report_id), reports in sorted(grouped.items()):
+    for (domain_id, workspace_id, domain_name, report_id), reports in sorted(grouped.items()):
         if len(reports) < 2:
             continue
         rows = []
@@ -108,6 +117,9 @@ def duplicate_report_inventory(
             rows.append(
                 {
                     "id": report.id,
+                    "semantic_signature": hashlib.sha256(
+                        repr(_report_signature(report)).encode("utf-8")
+                    ).hexdigest(),
                     "org_name": report.org_name or "",
                     "begin_timestamp": int(report.begin_date or 0),
                     "end_timestamp": int(report.end_date or 0),
@@ -117,7 +129,9 @@ def duplicate_report_inventory(
             )
         inventory.append(
             {
+                "domain_id": domain_id,
                 "domain": domain_name,
+                "workspace_id": workspace_id or None,
                 "report_id": report_id,
                 "classification": "exact" if len(signatures) == 1 else "conflict",
                 "row_count": len(rows),

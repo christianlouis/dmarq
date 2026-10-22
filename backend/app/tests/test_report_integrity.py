@@ -1,20 +1,141 @@
+import json
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import pytest
 
-from app.core.database import Base
-from app.models.domain import Domain
-from app.models.report import DMARCReport, ReportRecord
-from app.models.workspace import Workspace
-from app.services.report_integrity import duplicate_report_inventory
-from app.services.report_persistence import _iso_from_timestamp, save_parsed_report
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from app.cli import reconcile_dmarc_duplicates as duplicate_cli  # noqa: E402
+from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
+from app.core.database import Base  # noqa: E402
+from app.models.domain import Domain  # noqa: E402
+from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord  # noqa: E402
+from app.models.workspace import Workspace  # noqa: E402
+from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
+from app.services.report_persistence import _iso_from_timestamp, save_parsed_report  # noqa: E402
+from app.services.source_read_projection import rebuild_source_projections  # noqa: E402
 
 
 def _db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine)()
+
+
+def _backup_payload(reports, records):
+    return {
+        "format": "dmarq-dmarc-duplicate-backup-v1",
+        "reports": [
+            {
+                key: duplicate_cli._json_safe(value)
+                for key, value in duplicate_cli._row_dict(row).items()
+            }
+            for row in reports
+        ],
+        "report_records": [
+            {
+                key: duplicate_cli._json_safe(value)
+                for key, value in duplicate_cli._row_dict(row).items()
+            }
+            for row in records
+        ],
+    }
+
+
+class _InventoryQuery:
+    def __init__(self, reports):
+        self.reports = reports
+
+    def options(self, *args):
+        return self
+
+    def join(self, *args):
+        return self
+
+    def filter(self, *args):
+        return self
+
+    def order_by(self, *args):
+        return self
+
+    def all(self):
+        return self.reports
+
+
+class _InventoryDB:
+    def __init__(self, reports):
+        self.reports = reports
+
+    def query(self, model):
+        return _InventoryQuery(self.reports)
+
+
+def _inventory_report(report_id, domain_id, workspace_id, domain_name):
+    domain = SimpleNamespace(id=domain_id, workspace_id=workspace_id, name=domain_name)
+    record = SimpleNamespace(
+        source_ip="192.0.2.99",
+        count=1,
+        disposition="none",
+        dkim="pass",
+        spf="pass",
+        header_from=domain_name,
+        envelope_from=None,
+        envelope_to=None,
+        dkim_auth_details=None,
+        spf_auth_details=None,
+        policy_override_reasons=None,
+        record_extensions=None,
+        source_evidence=None,
+    )
+    return SimpleNamespace(
+        id=domain_id * 10,
+        domain_id=domain_id,
+        domain=domain,
+        report_id=report_id,
+        org_name="sender",
+        begin_date=100,
+        end_date=200,
+        source_email=None,
+        extra_contact_info=None,
+        generator=None,
+        report_errors=None,
+        policy="none",
+        subdomain_policy=None,
+        non_subdomain_policy=None,
+        adkim=None,
+        aspf=None,
+        percentage=None,
+        failure_options=None,
+        testing=None,
+        discovery_method=None,
+        schema_version=None,
+        report_variant=None,
+        xml_namespace=None,
+        report_extensions=None,
+        raw_data="<same/>",
+        records=[record],
+    )
+
+
+def test_duplicate_inventory_scopes_same_domain_name_by_owner_identity():
+    reports = [
+        _inventory_report("same", 1, 10, "shared.example"),
+        _inventory_report("same", 2, 20, "shared.example"),
+    ]
+    assert duplicate_report_inventory(_InventoryDB(reports)) == []
+
+    reports.append(_inventory_report("same", 1, 10, "shared.example"))
+    result = duplicate_report_inventory(_InventoryDB(reports))
+    assert len(result) == 1
+    assert result[0]["domain_id"] == 1
+    assert result[0]["workspace_id"] == 10
+    assert result[0]["row_count"] == 2
 
 
 def test_timestamp_serialization_is_utc_and_timezone_independent():
@@ -115,6 +236,97 @@ def test_duplicate_inventory_handles_none_and_text_record_fields():
         engine.dispose()
 
 
+def test_duplicate_inventory_compares_raw_data_and_source_evidence():
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="payload-conflicts", name="Payload Conflicts")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="payload-conflicts.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        for report_id, raw_data, source_evidence in (
+            ("raw", "<first/>", None),
+            ("raw", "<second/>", None),
+            ("evidence", "<same/>", '{"network":"first"}'),
+            ("evidence", "<same/>", '{"network":"second"}'),
+        ):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id=report_id,
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+                raw_data=raw_data,
+            )
+            db.add(report)
+            db.flush()
+            db.add(
+                ReportRecord(
+                    report_id=report.id,
+                    source_ip="192.0.2.3",
+                    count=1,
+                    disposition="none",
+                    dkim="pass",
+                    spf="pass",
+                    source_evidence=source_evidence,
+                )
+            )
+        db.commit()
+        result = duplicate_report_inventory(db, workspace_id=workspace.id)
+        assert [(item["report_id"], item["classification"]) for item in result] == [
+            ("evidence", "conflict"),
+            ("raw", "conflict"),
+        ]
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_duplicate_inventory_ignores_record_insertion_order():
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="record-order", name="Record Order")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="record-order.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        records = [
+            ("192.0.2.4", 1),
+            ("192.0.2.5", 2),
+        ]
+        for values in (records, list(reversed(records))):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id="same",
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+            )
+            db.add(report)
+            db.flush()
+            for source_ip, count in values:
+                db.add(
+                    ReportRecord(
+                        report_id=report.id,
+                        source_ip=source_ip,
+                        count=count,
+                        disposition="none",
+                        dkim="pass",
+                        spf="pass",
+                    )
+                )
+        db.commit()
+        result = duplicate_report_inventory(db, workspace_id=workspace.id)
+        assert result[0]["classification"] == "exact"
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
 def test_duplicate_import_returns_existing_row_without_second_persist(monkeypatch):
     engine, db = _db()
     try:
@@ -145,6 +357,257 @@ def test_duplicate_import_returns_existing_row_without_second_persist(monkeypatc
         assert created_again is False
         assert second.id == first.id
         assert db.query(DMARCReport).count() == 1
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="cleanup", name="Cleanup")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="cleanup.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        for report_id, policy in (
+            ("same", "none"),
+            ("same", "none"),
+            ("blocked", "none"),
+            ("blocked", "reject"),
+        ):
+            report = DMARCReport(
+                domain_id=domain.id,
+                report_id=report_id,
+                org_name="sender",
+                begin_date=100,
+                end_date=200,
+                policy=policy,
+            )
+            db.add(report)
+            db.flush()
+            db.add(
+                ReportRecord(
+                    report_id=report.id,
+                    source_ip="192.0.2.1",
+                    count=2,
+                    disposition="none",
+                    dkim="pass",
+                    spf="pass",
+                )
+            )
+        db.commit()
+        rebuild_source_projections(db, domain_ids=[domain.id])
+        db.commit()
+        assert db.query(DomainSourceDailyProjection).one().message_count == 8
+        dry = reconcile(db, workspace_id=workspace.id, apply=False, backup=None)
+        assert dry["mode"] == "dry-run"
+        assert dry["plan"]["eligible_groups"] == 1
+        assert db.query(DMARCReport).count() == 4
+
+        backup = tmp_path / "dmarc-backup.json"
+        applied = reconcile(db, workspace_id=workspace.id, apply=True, backup=str(backup))
+        db.commit()
+        assert applied["applied"]["reports"] == 1
+        assert applied["applied"]["records"] == 1
+        assert backup.exists()
+        assert len(json.loads(backup.read_text())["reports"]) == 4
+        assert db.query(DMARCReport).count() == 3
+        assert db.query(ReportRecord).count() == 3
+        assert db.query(DomainSourceDailyProjection).one().message_count == 6
+        restored = restore_backup(db, str(backup))
+        db.commit()
+        assert restored["reports"] == 1
+        assert restored["records"] == 1
+        assert db.query(DMARCReport).count() == 4
+        assert db.query(ReportRecord).count() == 4
+        assert db.query(DomainSourceDailyProjection).one().message_count == 8
+        restored_again = restore_backup(db, str(backup))
+        db.commit()
+        assert restored_again == {
+            "reports": 0,
+            "records": 0,
+            "already_present_reports": 4,
+            "already_present_records": 4,
+        }
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_rejects_mismatched_existing_report_before_writes(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-report", name="Restore Report")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-report.example", workspace_id=workspace.id)
+        other_domain = Domain(name="other.example", workspace_id=workspace.id)
+        db.add_all([domain, other_domain])
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="existing-id",
+            org_name="existing-sender",
+            begin_date=100,
+            end_date=200,
+            raw_data="<existing />",
+        )
+        db.add(report)
+        db.commit()
+        payload = _backup_payload([report], [])
+        payload["reports"][0].update(
+            {"domain_id": other_domain.id, "report_id": "archive-id", "raw_data": "<archive />"}
+        )
+        path = tmp_path / "report-collision.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"report ID .*differs"):
+            restore_backup(db, str(path))
+        db.rollback()
+        unchanged = db.query(DMARCReport).one()
+        assert unchanged.domain_id == domain.id
+        assert unchanged.report_id == "existing-id"
+        assert unchanged.raw_data == "<existing />"
+        assert db.query(ReportRecord).count() == 0
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_rejects_mismatched_existing_record_before_writes(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-record", name="Restore Record")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-record.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="record-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.flush()
+        record = ReportRecord(
+            report_id=report.id,
+            source_ip="192.0.2.10",
+            count=1,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+        )
+        db.add(record)
+        db.commit()
+        payload = _backup_payload([report], [record])
+        payload["report_records"][0]["count"] = 9
+        path = tmp_path / "record-collision.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"record ID .*differs"):
+            restore_backup(db, str(path))
+        db.rollback()
+        assert db.query(ReportRecord).one().count == 1
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_matching_report_with_missing_records_is_idempotent(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-partial", name="Restore Partial")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-partial.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="partial-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.flush()
+        records = [
+            ReportRecord(
+                report_id=report.id,
+                source_ip=source_ip,
+                count=count,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            )
+            for source_ip, count in (("192.0.2.20", 1), ("192.0.2.21", 2))
+        ]
+        db.add_all(records)
+        db.flush()
+        payload = _backup_payload([report], records)
+        db.delete(records[1])
+        db.commit()
+        path = tmp_path / "partial.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        restored = restore_backup(db, str(path))
+        db.commit()
+        assert restored == {
+            "reports": 0,
+            "records": 1,
+            "already_present_reports": 1,
+            "already_present_records": 1,
+        }
+        assert db.query(ReportRecord).count() == 2
+        restored_again = restore_backup(db, str(path))
+        db.commit()
+        assert restored_again == {
+            "reports": 0,
+            "records": 0,
+            "already_present_reports": 1,
+            "already_present_records": 2,
+        }
+        assert db.query(ReportRecord).count() == 2
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_cleanup_cli_entrypoint_uses_database_url_and_reports_dry_run(monkeypatch, capsys):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="cli", name="CLI")
+        db.add(workspace)
+        db.commit()
+        monkeypatch.setenv("DATABASE_URL", "sqlite://")
+        monkeypatch.setattr(duplicate_cli, "create_engine", lambda _: engine)
+        monkeypatch.setattr(duplicate_cli, "sessionmaker", lambda bind: sessionmaker(bind=bind))
+        monkeypatch.setattr(
+            sys, "argv", ["reconcile_dmarc_duplicates", "--workspace-id", str(workspace.id)]
+        )
+
+        assert duplicate_cli.main() == 0
+        receipt = json.loads(capsys.readouterr().out)
+        assert receipt == {
+            "mode": "dry-run",
+            "plan": {
+                "blocked": [],
+                "blocked_groups": 0,
+                "eligible": [],
+                "eligible_groups": 0,
+                "groups": 0,
+            },
+        }
     finally:
         db.close()
         Base.metadata.drop_all(engine)
