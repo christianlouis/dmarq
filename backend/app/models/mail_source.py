@@ -94,6 +94,11 @@ class MailSource(Base):
         back_populates="mail_source",
         cascade="all, delete-orphan",
     )
+    ignored_messages = relationship(
+        "MailSourceIgnoredMessage",
+        back_populates="mail_source",
+        cascade="all, delete-orphan",
+    )
     workspace = relationship("Workspace", back_populates="mail_sources")
 
     __table_args__ = (

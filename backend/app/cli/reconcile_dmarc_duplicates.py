@@ -128,6 +128,7 @@ def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
         try:
             os.unlink(temporary)
         except FileNotFoundError:
+            # Cleanup is best effort; preserve the original failure.
             pass
         raise
     return {

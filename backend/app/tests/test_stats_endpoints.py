@@ -52,7 +52,7 @@ class TestDashboardStatistics:
     def test_mail_health_summary_localizes_primary_guidance_without_changing_facts(
         self, authed_client: TestClient
     ):
-        query = "interval=custom&start_date=2026-01-01&end_date=2026-01-30"
+        query = "interval=custom&start_date=2026-01-01&end_date=2026-01-31"
         english = authed_client.get(f"/api/v1/stats/mail-health/summary?lang=en&{query}").json()
         german = authed_client.get(f"/api/v1/stats/mail-health/summary?lang=de&{query}").json()
 

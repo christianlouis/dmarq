@@ -18,6 +18,7 @@ from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_source_recovery import ignored_message_ids
 from app.services.microsoft_graph_client import (
     MicrosoftGraphClient,
     m365_application_configuration_error,
@@ -393,7 +394,8 @@ def _fetch_gmail_backfill_results(
     if not source.gmail_refresh_token:
         raise ValueError("Gmail authorization cannot be refreshed. Reconnect Gmail first.")
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    ingested_ids = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     client = GmailClient(
         client_id=source.gmail_client_id or "",
         client_secret=source.gmail_client_secret or "",
@@ -408,7 +410,7 @@ def _fetch_gmail_backfill_results(
         page_cursor=page_cursor,
         max_pages=PROVIDER_BACKFILL_PAGE_BATCH_LIMIT,
     )
-    _sync_gmail_backfill_state(source, client, already, results)
+    _sync_gmail_backfill_state(source, client, ingested_ids, results)
     source.last_checked = datetime.utcnow()
     attempt = record_import_attempt(
         db,
@@ -452,7 +454,8 @@ def _fetch_m365_backfill_results(
             or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
         )
 
-    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    ingested_ids = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    already = list(dict.fromkeys(ingested_ids + ignored_message_ids(db, source)))
     client = MicrosoftGraphClient(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id or "",
@@ -472,7 +475,7 @@ def _fetch_m365_backfill_results(
         page_cursor=page_cursor,
         max_pages=PROVIDER_BACKFILL_PAGE_BATCH_LIMIT,
     )
-    _sync_m365_backfill_state(source, client, already, results)
+    _sync_m365_backfill_state(source, client, ingested_ids, results)
     source.last_checked = datetime.utcnow()
     attempt = record_import_attempt(
         db,

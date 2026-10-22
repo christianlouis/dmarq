@@ -1,7 +1,8 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -364,6 +365,17 @@ def test_selectors_bound_manual_report_input_before_dns_refresh(db_session):
     assert len(selected) == dns_posture_refresh.MAX_DNS_POSTURE_SELECTORS
     assert selected[0] == "attacker-0"
     assert selected[-1] == "attacker-99"
+
+
+def test_refresh_failure_recording_rolls_back_if_persistence_fails():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(active=True, workspace_id=1)
+    db.query.return_value.filter_by.return_value.one_or_none.return_value = None
+    db.commit.side_effect = RuntimeError("database unavailable")
+
+    dns_posture_refresh._record_refresh_failure(db, 42, RuntimeError("resolver failed"))
+
+    db.rollback.assert_called_once_with()
 
 
 @pytest.mark.asyncio
