@@ -6,7 +6,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 requirements="$repo_root/backend/requirements.txt"
 lock="$repo_root/backend/requirements.lock"
-image="${DMARQ_LOCK_IMAGE:-ghcr.io/christianlouis/dmarq@sha256:e468bb30a7a9d680f3a0b3c367f11abd8f89ed10bed200745d409bd4e644a83b}"
+image="${DMARQ_LOCK_IMAGE:-ghcr.io/christianlouis/dmarq@sha256:09488e760201e94e1a735308df307d7b1d0160e02577d76a2df06c1edc03409e}"
 
 command -v docker >/dev/null 2>&1 || {
     echo "docker is required to regenerate $lock" >&2
@@ -51,6 +51,7 @@ for raw in Path(sys.argv[1]).read_text().splitlines():
             f"{requirement.name}=={installed} does not satisfy {requirement.specifier}"
         )
 PY
+python -m pip check >&2
 pip freeze --local
 ' > "$freeze_tmp"
 

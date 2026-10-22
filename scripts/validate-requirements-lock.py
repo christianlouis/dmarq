@@ -39,7 +39,10 @@ def main() -> int:
         candidate = locked.get(name)
         if candidate is None:
             raise SystemExit(f"missing lock entry: {requirement.name}")
-        version = next(iter(candidate.specifier)).version
+        pins = list(candidate.specifier)
+        if len(pins) != 1 or pins[0].operator != "==":
+            raise SystemExit(f"lock entry is not an exact == pin: {candidate.name}")
+        version = pins[0].version
         if version not in requirement.specifier:
             raise SystemExit(
                 f"{requirement.name} locked at {version}, does not satisfy "

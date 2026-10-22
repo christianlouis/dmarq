@@ -70,9 +70,8 @@ new validated image, set `DMARQ_LOCK_IMAGE` to its immutable image reference,
 run the command, and review the complete lock diff. CI also validates direct
 requirements against the lock and runs `pip check` after installation.
 
-The committed digest identifies OCI revision
-`45820c65f32322c23828e4f503da4b42ba11dc9a`; it is retained as provenance and
-does not claim to represent a newer production revision.
+The committed digest identifies production OCI revision
+`bcbbc0f6ef62eed893139e108942827c36305e49`.
 
 #### CodeQL Analysis
 
