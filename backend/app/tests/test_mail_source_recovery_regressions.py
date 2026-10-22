@@ -362,6 +362,21 @@ def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
         "legacy-skip",
         [{"status": "skipped", "message_id": "legacy-skip"}],
     )
+    explicit_skip = legacy(
+        "legacy-explicit-skip",
+        [
+            {
+                "status": "skipped",
+                "reason": "already_ingested_message",
+                "message_id": "legacy-explicit-skip",
+            }
+        ],
+    )
+    failed_skip = legacy(
+        "legacy-failed-skip",
+        [{"status": "skipped", "message_id": "legacy-failed-skip"}],
+        last_status="failed",
+    )
     mixed = legacy(
         "legacy-mixed",
         [
@@ -382,7 +397,9 @@ def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
     assert response.status_code == 200
     by_id = {row["id"]: row["recovery_items"][0] for row in response.json()}
     assert by_id[retry_failed.id]["disposition"] == "pending"
-    assert by_id[skip_only.id]["disposition"] == "settled"
+    assert by_id[skip_only.id]["disposition"] == "pending"
+    assert by_id[explicit_skip.id]["disposition"] == "settled"
+    assert by_id[failed_skip.id]["disposition"] == "pending"
     assert by_id[mixed.id]["disposition"] == "pending"
     assert by_id[unrelated.id]["disposition"] == "pending"
 
@@ -397,6 +414,66 @@ def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
             json={"message_id": "legacy-retry"},
         )
     assert retry.status_code == 200
+    provider.assert_called_once()
+
+
+def test_legacy_failed_retry_outside_recent_window_is_visible_and_actionable(
+    authed_client, db_session
+):
+    workspace, source, binding = _source_and_rows(db_session)
+    old = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps(
+            [_item(source, binding, "legacy-old", disposition="retried", last_status="failed")]
+        ),
+    )
+    db_session.add(old)
+    db_session.flush()
+    db_session.add(
+        MailSourceImport(
+            mail_source_id=source.id,
+            status="success",
+            recovery_metadata="[]",
+        )
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    assert any(
+        item["message_id"] == "legacy-old" and item["disposition"] == "pending"
+        for row in response.json()
+        for item in row["recovery_items"]
+    )
+
+
+def test_legacy_failed_retry_can_be_retried_without_get(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    row = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps(
+            [_item(source, binding, "legacy-direct", disposition="retried", last_status="failed")]
+        ),
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    with patch.object(
+        mail_sources_endpoint,
+        "_retry_history_item",
+        return_value=({"success": True, "details": []}, None),
+    ) as provider:
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "legacy-direct"},
+        )
+    assert response.status_code == 200
     provider.assert_called_once()
 
 

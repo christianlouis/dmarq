@@ -908,8 +908,7 @@ def _legacy_skip_only(item: Dict[str, Any], details: List[Dict[str, str]]) -> bo
     message_id = str(item.get("message_id") or "")
     matching = [detail for detail in details if detail.get("message_id") == message_id]
     return bool(matching) and all(
-        detail.get("status") == "skipped"
-        and detail.get("reason") in (None, "already_ingested_message")
+        detail.get("status") == "skipped" and detail.get("reason") == "already_ingested_message"
         for detail in matching
     )
 
@@ -1565,7 +1564,11 @@ def _record_recovery_history_row(
         authoritative.setdefault(key, (row_id, str(item.get("disposition") or "")))
         if key in seen_cases:
             continue
-        actionable = actionable or item.get("disposition") == "pending"
+        actionable = (
+            actionable
+            or item.get("disposition") == "pending"
+            or (item.get("disposition") == "retried" and item.get("last_status") == "failed")
+        )
         seen_cases.add(key)
     if actionable and row_id not in recent_ids and len(candidate_ids) < safe_limit:
         candidate_ids.append(row_id)
