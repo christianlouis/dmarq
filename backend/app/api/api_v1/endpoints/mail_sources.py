@@ -839,7 +839,7 @@ def _latest_authoritative_recovery(
         for candidate in _decode_recovery_metadata(metadata):
             if (
                 candidate.get("message_id")
-                and candidate.get("reason") != "already_ingested_message"
+                and not _is_cache_skip(candidate)
                 and _recovery_case_key(candidate) == key
             ):
                 return row_id, str(candidate.get("disposition") or "")
@@ -872,7 +872,7 @@ def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
         details = _decode_json_details(row.details)
         for item in items:
             key = _recovery_case_key(item)
-            if item.get("reason") == "already_ingested_message" or (
+            if _is_cache_skip(item) or (
                 item.get("disposition") == "pending" and _legacy_skip_only(item, details)
             ):
                 if item.get("disposition") == "pending":
@@ -905,12 +905,18 @@ def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
 
 def _legacy_skip_only(item: Dict[str, Any], details: List[Dict[str, str]]) -> bool:
     """Recognize old skip evidence only when the same row proves it exactly."""
+    if item.get("last_status") == "failed":
+        return False
     message_id = str(item.get("message_id") or "")
     matching = [detail for detail in details if detail.get("message_id") == message_id]
     return bool(matching) and all(
         detail.get("status") == "skipped" and detail.get("reason") == "already_ingested_message"
         for detail in matching
     )
+
+
+def _is_cache_skip(item: Dict[str, Any]) -> bool:
+    return item.get("reason") == "already_ingested_message" and item.get("last_status") != "failed"
 
 
 def _save_recovery_metadata(row: MailSourceImport, items: List[Dict[str, Any]]) -> None:
@@ -1558,7 +1564,7 @@ def _record_recovery_history_row(
 ) -> None:
     actionable = False
     for item in _decode_recovery_metadata(metadata):
-        if item.get("reason") == "already_ingested_message":
+        if _is_cache_skip(item):
             continue
         key = _recovery_case_key(item)
         authoritative.setdefault(key, (row_id, str(item.get("disposition") or "")))
@@ -1622,7 +1628,7 @@ def _select_recovery_history_ids(
         _recovery_case_key(item)
         for row in recent_rows
         for item in _decode_recovery_metadata(row.recovery_metadata)
-        if item.get("reason") != "already_ingested_message"
+        if not _is_cache_skip(item)
     }
     return _scan_recovery_history(db, source_id, recent_ids, recent_cases, safe_limit)
 
@@ -1717,8 +1723,7 @@ async def list_mail_source_imports(
     older_pending = []
     for row in candidate_rows:
         if any(
-            item.get("disposition") == "pending"
-            and item.get("reason") != "already_ingested_message"
+            item.get("disposition") == "pending" and not _is_cache_skip(item)
             for item in _decode_recovery_metadata(row.recovery_metadata)
         ):
             older_pending.append(row)

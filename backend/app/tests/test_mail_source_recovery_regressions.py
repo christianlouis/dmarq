@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy.orm import sessionmaker
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
@@ -415,6 +416,56 @@ def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
         )
     assert retry.status_code == 200
     provider.assert_called_once()
+
+
+@pytest.mark.parametrize("metadata_reason", [True, False])
+def test_known_failure_survives_cache_skip_on_get_and_direct_retry(
+    authed_client, db_session, metadata_reason
+):
+    workspace, source, binding = _source_and_rows(db_session)
+
+    def make_row(message_id):
+        item = _item(source, binding, message_id, last_status="failed")
+        if metadata_reason:
+            item["reason"] = "already_ingested_message"
+        return MailSourceImport(
+            mail_source_id=source.id,
+            status="warning",
+            details=json.dumps(
+                [
+                    {
+                        "status": "skipped",
+                        "reason": "already_ingested_message",
+                        "message_id": message_id,
+                    }
+                ]
+            ),
+            recovery_metadata=json.dumps([item]),
+        )
+
+    direct = make_row("direct-failed")
+    visible = make_row("visible-failed")
+    db_session.add_all([direct, visible])
+    db_session.commit()
+    headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+    with patch.object(
+        mail_sources_endpoint,
+        "_retry_history_item",
+        return_value=({"success": True, "details": []}, None),
+    ) as provider:
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{direct.id}/retry",
+            headers=headers,
+            json={"message_id": "direct-failed"},
+        )
+    assert retry.status_code == 200
+    provider.assert_called_once()
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=20", headers=headers
+    )
+    assert response.status_code == 200
+    visible_row = next(row for row in response.json() if row["id"] == visible.id)
+    assert visible_row["recovery_items"][0]["disposition"] == "pending"
 
 
 def test_legacy_failed_retry_outside_recent_window_is_visible_and_actionable(
