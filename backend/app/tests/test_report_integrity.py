@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from sqlalchemy import create_engine  # noqa: E402
@@ -24,6 +26,26 @@ def _db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine)()
+
+
+def _backup_payload(reports, records):
+    return {
+        "format": "dmarq-dmarc-duplicate-backup-v1",
+        "reports": [
+            {
+                key: duplicate_cli._json_safe(value)
+                for key, value in duplicate_cli._row_dict(row).items()
+            }
+            for row in reports
+        ],
+        "report_records": [
+            {
+                key: duplicate_cli._json_safe(value)
+                for key, value in duplicate_cli._row_dict(row).items()
+            }
+            for row in records
+        ],
+    }
 
 
 class _InventoryQuery:
@@ -402,6 +424,159 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
         assert db.query(DMARCReport).count() == 4
         assert db.query(ReportRecord).count() == 4
         assert db.query(DomainSourceDailyProjection).one().message_count == 8
+        restored_again = restore_backup(db, str(backup))
+        db.commit()
+        assert restored_again == {
+            "reports": 0,
+            "records": 0,
+            "already_present_reports": 4,
+            "already_present_records": 4,
+        }
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_rejects_mismatched_existing_report_before_writes(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-report", name="Restore Report")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-report.example", workspace_id=workspace.id)
+        other_domain = Domain(name="other.example", workspace_id=workspace.id)
+        db.add_all([domain, other_domain])
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="existing-id",
+            org_name="existing-sender",
+            begin_date=100,
+            end_date=200,
+            raw_data="<existing />",
+        )
+        db.add(report)
+        db.commit()
+        payload = _backup_payload([report], [])
+        payload["reports"][0].update(
+            {"domain_id": other_domain.id, "report_id": "archive-id", "raw_data": "<archive />"}
+        )
+        path = tmp_path / "report-collision.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"report ID .*differs"):
+            restore_backup(db, str(path))
+        db.rollback()
+        unchanged = db.query(DMARCReport).one()
+        assert unchanged.domain_id == domain.id
+        assert unchanged.report_id == "existing-id"
+        assert unchanged.raw_data == "<existing />"
+        assert db.query(ReportRecord).count() == 0
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_rejects_mismatched_existing_record_before_writes(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-record", name="Restore Record")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-record.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="record-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.flush()
+        record = ReportRecord(
+            report_id=report.id,
+            source_ip="192.0.2.10",
+            count=1,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+        )
+        db.add(record)
+        db.commit()
+        payload = _backup_payload([report], [record])
+        payload["report_records"][0]["count"] = 9
+        path = tmp_path / "record-collision.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"record ID .*differs"):
+            restore_backup(db, str(path))
+        db.rollback()
+        assert db.query(ReportRecord).one().count == 1
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_matching_report_with_missing_records_is_idempotent(tmp_path):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="restore-partial", name="Restore Partial")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="restore-partial.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="partial-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.flush()
+        records = [
+            ReportRecord(
+                report_id=report.id,
+                source_ip=source_ip,
+                count=count,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            )
+            for source_ip, count in (("192.0.2.20", 1), ("192.0.2.21", 2))
+        ]
+        db.add_all(records)
+        db.flush()
+        payload = _backup_payload([report], records)
+        db.delete(records[1])
+        db.commit()
+        path = tmp_path / "partial.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+        restored = restore_backup(db, str(path))
+        db.commit()
+        assert restored == {
+            "reports": 0,
+            "records": 1,
+            "already_present_reports": 1,
+            "already_present_records": 1,
+        }
+        assert db.query(ReportRecord).count() == 2
+        restored_again = restore_backup(db, str(path))
+        db.commit()
+        assert restored_again == {
+            "reports": 0,
+            "records": 0,
+            "already_present_reports": 1,
+            "already_present_records": 2,
+        }
+        assert db.query(ReportRecord).count() == 2
     finally:
         db.close()
         Base.metadata.drop_all(engine)

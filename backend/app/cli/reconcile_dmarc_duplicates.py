@@ -13,11 +13,11 @@ import json
 import os
 import pkgutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import DateTime, create_engine, func
 from sqlalchemy.orm import selectinload, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -81,6 +81,40 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+
+
+def _comparison_value(value: Any) -> Any:
+    """Make database and JSON values comparable for restore preflight."""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+    return value
+
+
+def _archive_values(model: Any, row: Dict[str, Any]) -> Dict[str, Any]:
+    values = dict(row)
+    for column in model.__table__.columns:
+        if isinstance(column.type, DateTime) and values.get(column.name):
+            values[column.name] = datetime.fromisoformat(values[column.name].replace("Z", "+00:00"))
+    return values
+
+
+def _collision_fields(
+    model: Any,
+    existing: Any,
+    archive: Dict[str, Any],
+    ignored: set[str] | None = None,
+) -> list[str]:
+    ignored = ignored or set()
+    archive = _archive_values(model, archive)
+    return [
+        column.name
+        for column in model.__table__.columns
+        if column.name not in ignored
+        and _comparison_value(getattr(existing, column.name))
+        != _comparison_value(archive.get(column.name))
+    ]
 
 
 def _write_backup(db, remove_ids: Iterable[int], path: str) -> Dict[str, Any]:
@@ -222,50 +256,98 @@ def reconcile(db, *, workspace_id: int | None, apply: bool, backup: str | None) 
     return result
 
 
+def _restore_preflight(db: Any, reports: list[Dict[str, Any]], records: list[Dict[str, Any]]):
+    report_ids = [int(row["id"]) for row in reports]
+    record_ids = [int(row["id"]) for row in records]
+    if len(set(report_ids)) != len(report_ids) or len(set(record_ids)) != len(record_ids):
+        raise ValueError("restore archive contains duplicate report or record IDs")
+
+    referenced_report_ids = report_ids + [int(row["report_id"]) for row in records]
+    existing_reports = {
+        row.id: row
+        for row in db.query(DMARCReport)
+        .filter(DMARCReport.id.in_(set(referenced_report_ids)))
+        .all()
+    }
+    for row in reports:
+        existing = existing_reports.get(int(row["id"]))
+        if existing is None:
+            continue
+        mismatches = _collision_fields(DMARCReport, existing, row, ignored={"source_projection_at"})
+        if mismatches:
+            raise ValueError(
+                f"restore collision: report ID {existing.id} differs in " f"{', '.join(mismatches)}"
+            )
+
+    existing_records = {
+        row.id: row for row in db.query(ReportRecord).filter(ReportRecord.id.in_(record_ids)).all()
+    }
+    for row in records:
+        existing = existing_records.get(int(row["id"]))
+        if existing is None:
+            continue
+        mismatches = _collision_fields(ReportRecord, existing, row)
+        if mismatches:
+            raise ValueError(
+                f"restore collision: record ID {existing.id} differs in " f"{', '.join(mismatches)}"
+            )
+
+    report_domains = {int(row["id"]): int(row["domain_id"]) for row in reports}
+    existing_report_domains = {row.id: row.domain_id for row in existing_reports.values()}
+    report_domains.update(existing_report_domains)
+    unknown_report_ids = {
+        int(row["report_id"]) for row in records if int(row["report_id"]) not in report_domains
+    }
+    if unknown_report_ids:
+        raise ValueError(
+            "restore archive references missing report IDs: "
+            + ", ".join(str(value) for value in sorted(unknown_report_ids))
+        )
+    missing_reports = [row for row in reports if int(row["id"]) not in existing_reports]
+    missing_records = [row for row in records if int(row["id"]) not in existing_records]
+    return (
+        existing_reports,
+        existing_records,
+        missing_reports,
+        missing_records,
+        report_domains,
+    )
+
+
 def restore_backup(db, path: str) -> Dict[str, int]:
-    """Restore a backup into an empty-ID slot; never overwrites rows."""
+    """Restore a backup after validating every occupied ID semantically."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     reports = payload.get("reports") or []
     records = payload.get("report_records") or []
-    report_ids = [int(row["id"]) for row in reports]
-    existing_report_ids = {
-        row[0] for row in db.query(DMARCReport.id).filter(DMARCReport.id.in_(report_ids)).all()
-    }
-    missing_reports = [row for row in reports if int(row["id"]) not in existing_report_ids]
-    report_domains = {int(row["id"]): int(row["domain_id"]) for row in reports}
-    record_ids = [int(row["id"]) for row in records]
-    existing_record_ids = {
-        row[0] for row in db.query(ReportRecord.id).filter(ReportRecord.id.in_(record_ids)).all()
-    }
-    missing_records = [row for row in records if int(row["id"]) not in existing_record_ids]
+    (
+        existing_reports,
+        existing_records,
+        missing_reports,
+        missing_records,
+        report_domains,
+    ) = _restore_preflight(db, reports, records)
     affected_domain_ids = {int(row["domain_id"]) for row in missing_reports} | {
-        report_domains[int(row["report_id"])]
-        for row in missing_records
-        if int(row["report_id"]) in report_domains
+        report_domains[int(row["report_id"])] for row in missing_records
     }
     if affected_domain_ids:
         db.query(Domain).filter(Domain.id.in_(affected_domain_ids)).order_by(
             Domain.id
         ).with_for_update().all()
     for row in reports:
-        if int(row["id"]) in existing_report_ids:
+        if int(row["id"]) in existing_reports:
             continue
-        values = dict(row)
-        for key in ("processed_at", "source_projection_at"):
-            if values.get(key):
-                values[key] = datetime.fromisoformat(values[key].replace("Z", "+00:00"))
-        db.add(DMARCReport(**values))
+        db.add(DMARCReport(**_archive_values(DMARCReport, row)))
     db.flush()
     for row in records:
-        if int(row["id"]) not in existing_record_ids:
-            db.add(ReportRecord(**row))
+        if int(row["id"]) not in existing_records:
+            db.add(ReportRecord(**_archive_values(ReportRecord, row)))
     db.flush()
     rebuild_source_projections(db, domain_ids=affected_domain_ids)
     return {
-        "reports": len(reports) - len(existing_report_ids),
-        "records": len(records) - len(existing_record_ids),
-        "already_present_reports": len(existing_report_ids),
-        "already_present_records": len(existing_record_ids),
+        "reports": len(missing_reports),
+        "records": len(missing_records),
+        "already_present_reports": len(existing_reports),
+        "already_present_records": len(existing_records),
     }
 
 
