@@ -142,6 +142,9 @@ def test_timestamp_serialization_is_utc_and_timezone_independent():
     assert _iso_from_timestamp(0) == ""
     assert _iso_from_timestamp(1_759_276_800).endswith("+00:00")
     assert datetime.fromisoformat(_iso_from_timestamp(1_759_276_800)).tzinfo == timezone.utc
+    assert duplicate_cli._comparison_value(datetime(2026, 1, 1, tzinfo=timezone.utc)) == datetime(
+        2026, 1, 1
+    )
 
 
 def test_duplicate_inventory_separates_exact_and_conflicting_totals():
@@ -608,6 +611,173 @@ def test_cleanup_cli_entrypoint_uses_database_url_and_reports_dry_run(monkeypatc
                 "groups": 0,
             },
         }
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_cli_backup_write_guards_missing_rows_existing_paths_and_link_failures(
+    tmp_path, monkeypatch
+):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="backup-guards", name="Backup Guards")
+        db.add(workspace)
+        db.flush()
+        domain = Domain(name="backup-guards.example", workspace_id=workspace.id)
+        db.add(domain)
+        db.flush()
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id="backup-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.commit()
+
+        path = tmp_path / "backup.json"
+        assert duplicate_cli._write_backup(db, [report.id], str(path))["reports"] == 1
+        with pytest.raises(FileExistsError, match="backup already exists"):
+            duplicate_cli._write_backup(db, [report.id], str(path))
+
+        db.delete(report)
+        db.commit()
+        with pytest.raises(RuntimeError, match="removable report rows are missing"):
+            duplicate_cli._write_backup(db, [report.id], str(tmp_path / "missing.json"))
+
+        report_id = report.id
+        report = DMARCReport(
+            id=report_id,
+            domain_id=domain.id,
+            report_id="backup-report",
+            org_name="sender",
+            begin_date=100,
+            end_date=200,
+        )
+        db.add(report)
+        db.commit()
+        failed_path = tmp_path / "link-failure.json"
+
+        def fail_link(*args):
+            raise OSError("link failed")
+
+        monkeypatch.setattr(duplicate_cli.os, "link", fail_link)
+        with pytest.raises(OSError, match="link failed"):
+            duplicate_cli._write_backup(db, [report.id], str(failed_path))
+        assert not failed_path.exists()
+        assert not failed_path.with_name("link-failure.json.tmp").exists()
+
+        with monkeypatch.context() as patch:
+            patch.setattr(duplicate_cli.os, "link", fail_link)
+            patch.setattr(
+                duplicate_cli.os, "unlink", lambda _: (_ for _ in ()).throw(FileNotFoundError())
+            )
+            with pytest.raises(OSError, match="link failed"):
+                duplicate_cli._write_backup(db, [report.id], str(tmp_path / "missing-temp.json"))
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_restore_rejects_duplicate_ids_and_missing_report_references(tmp_path):
+    engine, db = _db()
+    try:
+        duplicate_path = tmp_path / "duplicate.json"
+        duplicate_path.write_text(
+            json.dumps(
+                {
+                    "reports": [{"id": 1}, {"id": 1}],
+                    "report_records": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="duplicate report or record IDs"):
+            restore_backup(db, str(duplicate_path))
+
+        missing_path = tmp_path / "missing-reference.json"
+        missing_path.write_text(
+            json.dumps(
+                {
+                    "reports": [],
+                    "report_records": [{"id": 1, "report_id": 404}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="missing report IDs: 404"):
+            restore_backup(db, str(missing_path))
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_reconcile_apply_requires_backup_and_reports_noop():
+    engine, db = _db()
+    try:
+        with pytest.raises(ValueError, match="--backup is required"):
+            reconcile(db, workspace_id=None, apply=True, backup=None)
+        result = reconcile(db, workspace_id=None, apply=True, backup="unused.json")
+        assert result["applied"] == {"reports": 0, "records": 0}
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["reconcile_dmarc_duplicates"], "DATABASE_URL environment variable is required"),
+        (
+            ["reconcile_dmarc_duplicates", "--restore", "--apply", "--backup", "x.json"],
+            "--restore and --apply are mutually exclusive",
+        ),
+        (["reconcile_dmarc_duplicates", "--restore"], "--backup is required with --restore"),
+    ],
+)
+def test_cli_argument_guards(monkeypatch, argv, message, capsys):
+    monkeypatch.setattr(sys, "argv", argv)
+    if len(argv) > 1:
+        monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    else:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        duplicate_cli.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_cli_restore_commits_and_reports_errors(monkeypatch, capsys):
+    engine, db = _db()
+    try:
+        monkeypatch.setenv("DATABASE_URL", "sqlite://")
+        monkeypatch.setattr(duplicate_cli, "create_engine", lambda _: engine)
+        monkeypatch.setattr(duplicate_cli, "sessionmaker", lambda bind: sessionmaker(bind=bind))
+        monkeypatch.setattr(
+            sys, "argv", ["reconcile_dmarc_duplicates", "--restore", "--backup", "x"]
+        )
+        monkeypatch.setattr(
+            duplicate_cli, "restore_backup", lambda _db, path: {"reports": 1, "records": 2}
+        )
+        assert duplicate_cli.main() == 0
+        assert json.loads(capsys.readouterr().out) == {
+            "mode": "restore",
+            "restored": {"reports": 1, "records": 2},
+        }
+
+        monkeypatch.setattr(
+            duplicate_cli,
+            "restore_backup",
+            lambda _db, path: (_ for _ in ()).throw(ValueError("bad archive")),
+        )
+        assert duplicate_cli.main() == 2
+        assert json.loads(capsys.readouterr().err) == {"error": "bad archive", "status": "aborted"}
     finally:
         db.close()
         Base.metadata.drop_all(engine)
