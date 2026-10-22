@@ -622,6 +622,7 @@ class IMAPClient:
             cursor_blocked = False
             for index, email_id in enumerate(email_ids, start=1):
                 handled = self._process_single_email(mail, email_id, stats)
+                self._annotate_recovery_namespace(stats, email_id)
                 if not handled:
                     # Keep later healthy messages flowing, but retain the first
                     # failed UID as a durable hole for the next retry.
@@ -658,6 +659,22 @@ class IMAPClient:
                 "processed": 0,
                 "errors": [sanitize_connector_error(e)],
             }
+
+    def _annotate_recovery_namespace(self, stats: Dict[str, Any], email_id: bytes) -> None:
+        """Attach stable UID identity to incremental IMAP recovery details."""
+        message_id = email_id.decode("utf-8", errors="replace")
+        identifier_type = "uid" if self.incremental else "sequence"
+        for detail in stats.get("details", []):
+            if detail.get("message_id") != message_id:
+                continue
+            detail["identifier_type"] = identifier_type
+            if identifier_type == "uid":
+                if self.uid_validity is not None:
+                    detail["uid_validity"] = self.uid_validity
+                detail["server"] = self.server
+                detail["port"] = self.port
+                detail["use_ssl"] = self.use_ssl
+                detail["account"] = self.username
 
     def _is_dmarc_report_email(self, msg: email.message.Message) -> bool:
         """
