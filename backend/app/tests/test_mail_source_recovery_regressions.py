@@ -8,6 +8,7 @@ from unittest.mock import patch
 from sqlalchemy.orm import sessionmaker
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
+from app.services import import_history as import_history_service
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.services.import_history import (
@@ -182,23 +183,38 @@ def test_durable_ignore_wins_over_poll_race_for_get_and_retry(authed_client, db_
     try:
         poll_source = poll_session.get(MailSource, source.id)
         ignore_source = ignore_session.get(MailSource, source.id)
-        # The poll has read its disposition. An independent action commits the
-        # durable ignore before the poll records its next failed attempt.
-        _latest_recovery_dispositions(poll_session, poll_source)
-        ignore_message(ignore_session, ignore_source, "race-1")
-        ignore_session.commit()
-        record_import_attempt(
-            poll_session,
-            poll_source,
-            {
-                "success": False,
-                "errors": ["provider failed"],
-                "details": [{"status": "error", "message_id": "race-1"}],
-            },
-            started_at=datetime.utcnow(),
-            trigger="scheduled",
-        )
+        registry_read = False
+        original_registry_read = import_history_service.ignored_message_ids
+
+        def read_registry_then_commit_ignore(db, current_source):
+            nonlocal registry_read
+            result = original_registry_read(db, current_source)
+            if current_source.id == source.id and not registry_read:
+                registry_read = True
+                ignore_message(ignore_session, ignore_source, "race-1")
+                ignore_session.commit()
+            return result
+
+        # Pause exactly after polling's final durable-ignore read and commit
+        # the independent ignore before polling inserts its stale failure row.
+        with patch.object(
+            import_history_service,
+            "ignored_message_ids",
+            side_effect=read_registry_then_commit_ignore,
+        ):
+            record_import_attempt(
+                poll_session,
+                poll_source,
+                {
+                    "success": False,
+                    "errors": ["provider failed"],
+                    "details": [{"status": "error", "message_id": "race-1"}],
+                },
+                started_at=datetime.utcnow(),
+                trigger="scheduled",
+            )
         poll_session.commit()
+        assert registry_read
     finally:
         poll_session.close()
         ignore_session.close()
@@ -207,7 +223,6 @@ def test_durable_ignore_wins_over_poll_race_for_get_and_retry(authed_client, db_
         f"/api/v1/mail-sources/{source.id}/imports?limit=1",
         headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
     )
-    print(response.json())
     assert response.status_code == 200
     item = response.json()[0]["recovery_items"][0]
     assert item["message_id"] == "race-1"
