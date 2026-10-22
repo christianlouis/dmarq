@@ -45,11 +45,26 @@ Coverage results are uploaded to [Codecov](https://codecov.io).
 
 - **Bandit** — Python security linter; the JSON report is uploaded as a
   workflow artifact (`bandit-security-report`) for every run.
-- **pip-audit** — checks all packages in `backend/requirements.txt` against
+- **pip-audit** — checks all packages in `backend/requirements.lock` against
   known CVE databases.
 
 Both steps use `continue-on-error: true` so they are advisory; a finding will
 not block the build but will appear in the workflow summary.
+
+#### Updating the dependency lock
+
+The Docker image and CI install the exact package set in
+`backend/requirements.lock`. Regenerate it only when intentionally changing
+the validated source image:
+
+```bash
+./scripts/lock-requirements.sh
+```
+
+The script uses the pinned DMARQ image digest, verifies every direct
+requirement first, and then records that image's installed packages. To use a
+new validated image, set `DMARQ_LOCK_IMAGE` to its immutable image reference,
+run the command, and review the complete lock diff.
 
 #### CodeQL Analysis
 

@@ -82,9 +82,9 @@ RUN dpkg -i /tmp/libsqlite3-0.deb \
     && ldconfig \
     && rm /tmp/libsqlite3-0.deb
 
-# Copy Python requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install the exact dependency set validated in the published DMARQ image.
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 # Copy application code including templates and static assets
 COPY . .
