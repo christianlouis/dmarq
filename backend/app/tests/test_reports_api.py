@@ -1668,15 +1668,23 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     _persist_parsed_report(db_session, fixture, workspace_id=workspace.id)
 
     ptr_calls: list[str] = []
+    active_ptr_calls = 0
+    max_active_ptr_calls = 0
 
     async def counting_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
+        nonlocal active_ptr_calls, max_active_ptr_calls
         ptr_calls.append(ip)
-        await asyncio.sleep(0.01)
-        return PtrLookupResult(
-            hostname=f"host-{ip.replace('.', '-')}.example.net",
-            status="ok",
-            detail="PTR record found",
-        )
+        active_ptr_calls += 1
+        max_active_ptr_calls = max(max_active_ptr_calls, active_ptr_calls)
+        try:
+            await asyncio.sleep(0.01)
+            return PtrLookupResult(
+                hostname=f"host-{ip.replace('.', '-')}.example.net",
+                status="ok",
+                detail="PTR record found",
+            )
+        finally:
+            active_ptr_calls -= 1
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -1698,9 +1706,7 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
-    started = time.monotonic()
     response = authed_client.get("/api/v1/reports/large-ptr-dedupe-report?hydrate_enrichment=true")
-    elapsed = time.monotonic() - started
 
     assert response.status_code == 200
     body = response.json()
@@ -1709,8 +1715,9 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     assert body["enrichment"]["record_count"] == 300
     assert len(ptr_calls) == 25
     assert len(set(ptr_calls)) == 25
-    # Unbounded per-row PTR (300 * 10ms) would exceed ~2s; deduped path stays bounded.
-    assert elapsed < 2.0
+    # The unique lookup tasks overlap, so a per-row sequential implementation
+    # cannot pass by merely reducing the number of calls.
+    assert max_active_ptr_calls > 1
 
 
 def test_report_detail_prefers_point_in_time_source_evidence(
