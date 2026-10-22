@@ -10,6 +10,7 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
+from app.cli import reconcile_dmarc_duplicates as duplicate_cli  # noqa: E402
 from app.core.database import Base  # noqa: E402
 from app.models.domain import Domain  # noqa: E402
 from app.models.report import DomainSourceDailyProjection, DMARCReport, ReportRecord  # noqa: E402
@@ -401,6 +402,37 @@ def test_cleanup_dry_run_then_apply_backups_and_removes_only_exact(tmp_path):
         assert db.query(DMARCReport).count() == 4
         assert db.query(ReportRecord).count() == 4
         assert db.query(DomainSourceDailyProjection).one().message_count == 8
+    finally:
+        db.close()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_cleanup_cli_entrypoint_uses_database_url_and_reports_dry_run(monkeypatch, capsys):
+    engine, db = _db()
+    try:
+        workspace = Workspace(slug="cli", name="CLI")
+        db.add(workspace)
+        db.commit()
+        monkeypatch.setenv("DATABASE_URL", "sqlite://")
+        monkeypatch.setattr(duplicate_cli, "create_engine", lambda _: engine)
+        monkeypatch.setattr(duplicate_cli, "sessionmaker", lambda bind: sessionmaker(bind=bind))
+        monkeypatch.setattr(
+            sys, "argv", ["reconcile_dmarc_duplicates", "--workspace-id", str(workspace.id)]
+        )
+
+        assert duplicate_cli.main() == 0
+        receipt = json.loads(capsys.readouterr().out)
+        assert receipt == {
+            "mode": "dry-run",
+            "plan": {
+                "blocked": [],
+                "blocked_groups": 0,
+                "eligible": [],
+                "eligible_groups": 0,
+                "groups": 0,
+            },
+        }
     finally:
         db.close()
         Base.metadata.drop_all(engine)
