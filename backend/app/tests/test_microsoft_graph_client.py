@@ -1,6 +1,7 @@
 """Unit tests for app.services.microsoft_graph_client.MicrosoftGraphClient."""
 
 import base64
+import gzip
 import zipfile
 from email.message import EmailMessage
 from email.mime.message import MIMEMessage
@@ -555,8 +556,19 @@ class TestMicrosoftGraphFetchReports:
         assert sleeps == [0.0]
         assert responses == []
 
-    def test_fetch_reports_imports_zip_attachment(self, monkeypatch, db_session):
-        attachment_bytes = _zip_xml()
+    @pytest.mark.parametrize(
+        ("filename", "attachment_bytes"),
+        [
+            ("report.xml", SAMPLE_XML.encode()),
+            ("report.zip", _zip_xml()),
+            ("report.xml.gz", gzip.compress(SAMPLE_XML.encode())),
+        ],
+        ids=["xml", "zip", "gzip"],
+    )
+    def test_fetch_reports_imports_file_without_item_expansion(
+        self, monkeypatch, db_session, filename, attachment_bytes
+    ):
+        attachment_requests = []
 
         def fake_request(method, url, headers=None, params=None, timeout=None):
             if url.endswith("/me/mailFolders/inbox/messages"):
@@ -575,13 +587,25 @@ class TestMicrosoftGraphFetchReports:
                     },
                 )
             if url.endswith("/me/messages/message-1/attachments"):
+                attachment_requests.append(params)
+                if params and "$expand" in params:
+                    return httpx.Response(
+                        400,
+                        json={
+                            "error": {
+                                "code": "BadRequest",
+                                "message": "Could not find a property named 'attachments' "
+                                "on type 'microsoft.graph.outlookItem'.",
+                            }
+                        },
+                    )
                 return httpx.Response(
                     200,
                     json={
                         "value": [
                             {
                                 "@odata.type": "#microsoft.graph.fileAttachment",
-                                "name": "report.zip",
+                                "name": filename,
                                 "contentBytes": base64.b64encode(attachment_bytes).decode(),
                             }
                         ]
@@ -598,11 +622,34 @@ class TestMicrosoftGraphFetchReports:
         assert result["processed"] == 1
         assert result["reports_found"] == 1
         assert result["new_ingested_ids"] == ["message-1"]
+        assert result["errors"] == []
+        assert attachment_requests == [None]
         assert db_session.query(DMARCReport).count() == 1
 
+    @pytest.mark.parametrize("pre_expanded", [False, True])
+    @pytest.mark.parametrize("nested_depth", [1, 2])
     def test_fetch_reports_imports_file_inside_nested_item_attachment(
-        self, monkeypatch, db_session
+        self, monkeypatch, db_session, pre_expanded, nested_depth
     ):
+        nested = {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": "report.xml",
+            "contentBytes": base64.b64encode(SAMPLE_XML.encode()).decode(),
+        }
+        for _ in range(nested_depth):
+            nested = {
+                "id": "attached-message",
+                "@odata.type": "#microsoft.graph.itemAttachment",
+                "name": "forwarded-report.eml",
+                "item": {"@odata.type": "#microsoft.graph.message", "attachments": [nested]},
+            }
+        listed_attachment = (
+            nested
+            if pre_expanded
+            else {key: value for key, value in nested.items() if key != "item"}
+        )
+        expanded_requests = []
+
         def fake_request(method, url, headers=None, params=None, timeout=None):
             if url.endswith("/me/mailFolders/inbox/messages"):
                 return httpx.Response(
@@ -619,28 +666,14 @@ class TestMicrosoftGraphFetchReports:
                     },
                 )
             if url.endswith("/me/messages/message-nested/attachments"):
+                assert params is None
+                return httpx.Response(200, json={"value": [listed_attachment]})
+            if url.endswith("/me/messages/message-nested/attachments/attached-message"):
+                expanded_requests.append(params)
+                assert params == {"$expand": "microsoft.graph.itemAttachment/item"}
                 return httpx.Response(
                     200,
-                    json={
-                        "value": [
-                            {
-                                "id": "attached-message",
-                                "@odata.type": "#microsoft.graph.itemAttachment",
-                                "name": "forwarded-report.eml",
-                                "item": {
-                                    "attachments": [
-                                        {
-                                            "@odata.type": "#microsoft.graph.fileAttachment",
-                                            "name": "report.xml",
-                                            "contentBytes": base64.b64encode(
-                                                SAMPLE_XML.encode()
-                                            ).decode(),
-                                        }
-                                    ]
-                                },
-                            }
-                        ]
-                    },
+                    json=nested,
                 )
             raise AssertionError(f"Unexpected Graph request: {method} {url} {params}")
 
@@ -649,6 +682,8 @@ class TestMicrosoftGraphFetchReports:
 
         assert result["reports_found"] == 1
         assert result["new_ingested_ids"] == ["message-nested"]
+        assert result["errors"] == []
+        assert len(expanded_requests) == (0 if pre_expanded else 1)
         assert db_session.query(DMARCReport).count() == 1
 
     def test_fetch_reports_imports_report_from_nested_mime_attachment(
@@ -871,15 +906,27 @@ class TestMicrosoftGraphFetchReports:
         assert stats["skipped_attachments"] == 1
         assert stats["details"][-1]["reason"] == "unsupported_attachment"
 
-    def test_item_attachment_uses_bounded_mime_value_fallback(self, monkeypatch, db_session):
+    @pytest.mark.parametrize("item", [{}, {"attachments": []}])
+    def test_item_attachment_uses_bounded_mime_value_fallback(self, monkeypatch, db_session, item):
         nested = EmailMessage()
         nested.set_content("Attached report")
         nested.add_attachment(
             _zip_xml(), maintype="application", subtype="zip", filename="report.zip"
         )
         client = _make_client(db=db_session)
-        monkeypatch.setattr(client, "_get_nested_attachments", lambda *_args: [])
-        monkeypatch.setattr(client, "_request_bytes", lambda _path: nested.as_bytes())
+        requests = []
+        mime_paths = []
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            requests.append((method, url, params))
+            return httpx.Response(200, json={"item": item})
+
+        def fetch_mime(path):
+            mime_paths.append(path)
+            return nested.as_bytes()
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        monkeypatch.setattr(client, "_request_bytes", fetch_mime)
         stats = initial_import_stats(client.import_context())
 
         result = client._process_item_attachment(
@@ -892,6 +939,14 @@ class TestMicrosoftGraphFetchReports:
 
         assert result == (1, False)
         assert stats["reports_found"] == 1
+        assert requests == [
+            (
+                "GET",
+                "https://graph.microsoft.com/v1.0/me/messages/message-fallback/attachments/item-1",
+                {"$expand": "microsoft.graph.itemAttachment/item"},
+            )
+        ]
+        assert mime_paths == ["/me/messages/message-fallback/attachments/item-1/$value"]
 
     def test_item_attachment_uses_message_mime_after_item_value_failure(
         self, monkeypatch, db_session
@@ -1248,7 +1303,12 @@ class TestMicrosoftGraphFetchReports:
         )
         assert stats["details"][0]["reason"] == "parse_failed"
 
-    def test_nested_attachment_fetch_failure_keeps_message_retryable(self, monkeypatch):
+    @pytest.mark.parametrize("status_code", [400, 503])
+    def test_nested_attachment_fetch_failure_keeps_message_retryable(
+        self, monkeypatch, status_code
+    ):
+        expanded_requests = []
+
         def fake_request(method, url, headers=None, params=None, timeout=None):
             if url.endswith("/me/mailFolders/inbox/messages"):
                 return httpx.Response(
@@ -1264,6 +1324,7 @@ class TestMicrosoftGraphFetchReports:
                     },
                 )
             if url.endswith("/me/messages/message-nested-failure/attachments"):
+                assert params is None
                 return httpx.Response(
                     200,
                     json={
@@ -1277,17 +1338,24 @@ class TestMicrosoftGraphFetchReports:
                     },
                 )
             if url.endswith("/me/messages/message-nested-failure/attachments/attached-message"):
+                expanded_requests.append(params)
                 return httpx.Response(
-                    503,
+                    status_code,
                     json={"error": {"code": "ServerError", "message": "temporary failure"}},
                 )
             raise AssertionError(f"Unexpected Graph request: {method} {url} {params}")
 
         monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
-        result = _make_client().fetch_reports()
+        client = _make_client()
+        monkeypatch.setattr(client, "_sleep", lambda _delay: None)
+        result = client.fetch_reports()
 
         assert result["new_ingested_ids"] == []
         assert result["details"][0]["reason"] == "nested_attachment_fetch_failed"
+        assert result["errors"]
+        assert expanded_requests == [{"$expand": "microsoft.graph.itemAttachment/item"}] * (
+            4 if status_code == 503 else 1
+        )
 
     def test_attachment_count_limit_is_bounded(self):
         client = _make_client()
@@ -1388,7 +1456,12 @@ class TestMicrosoftGraphFetchReports:
         assert result["success"] is True
         assert result["processed"] == 0
 
-    def test_fetch_reports_keeps_message_retryable_when_attachments_fail(self, monkeypatch):
+    @pytest.mark.parametrize("status_code", [400, 500])
+    def test_fetch_reports_keeps_message_retryable_when_attachments_fail(
+        self, monkeypatch, status_code
+    ):
+        attachment_requests = []
+
         def fake_request(method, url, headers=None, params=None, timeout=None):
             if url.endswith("/me/mailFolders/inbox/messages"):
                 return httpx.Response(
@@ -1405,8 +1478,9 @@ class TestMicrosoftGraphFetchReports:
                     },
                 )
             if url.endswith("/me/messages/message-1/attachments"):
+                attachment_requests.append(params)
                 return httpx.Response(
-                    500,
+                    status_code,
                     json={"error": {"code": "ServerError", "message": "temporary failure"}},
                 )
             raise AssertionError(f"Unexpected Graph request: {method} {url}")
@@ -1420,6 +1494,8 @@ class TestMicrosoftGraphFetchReports:
         assert result["processed"] == 1
         assert result["new_ingested_ids"] == []
         assert result["details"][0]["reason"] == "attachment_fetch_failed"
+        assert result["errors"]
+        assert attachment_requests == [None]
 
     def test_fetch_reports_records_attachment_outcomes(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
