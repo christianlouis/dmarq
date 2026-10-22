@@ -30,6 +30,13 @@ def main() -> int:
         name = canonicalize_name(requirement.name)
         if name in locked:
             raise SystemExit(f"duplicate lock entry: {requirement.name}")
+        pins = list(requirement.specifier)
+        if (
+            len(pins) != 1
+            or pins[0].operator != "=="
+            or "*" in pins[0].version
+        ):
+            raise SystemExit(f"lock entry is not an exact == pin: {requirement.name}")
         locked[name] = requirement
 
     for requirement in requirements(Path(args.requirements)):
@@ -39,10 +46,7 @@ def main() -> int:
         candidate = locked.get(name)
         if candidate is None:
             raise SystemExit(f"missing lock entry: {requirement.name}")
-        pins = list(candidate.specifier)
-        if len(pins) != 1 or pins[0].operator != "==":
-            raise SystemExit(f"lock entry is not an exact == pin: {candidate.name}")
-        version = pins[0].version
+        version = next(iter(candidate.specifier)).version
         if version not in requirement.specifier:
             raise SystemExit(
                 f"{requirement.name} locked at {version}, does not satisfy "

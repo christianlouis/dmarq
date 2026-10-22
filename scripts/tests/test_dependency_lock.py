@@ -29,6 +29,8 @@ def test_validator_accepts_exact_satisfying_pin(tmp_path, monkeypatch):
         ("Other==1.2\n", "missing lock entry"),
         ("Demo==0.9\n", "does not satisfy"),
         ("Demo>=1.2\n", "exact == pin"),
+        ("Demo==1.2.*\n", "exact == pin"),
+        ("Demo==1.2\nOther>=2.0\n", "exact == pin"),
         ("Demo==1.2\nDemo==1.3\n", "duplicate lock entry"),
     ],
 )
@@ -55,6 +57,32 @@ def test_generator_failure_preserves_existing_lock(tmp_path):
     lock.write_text("sentinel\n")
     docker = root / "docker"
     docker.write_text("#!/bin/sh\nexit 42\n")
+    docker.chmod(0o755)
+    env = os.environ | {"PATH": f"{root}:{os.environ['PATH']}"}
+    result = subprocess.run([str(target)], env=env, text=True, capture_output=True)
+    assert result.returncode == 42
+    assert lock.read_text() == "sentinel\n"
+
+
+def test_generator_inspect_failure_preserves_existing_lock(tmp_path):
+    root = tmp_path / "repo"
+    (root / "backend").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    script = Path(__file__).parents[1] / "lock-requirements.sh"
+    target = root / "scripts" / "lock-requirements.sh"
+    target.write_bytes(script.read_bytes())
+    target.chmod(0o755)
+    (root / "backend" / "requirements.txt").write_text("Demo>=1.0\n")
+    lock = root / "backend" / "requirements.lock"
+    lock.write_text("sentinel\n")
+    docker = root / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  run) printf 'Demo==1.2\\n' ;;\n"
+        "  image) exit 42 ;;\n"
+        "esac\n"
+    )
     docker.chmod(0o755)
     env = os.environ | {"PATH": f"{root}:{os.environ['PATH']}"}
     result = subprocess.run([str(target)], env=env, text=True, capture_output=True)

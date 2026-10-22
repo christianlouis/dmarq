@@ -20,7 +20,8 @@ fi
 
 tmp=$(mktemp)
 freeze_tmp=$(mktemp)
-trap 'rm -f "$tmp" "$freeze_tmp"' EXIT
+output_tmp=$(mktemp "$lock.tmp.XXXXXX")
+trap 'rm -f "$tmp" "$freeze_tmp" "$output_tmp"' EXIT
 
 # Resolve current requirements in a disposable container. Existing satisfying
 # versions are retained; additions and raised minimums are resolved.
@@ -66,6 +67,7 @@ fi
     echo "# OCI revision: $revision."
     echo "# Do not edit by hand; regenerate from the pinned image digest."
     cat "$tmp"
-} > "$lock"
+} > "$output_tmp"
+mv "$output_tmp" "$lock"
 
 echo "$lock: $(wc -l < "$tmp" | tr -d ' ') packages"

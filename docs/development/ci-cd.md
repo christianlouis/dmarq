@@ -65,10 +65,12 @@ The script uses the pinned DMARQ image digest, installs the current direct
 requirements into a disposable container while retaining satisfying existing
 versions, verifies them, and records the resulting package set. This means
 new requirements and raised minimums are resolved during an intentional lock
-update; freezing an older application image alone is insufficient. To use a
-new validated image, set `DMARQ_LOCK_IMAGE` to its immutable image reference,
-run the command, and review the complete lock diff. CI also validates direct
-requirements against the lock and runs `pip check` after installation.
+update; freezing an older application image alone is insufficient. Run the
+command whenever `backend/requirements.txt` changes or the validated source
+image changes. To use a new validated image, set `DMARQ_LOCK_IMAGE` to its
+immutable image reference, run the command, and review the complete lock diff.
+CI also validates every lock entry and direct requirement and runs `pip check`
+after installation.
 
 The committed digest identifies production OCI revision
 `bcbbc0f6ef62eed893139e108942827c36305e49`.
