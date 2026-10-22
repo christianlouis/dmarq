@@ -83,6 +83,8 @@ class MailSource(Base):
     # folder.  NULL means "never polled incrementally" and triggers a full scan.
     last_uid = Column(Integer, nullable=True)
     uid_validity = Column(Integer, nullable=True)
+    uid_account = Column(String, nullable=True)
+    uid_folder = Column(String, nullable=True)
 
     # Source lifecycle
     enabled = Column(Boolean, default=True, index=True)

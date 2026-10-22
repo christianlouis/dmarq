@@ -132,6 +132,8 @@ def _poll_single_imap_source(source: MailSource) -> None:
             incremental=True,
             last_uid=getattr(poll_source, "last_uid", None),
             uid_validity=getattr(poll_source, "uid_validity", None),
+            uid_account=getattr(poll_source, "uid_account", None),
+            uid_folder=getattr(poll_source, "uid_folder", None),
         )
         started_at = datetime.utcnow()
         results = imap_client.fetch_reports(days=9999)
@@ -141,6 +143,8 @@ def _poll_single_imap_source(source: MailSource) -> None:
                 # arrived since this one, instead of re-parsing the whole folder.
                 src.last_uid = results.get("last_uid")
                 src.uid_validity = results.get("uid_validity")
+                src.uid_account = results.get("uid_account")
+                src.uid_folder = results.get("uid_folder")
             src.last_checked = datetime.utcnow()
             record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
             db.commit()

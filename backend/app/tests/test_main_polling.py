@@ -179,6 +179,8 @@ def test_poll_single_imap_source_passes_configured_folder():
         incremental=True,
         last_uid=None,
         uid_validity=None,
+        uid_account=None,
+        uid_folder=None,
     )
     db.commit.assert_called_once()
     db.close.assert_called_once()

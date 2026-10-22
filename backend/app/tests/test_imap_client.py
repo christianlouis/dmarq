@@ -1201,6 +1201,44 @@ class TestFetchReports:
 
         assert result["success"] is False
 
+    def test_failed_uid_is_not_advanced_and_is_retryable(self):
+        client = _incremental_client(last_uid=5, uid_validity=42)
+        mail = _incremental_mock_mail()
+        mail.uid.side_effect = [
+            ("OK", [b"6"]),  # UID SEARCH
+            ("NO", []),  # UID FETCH fails
+        ]
+
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+
+        assert result["success"] is True
+        assert result["last_uid"] == 5
+        assert result["errors"]
+        assert result["processed"] == 0
+
+    def test_account_or_folder_change_resets_cursor(self):
+        client = _incremental_client(
+            last_uid=11,
+            uid_validity=42,
+            uid_account="old@example.com",
+            uid_folder="INBOX",
+        )
+        client.username = "new@example.com"
+        mail = _incremental_mock_mail(search_result=("OK", [b"1"]))
+        mail.uid.side_effect = [
+            ("OK", [b"1"]),
+            ("OK", [(b"1", b"Subject: ordinary mail\r\n\r\nbody")]),
+        ]
+
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+
+        assert mail.uid.call_args_list[0].args[2].startswith("(SINCE ")
+        assert result["uid_cursor_reset"] is True
+        assert result["last_uid"] == 1
+        assert result["uid_account"] == "new@example.com"
+
     def test_fetch_reports_selects_configured_folder_with_quotes(self):
         client = IMAPClient(
             server="imap.example.com",
@@ -1389,6 +1427,8 @@ def _incremental_mock_mail(uid_validity=b"42", search_result=("OK", [b""])):
 
 
 def _incremental_client(**kwargs):
+    kwargs.setdefault("uid_account", "u")
+    kwargs.setdefault("uid_folder", "INBOX")
     return IMAPClient(
         server="imap.example.com",
         port=993,

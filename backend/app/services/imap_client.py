@@ -70,6 +70,8 @@ class IMAPClient:
         incremental: bool = False,
         last_uid: Optional[int] = None,
         uid_validity: Optional[int] = None,
+        uid_account: Optional[str] = None,
+        uid_folder: Optional[str] = None,
     ):
         """
         Initialize the IMAP client with credentials
@@ -114,6 +116,8 @@ class IMAPClient:
         self.incremental = bool(incremental)
         self.last_uid = last_uid
         self.uid_validity = uid_validity
+        self.uid_account = uid_account
+        self.uid_folder = uid_folder
 
         self.report_store = ReportStore.get_instance()
 
@@ -273,7 +277,7 @@ class IMAPClient:
                 {"diagnostic_detail": str(e)},
             )
 
-    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:  # noqa: C901
+    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> bool:  # noqa: C901
         """Fetch, parse, and store DMARC attachments from one email message."""
         message_id = email_id.decode("utf-8", errors="replace")
         try:
@@ -282,17 +286,18 @@ class IMAPClient:
             status, msg_data = mail.fetch(email_id, f"(BODY.PEEK[]<0.{MAX_DSN_BYTES + 1}>)")
             if status != "OK":
                 logger.error("Error fetching email ID %s", email_id)
+                stats.setdefault("errors", []).append("Error fetching one mailbox message.")
                 self._append_detail(
                     stats,
                     status="error",
                     reason="message_fetch_failed",
                     message_id=message_id,
                 )
-                return
+                return False
 
             raw_email = msg_data[0][1]
             if self._skip_oversized_message(mail, email_id, message_id, raw_email, stats):
-                return
+                return True
             msg = email.message_from_bytes(raw_email)
 
             if is_dsn_message(msg) and self.db is not None:
@@ -314,9 +319,10 @@ class IMAPClient:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
                     stats["deleted"] = stats.get("deleted", 0) + 1
                 stats["processed"] += 1
-                return
+                return True
 
             if ForensicParser.is_forensic_report(msg):
+                errors_before = len(stats.get("errors", []))
                 imported = self._process_forensic_email(
                     raw_email,
                     stats=stats,
@@ -327,7 +333,7 @@ class IMAPClient:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
                     stats["deleted"] = stats.get("deleted", 0) + 1
                 stats["processed"] += 1
-                return
+                return len(stats.get("errors", [])) == errors_before
 
             if self._is_dmarc_report_email(msg):
                 duplicates_before = stats.get("duplicate_reports", 0)
@@ -362,6 +368,10 @@ class IMAPClient:
                     stats["deleted"] = stats.get("deleted", 0) + 1
 
                 stats["processed"] += 1
+                return len(stats.get("errors", [])) == errors_before
+            # A non-report message was inspected successfully and can advance
+            # the cursor even though it produced no import result.
+            return True
         except Exception as e:  # pylint: disable=broad-exception-caught
             safe_email_id = sanitize_connector_error(email_id)
             logger.error(
@@ -377,6 +387,7 @@ class IMAPClient:
                 message_id=message_id,
                 error="Message processing failed. Check server logs for details.",
             )
+            return False
 
     @staticmethod
     def _skip_oversized_message(mail, email_id, message_id, raw_email, stats) -> bool:
@@ -446,6 +457,13 @@ class IMAPClient:
         cursor_reset = False
 
         usable_cursor = self.last_uid is not None
+        identity_changed = (
+            self.last_uid is not None
+            and (self.uid_account != self.username or self.uid_folder != self.folder)
+        )
+        if identity_changed:
+            usable_cursor = False
+            cursor_reset = True
         if usable_cursor and self.uid_validity is not None:
             if server_uid_validity is not None and server_uid_validity != self.uid_validity:
                 logger.info(
@@ -476,6 +494,8 @@ class IMAPClient:
             uids = [uid for uid in uids if (self._coerce_uid(uid) or 0) > int(self.last_uid)]
 
         self.uid_validity = server_uid_validity
+        self.uid_account = self.username
+        self.uid_folder = self.folder
         return uids, cursor_reset
 
     def _select_messages(
@@ -493,6 +513,8 @@ class IMAPClient:
             stats["uid_cursor_reset"] = cursor_reset
             stats["uid_validity"] = self.uid_validity
             stats["last_uid"] = self.last_uid
+            stats["uid_account"] = self.uid_account
+            stats["uid_folder"] = self.uid_folder
             return _UidMailbox(mail), email_ids
 
         # Search for all emails containing possible DMARC reports
@@ -524,6 +546,8 @@ class IMAPClient:
         self.last_uid = highest_uid
         stats["last_uid"] = highest_uid
         stats["uid_validity"] = self.uid_validity
+        stats["uid_account"] = self.uid_account
+        stats["uid_folder"] = self.uid_folder
 
     def fetch_reports(
         self,
@@ -570,7 +594,12 @@ class IMAPClient:
             # Process each email
             highest_uid = self.last_uid if self.incremental else None
             for index, email_id in enumerate(email_ids, start=1):
-                self._process_single_email(mail, email_id, stats)
+                handled = self._process_single_email(mail, email_id, stats)
+                if not handled:
+                    # Do not advance past a failed UID.  Stopping here also
+                    # preserves the contiguous high-water mark when later UIDs
+                    # are present in the same search result.
+                    break
                 # Advance only after the message was handled, so a crash mid-poll
                 # re-reads it instead of silently dropping it.
                 highest_uid = self._advance_uid_cursor(email_id, highest_uid, stats)
