@@ -227,7 +227,10 @@ def _reconcile_recovery_metadata(metadata: Optional[str], outcomes: Dict[tuple, 
         return metadata or "[]"
     changed = False
     for item in items:
-        if not isinstance(item, dict) or item.get("disposition") != "pending":
+        if not isinstance(item, dict) or (
+            item.get("disposition") != "pending"
+            and not (item.get("disposition") == "retried" and item.get("last_status") == "failed")
+        ):
             continue
         outcome = outcomes.get(_recovery_case_key(item))
         if outcome == "failed":

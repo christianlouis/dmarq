@@ -859,3 +859,54 @@ def test_history_deduplicates_candidates_before_finding_older_independent_case(
         if item["disposition"] == "pending"
     }
     assert messages == {"m-7", "m-8"}
+
+
+@pytest.mark.parametrize("outcome, expected", [("imported", "settled"), ("error", "superseded")])
+def test_normal_poll_reconciles_legacy_failed_retry_before_history_get(
+    authed_client, db_session, outcome, expected
+):
+    workspace, source, binding = _source_and_rows(db_session)
+    old = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        error_count=1,
+        errors=json.dumps(["Original failure"]),
+        details=json.dumps([{"status": "error", "message_id": "legacy-poll"}]),
+        recovery_metadata=json.dumps(
+            [_item(source, binding, "legacy-poll", disposition="retried", last_status="failed")]
+        ),
+    )
+    db_session.add(old)
+    db_session.commit()
+    diagnostics = (old.status, old.error_count, old.errors, old.details)
+
+    record_import_attempt(
+        db_session,
+        source,
+        {
+            "success": outcome == "imported",
+            "errors": [] if outcome == "imported" else ["New failure"],
+            "details": [{"status": outcome, "message_id": "legacy-poll"}],
+        },
+        started_at=datetime.utcnow(),
+        trigger="scheduled",
+    )
+    db_session.commit()
+    db_session.refresh(old)
+    item = json.loads(old.recovery_metadata)[0]
+    assert item["disposition"] == expected
+    assert item["last_status"] == ("success" if outcome == "imported" else "failed")
+    assert (old.status, old.error_count, old.errors, old.details) == diagnostics
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    previous = next(row for row in rows if row["id"] == old.id)
+    assert previous["recovery_items"][0]["disposition"] == expected
+    pending = [
+        item for row in rows for item in row["recovery_items"] if item["disposition"] == "pending"
+    ]
+    assert len(pending) == (0 if outcome == "imported" else 1)
