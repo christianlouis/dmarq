@@ -186,17 +186,24 @@ class _FakePgResult:
 
 
 class _FakePgConnection:
-    def __init__(self, acquired=True):
+    def __init__(self, acquired=True, unlock_error=False):
         self.acquired = acquired
+        self.unlock_error = unlock_error
         self.closed = 0
+        self.invalidated = 0
         self.statements = []
 
     def execute(self, statement, params):
         self.statements.append((str(statement), params))
+        if len(self.statements) == 2 and self.unlock_error:
+            raise RuntimeError("unlock failed")
         return _FakePgResult(self.acquired if len(self.statements) == 1 else True)
 
     def close(self):
         self.closed += 1
+
+    def invalidate(self):
+        self.invalidated += 1
 
 
 class _FakePgBind:
@@ -236,4 +243,15 @@ def test_postgres_recovery_lock_reports_busy_without_entering():
             raise AssertionError("lock body must not run")
     except RecoveryLockBusy:
         pass
+    assert connection.closed == 1
+
+
+def test_postgres_recovery_lock_invalidates_connection_when_unlock_fails():
+    connection = _FakePgConnection(unlock_error=True)
+    try:
+        with source_recovery_lock(_FakePgSession(_FakePgBind(connection)), 42):
+            pass
+    except RuntimeError:
+        pass
+    assert connection.invalidated == 1
     assert connection.closed == 1

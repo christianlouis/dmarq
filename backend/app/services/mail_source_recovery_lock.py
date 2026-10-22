@@ -59,11 +59,22 @@ def source_recovery_lock(db: Session, source_id: int) -> Iterator[None]:
             try:
                 yield
             finally:
-                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
-                connection.close()
+                try:
+                    unlocked = bool(
+                        connection.execute(
+                            text("SELECT pg_advisory_unlock(:key)"), {"key": key}
+                        ).scalar()
+                    )
+                    if not unlocked:
+                        connection.invalidate()
+                except Exception:
+                    connection.invalidate()
+                    raise
         except Exception:
             connection.close()
             raise
+        else:
+            connection.close()
         return
 
     if dialect == "sqlite":
