@@ -31,11 +31,7 @@ def main() -> int:
         if name in locked:
             raise SystemExit(f"duplicate lock entry: {requirement.name}")
         pins = list(requirement.specifier)
-        if (
-            len(pins) != 1
-            or pins[0].operator != "=="
-            or "*" in pins[0].version
-        ):
+        if len(pins) != 1 or pins[0].operator != "==" or "*" in pins[0].version:
             raise SystemExit(f"lock entry is not an exact == pin: {requirement.name}")
         locked[name] = requirement
 

@@ -78,7 +78,7 @@ def test_generator_inspect_failure_preserves_existing_lock(tmp_path):
     docker = root / "docker"
     docker.write_text(
         "#!/bin/sh\n"
-        "case \"$1\" in\n"
+        'case "$1" in\n'
         "  run) printf 'Demo==1.2\\n' ;;\n"
         "  image) exit 42 ;;\n"
         "esac\n"
