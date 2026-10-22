@@ -1,9 +1,10 @@
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, distinct, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings, uses_legacy_demo_fixtures
@@ -37,7 +38,7 @@ def _parse_timestamp(value: Any) -> int:
 def _iso_from_timestamp(value: int) -> str:
     if not value:
         return ""
-    return datetime.fromtimestamp(value).isoformat()
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
 
 
 def _loads_json_list(value: Optional[str]) -> Optional[List[Dict[str, Any]]]:
@@ -149,6 +150,45 @@ def report_exists(
     return query.first() is not None
 
 
+def _get_or_create_domain(
+    db: Session,
+    domain_name: str,
+    policy: Dict[str, Any],
+    workspace_id: int,
+) -> Domain:
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == domain_name, Domain.workspace_id == workspace_id)
+        # PostgreSQL serializes imports for an existing domain.  SQLite does
+        # not implement row-level FOR UPDATE; its coarse transaction locking
+        # remains the honest portability limit until a schema constraint can
+        # be introduced after a guarded duplicate preflight.
+        .with_for_update()
+        .first()
+    )
+    if domain is None:
+        candidate = Domain(name=domain_name, dmarc_policy=policy["p"], workspace_id=workspace_id)
+        try:
+            # Keep a possible unique-name race inside a SAVEPOINT so the
+            # caller's transaction remains usable after the losing insert.
+            with db.begin_nested():
+                db.add(candidate)
+                db.flush()
+            domain = candidate
+        except IntegrityError:
+            domain = (
+                db.query(Domain)
+                .filter(Domain.name == domain_name, Domain.workspace_id == workspace_id)
+                .with_for_update()
+                .first()
+            )
+            if domain is None:
+                raise
+    elif policy.get("p"):
+        domain.dmarc_policy = policy["p"]
+    return domain
+
+
 def save_parsed_report(
     db: Session,
     report: Dict[str, Any],
@@ -167,17 +207,7 @@ def save_parsed_report(
         workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
         workspace_id = workspace.id
 
-    domain = (
-        db.query(Domain)
-        .filter(Domain.name == domain_name, Domain.workspace_id == workspace_id)
-        .first()
-    )
-    if domain is None:
-        domain = Domain(name=domain_name, dmarc_policy=policy["p"], workspace_id=workspace_id)
-        db.add(domain)
-        db.flush()
-    elif policy.get("p"):
-        domain.dmarc_policy = policy["p"]
+    domain = _get_or_create_domain(db, domain_name, policy, workspace_id)
 
     existing = (
         db.query(DMARCReport)
