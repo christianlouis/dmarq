@@ -844,6 +844,11 @@ def _latest_authoritative_recovery(
 def _assert_current_recovery_item(
     db: Session, source: MailSource, row: MailSourceImport, item: Dict[str, Any]
 ) -> None:
+    if item.get("message_id") in set(ignored_message_ids(db, source)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recovery item is already ignored; refresh history before retrying.",
+        )
     latest = _latest_authoritative_recovery(db, source, item)
     if latest and latest[0] != row.id:
         raise HTTPException(
@@ -1541,7 +1546,7 @@ async def list_mail_source_imports(
         _selected_workspace_id(selected_workspace),
         permission=PERMISSION_MAIL_SOURCES_READ,
     )
-    _get_source_or_404(source_id, db, workspace)
+    source = _get_source_or_404(source_id, db, workspace)
     safe_limit = min(max(limit, 1), 100)
     recent_rows = (
         db.query(MailSourceImport)
@@ -1553,15 +1558,11 @@ async def list_mail_source_imports(
     recent_ids = [row.id for row in recent_rows]
     candidate_ids = []
     seen_cases = set()
-    for row in recent_rows:
-        for item in _decode_recovery_metadata(row.recovery_metadata):
-            if item.get("reason") != "already_ingested_message":
-                seen_cases.add(_recovery_case_key(item))
+    authoritative: Dict[tuple, tuple[int, str]] = {}
     cursor = None
     while len(candidate_ids) < safe_limit:
         query = db.query(MailSourceImport.id, MailSourceImport.recovery_metadata).filter(
             MailSourceImport.mail_source_id == source_id,
-            ~MailSourceImport.id.in_(recent_ids or [-1]),
         )
         if cursor is not None:
             query = query.filter(MailSourceImport.id < cursor)
@@ -1574,12 +1575,13 @@ async def list_mail_source_imports(
                 if item.get("reason") == "already_ingested_message":
                     continue
                 key = _recovery_case_key(item)
+                authoritative.setdefault(key, (row_id, str(item.get("disposition") or "")))
                 if key in seen_cases:
                     continue
                 if item.get("disposition") == "pending":
                     actionable = True
                 seen_cases.add(key)
-            if actionable:
+            if actionable and row_id not in recent_ids:
                 candidate_ids.append(row_id)
                 if len(candidate_ids) >= safe_limit:
                     break
@@ -1630,7 +1632,25 @@ async def list_mail_source_imports(
         if len(older_pending) >= safe_limit:
             break
     rows = recent_rows + older_pending
-    return [_import_to_response(row) for row in rows]
+    ignored_ids = set(ignored_message_ids(db, source))
+    responses = []
+    for row in rows:
+        response = _import_to_response(row)
+        for item in response.recovery_items:
+            message_id = item.get("message_id")
+            key = _recovery_case_key(item)
+            if message_id in ignored_ids:
+                item["disposition"] = "ignored"
+                item["last_status"] = "ignored"
+            elif key in authoritative and authoritative[key][0] != row.id:
+                item["disposition"] = authoritative[key][1]
+                item["last_status"] = (
+                    "success"
+                    if authoritative[key][1] in {"settled", "retried"}
+                    else authoritative[key][1]
+                )
+        responses.append(response)
+    return responses
 
 
 @router.post("/{source_id}/imports/{import_id}/retry", response_model=Dict[str, Any])

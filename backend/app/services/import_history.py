@@ -8,7 +8,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
-from app.services.mail_source_recovery import recovery_binding
+from app.services.mail_source_recovery import ignored_message_ids, recovery_binding
 from app.utils.stats_summarizer import StatsSummarizer
 
 MAX_STORED_ERRORS = 10
@@ -338,6 +338,18 @@ def record_import_attempt(
     # were being inspected still suppresses this newly-created failure.
     latest = _latest_recovery_dispositions(db, source)
     ignored_cases.update(key for key, disposition in latest.items() if disposition == "ignored")
+    binding = recovery_binding(source)
+    ignored_cases.update(
+        _recovery_case_key(
+            {
+                "message_id": message_id,
+                "source_id": source.id,
+                "workspace_id": source.workspace_id,
+                **binding,
+            }
+        )
+        for message_id in ignored_message_ids(db, source)
+    )
     attempt.recovery_metadata = _suppress_ignored_recovery_cases(
         attempt.recovery_metadata, ignored_cases
     )

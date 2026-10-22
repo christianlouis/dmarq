@@ -5,12 +5,17 @@ import fcntl
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from sqlalchemy.orm import sessionmaker
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
-from app.services.import_history import _latest_recovery_dispositions, _recovery_case_key
-from app.services.mail_source_recovery import recovery_binding
+from app.services.import_history import (
+    _latest_recovery_dispositions,
+    _recovery_case_key,
+    record_import_attempt,
+)
+from app.services.mail_source_recovery import ignore_message, recovery_binding
 from app.services.mail_source_recovery_lock import source_recovery_lock
 from app.services.mail_source_recovery_lock import RecoveryLockBusy
 from app.services.workspaces import get_or_create_default_workspace
@@ -69,7 +74,7 @@ def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_c
     assert response.status_code == 200
     items = [item for row in response.json() for item in row["recovery_items"]]
     assert [(item["message_id"], item["disposition"]) for item in items] == [
-        ("m-1", "settled"),
+        ("m-1", "pending"),
         ("m-1", "pending"),
     ]
 
@@ -79,7 +84,7 @@ def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_c
     )
     second_items = [item for row in second.json() for item in row["recovery_items"]]
     assert [(item["message_id"], item["disposition"]) for item in second_items] == [
-        ("m-1", "settled"),
+        ("m-1", "pending"),
         ("m-1", "pending"),
     ]
 
@@ -160,6 +165,121 @@ def test_cache_skip_does_not_overwrite_explicit_ignore_disposition(db_session):
 
     key = _recovery_case_key(_item(source, binding, "m-4"))
     assert _latest_recovery_dispositions(db_session, source)[key] == "ignored"
+
+
+def test_durable_ignore_wins_over_poll_race_for_get_and_retry(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    row = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "race-1")]),
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    poll_session = sessionmaker(bind=db_session.get_bind())()
+    ignore_session = sessionmaker(bind=db_session.get_bind())()
+    try:
+        poll_source = poll_session.get(MailSource, source.id)
+        ignore_source = ignore_session.get(MailSource, source.id)
+        # The poll has read its disposition. An independent action commits the
+        # durable ignore before the poll records its next failed attempt.
+        _latest_recovery_dispositions(poll_session, poll_source)
+        ignore_message(ignore_session, ignore_source, "race-1")
+        ignore_session.commit()
+        record_import_attempt(
+            poll_session,
+            poll_source,
+            {
+                "success": False,
+                "errors": ["provider failed"],
+                "details": [{"status": "error", "message_id": "race-1"}],
+            },
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        poll_session.commit()
+    finally:
+        poll_session.close()
+        ignore_session.close()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    item = response.json()[0]["recovery_items"][0]
+    assert item["message_id"] == "race-1"
+    assert item["disposition"] == "ignored"
+
+    with patch.object(mail_sources_endpoint, "_retry_history_item") as provider:
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "race-1"},
+        )
+    assert retry.status_code == 409
+    provider.assert_not_called()
+
+
+def test_durable_ignore_is_binding_scoped(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    other = MailSource(
+        workspace_id=workspace.id,
+        name="Other binding",
+        method="GMAIL_API",
+        gmail_email="other@example.com",
+    )
+    db_session.add(other)
+    db_session.flush()
+    first = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "same-id")]),
+    )
+    other_row = MailSourceImport(
+        mail_source_id=other.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(other, recovery_binding(other), "same-id")]),
+    )
+    db_session.add_all([first, other_row])
+    ignore_message(db_session, source, "same-id")
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{other.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    assert response.json()[0]["recovery_items"][0]["disposition"] == "pending"
+
+
+def test_get_uses_id_authority_when_started_at_order_is_reversed(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    pending = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "order-1")]),
+        started_at=datetime.utcnow() + timedelta(days=1),
+    )
+    db_session.add(pending)
+    db_session.commit()
+    ignored = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "order-1", disposition="ignored")]),
+        started_at=datetime.utcnow() - timedelta(days=1),
+    )
+    db_session.add(ignored)
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == pending.id
+    assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
 
 
 def test_recovery_lock_releases_after_provider_failure(db_session):
