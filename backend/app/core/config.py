@@ -444,12 +444,14 @@ class Settings(BaseSettings):
         return v
 
     @validator("DB_POOL_SIZE")
+    @classmethod
     def validate_db_pool_size(cls, v: int) -> int:  # pylint: disable=no-self-argument
         if not 1 <= v <= 100:
             raise ValueError("DB_POOL_SIZE must be between 1 and 100")
         return v
 
     @validator("DB_MAX_OVERFLOW")
+    @classmethod
     def validate_db_max_overflow(cls, v: int) -> int:  # pylint: disable=no-self-argument
         if not 0 <= v <= 100:
             raise ValueError("DB_MAX_OVERFLOW must be between 0 and 100")

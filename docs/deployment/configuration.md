@@ -27,8 +27,11 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 
 `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` accept values from 1 to 100 and 0 to 100
 respectively. Budget the maximum across the whole deployment as `replicas ×
-workers per replica × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`, including rolling
-update surge replicas and other PostgreSQL clients.
+workers per replica × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`, including all rolling
+update surge replicas. Add every external or other non-application PostgreSQL
+client, such as migrations, jobs, monitoring, and administrative tools, to that
+total before comparing it with `max_connections` and reserved superuser
+capacity.
 
 `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` configure only the
 PostgreSQL container in the provided Compose stack. DMARQ itself always reads
