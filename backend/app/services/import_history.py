@@ -145,11 +145,16 @@ def _recovery_case_key(item: Dict[str, Any]) -> tuple:
         binding_keys.append("identifier_type")
         if identifier_type == "uid":
             # UID identity is mailbox-generation scoped. Missing UIDVALIDITY
-            # intentionally remains a non-matching, conservative namespace.
+            # cannot match a sequence key; two unknown-generation UID records
+            # in the same mailbox remain in the same conservative namespace.
             binding_keys.extend(("uid_validity", "server", "port", "use_ssl"))
+    values = []
+    for key in binding_keys:
+        value = identifier_type if key == "identifier_type" else item.get(key)
+        values.append((key, "" if value is None else str(value)))
     return (
         str(item.get("message_id") or ""),
-        tuple((key, str(item.get(key) or "")) for key in binding_keys),
+        tuple(values),
     )
 
 

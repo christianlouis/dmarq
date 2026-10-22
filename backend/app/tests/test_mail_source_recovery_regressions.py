@@ -17,6 +17,7 @@ from app.services.import_history import (
     _json_recovery_metadata,
     _latest_recovery_dispositions,
     _recovery_case_key,
+    _recovery_outcomes,
     _suppress_ignored_recovery_cases,
     record_import_attempt,
 )
@@ -80,6 +81,7 @@ def test_imap_recovery_keys_namespace_uid_generation_and_mailbox_identity():
     }
 
     assert sequence != uid_42
+    assert sequence == _recovery_case_key({**common})
     assert uid_42 != _recovery_case_key(uid_43)
     assert uid_42 != _recovery_case_key(uid_other_server)
     assert uid_42 != _recovery_case_key({**common, "identifier_type": "uid"})
@@ -147,6 +149,34 @@ def test_imap_ignored_sequence_does_not_suppress_uid_recovery_case():
         json.dumps([uid_case]), {_recovery_case_key(uid_ignored)}
     )
     assert json.loads(metadata)[0]["disposition"] == "ignored"
+
+
+def test_imap_uid_false_tls_value_reconciles_with_persisted_outcome():
+    source = SimpleNamespace(
+        id=1,
+        workspace_id=2,
+        method="IMAP",
+        folder="INBOX",
+        server="imap.example.com",
+        port=143,
+        username="reports@example.com",
+        use_ssl=False,
+    )
+    detail = {
+        "status": "error",
+        "message_id": "10",
+        "identifier_type": "uid",
+        "uid_validity": 42,
+        "server": "imap.example.com",
+        "port": 143,
+        "use_ssl": False,
+        "account": "reports@example.com",
+    }
+    stored = json.loads(_json_recovery_metadata(source, [detail]))[0]
+    outcomes = _recovery_outcomes(source, {"details": [detail]})
+    assert stored["use_ssl"] == "False"
+    assert _recovery_case_key({**stored, "use_ssl": False}) == _recovery_case_key(stored)
+    assert outcomes[_recovery_case_key(stored)] == "failed"
 
 
 def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_client, db_session):
