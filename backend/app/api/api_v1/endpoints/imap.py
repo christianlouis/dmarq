@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -78,7 +78,7 @@ async def test_imap_connection(
 
     return {
         **connection_test_response(success, message, stats),
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -104,7 +104,7 @@ async def fetch_imap_reports(
         return {
             "success": True,
             "message": f"Background task started to fetch {days} days of reports",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     # Otherwise run immediately
@@ -124,7 +124,7 @@ async def fetch_imap_reports(
             "diagnostic_category": diagnostic["category"],
             "diagnostic_summary": diagnostic["summary"],
             "recovery_steps": diagnostic["recovery_steps"],
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         logger.error("Error fetching IMAP reports: %s", str(e))
@@ -150,5 +150,5 @@ async def get_imap_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str
         "next_check": None,  # In production, calculate based on polling interval
         "messages_processed": 0,  # In production, track actual messages processed
         "reports_found": 0,  # In production, track reports found
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

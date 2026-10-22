@@ -80,7 +80,10 @@
         if (Number.isNaN(date.getTime())) return String(value ?? '');
         const formatOptions = {
             ...options,
-            timeZone: options.timeZone || (root.dataset.appTimezone || 'UTC'),
+            // Calendar dates have no instant or offset. Format them in UTC so
+            // extreme application zones (for example Pacific/Kiritimati) do
+            // not move the displayed date to the following day.
+            timeZone: dateOnly ? 'UTC' : (options.timeZone || (root.dataset.appTimezone || 'UTC')),
         };
         return new Intl.DateTimeFormat(locale, formatOptions).format(date);
     };

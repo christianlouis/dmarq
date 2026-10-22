@@ -53,6 +53,8 @@ def test_datetime_formatter_is_independent_of_browser_timezone_at_dst_boundaries
 def test_date_formatter_preserves_calendar_date_across_browser_timezone() -> None:
     outputs = {
         zone: _run_formatter("localization.js", zone, "2026-07-16", "dmarqFormatDate")
-        for zone in ("America/Los_Angeles", "Europe/Berlin")
+        for zone in ("America/Los_Angeles", "Europe/Berlin", "Pacific/Kiritimati")
     }
-    assert outputs["America/Los_Angeles"] == outputs["Europe/Berlin"] == "7/16/2026"
+    assert outputs["America/Los_Angeles"] == outputs["Europe/Berlin"] == outputs[
+        "Pacific/Kiritimati"
+    ] == "7/16/2026"
