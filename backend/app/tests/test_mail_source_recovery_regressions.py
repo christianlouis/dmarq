@@ -255,3 +255,29 @@ def test_postgres_recovery_lock_invalidates_connection_when_unlock_fails():
         pass
     assert connection.invalidated == 1
     assert connection.closed == 1
+
+
+def test_retry_rejects_older_pending_case_after_newer_ignore(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    older = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "m-5")]),
+    )
+    newer = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "m-5", disposition="ignored")]),
+    )
+    db_session.add_all([older, newer])
+    db_session.commit()
+
+    with patch.object(mail_sources_endpoint, "_retry_history_item") as provider:
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{older.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "m-5"},
+        )
+
+    assert response.status_code == 409
+    provider.assert_not_called()
