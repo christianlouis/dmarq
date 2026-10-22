@@ -771,6 +771,7 @@ def _decode_recovery_metadata(value: Optional[str]) -> List[Dict[str, Any]]:
 
 def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
     """Convert an import-history ORM row to an API response."""
+    app_timezone = get_settings().APP_TIMEZONE
     return MailSourceImportResponse(
         id=row.id,
         mail_source_id=row.mail_source_id,
@@ -784,9 +785,9 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
         errors=_decode_json_list(row.errors),
         details=_decode_json_details(row.details),
         recovery_items=_decode_recovery_metadata(row.recovery_metadata),
-        started_at=row.started_at,
-        finished_at=row.finished_at,
-        created_at=row.created_at,
+        started_at=present_datetime(row.started_at, tz_name=app_timezone),
+        finished_at=present_datetime(row.finished_at, tz_name=app_timezone),
+        created_at=present_datetime(row.created_at, tz_name=app_timezone),
     )
 
 
@@ -1090,14 +1091,15 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
     )
+    app_timezone = get_settings().APP_TIMEZONE
     return MailSourceBackfillResponse(
         id=row.id,
         workspace_id=row.workspace_id,
         mail_source_id=row.mail_source_id,
         status=row.status,
         trigger=row.trigger,
-        requested_start=row.requested_start,
-        requested_end=row.requested_end,
+        requested_start=present_datetime(row.requested_start, tz_name=app_timezone),
+        requested_end=present_datetime(row.requested_end, tz_name=app_timezone),
         requested_by=row.requested_by,
         processed=row.processed,
         reports_found=row.reports_found,
@@ -1110,12 +1112,12 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         **metadata,
         errors=_decode_json_list(row.errors),
         details=details,
-        started_at=row.started_at,
-        finished_at=row.finished_at,
-        cancelled_at=row.cancelled_at,
-        next_retry_at=row.next_retry_at,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
+        started_at=present_datetime(row.started_at, tz_name=app_timezone),
+        finished_at=present_datetime(row.finished_at, tz_name=app_timezone),
+        cancelled_at=present_datetime(row.cancelled_at, tz_name=app_timezone),
+        next_retry_at=present_datetime(row.next_retry_at, tz_name=app_timezone),
+        created_at=present_datetime(row.created_at, tz_name=app_timezone),
+        updated_at=present_datetime(row.updated_at, tz_name=app_timezone),
     )
 
 

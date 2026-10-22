@@ -1198,6 +1198,75 @@ def test_mail_sources_template_exposes_m365_application_access_safely():
 class TestImportHistoryDecoding:
     """Unit tests for import-history JSON decoding helpers."""
 
+    def test_import_timestamps_include_application_offset_across_dst(self, monkeypatch):
+        """Naive UTC history values are explicit app-local instants for any browser."""
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "get_settings",
+            lambda: SimpleNamespace(APP_TIMEZONE="Europe/Berlin"),
+        )
+        row = SimpleNamespace(
+            id=7,
+            mail_source_id=3,
+            trigger="manual",
+            status="success",
+            processed=1,
+            reports_found=1,
+            duplicate_reports=0,
+            error_count=0,
+            new_domains="[]",
+            errors="[]",
+            details="[]",
+            recovery_metadata="[]",
+            started_at=datetime(2026, 3, 29, 0, 30),
+            finished_at=datetime(2026, 10, 25, 1, 30),
+            created_at=datetime(2026, 1, 1, 23, 30),
+        )
+
+        response = mail_sources_endpoint._import_to_response(row)
+
+        assert response.started_at.isoformat() == "2026-03-29T01:30:00+01:00"
+        assert response.finished_at.isoformat() == "2026-10-25T02:30:00+01:00"
+        assert response.created_at.isoformat() == "2026-01-02T00:30:00+01:00"
+
+    def test_backfill_timestamps_use_application_timezone(self, monkeypatch):
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "get_settings",
+            lambda: SimpleNamespace(APP_TIMEZONE="Europe/Berlin"),
+        )
+        row = SimpleNamespace(
+            id=8,
+            workspace_id=1,
+            mail_source_id=3,
+            status="completed",
+            trigger="manual",
+            requested_start=datetime(2026, 7, 16, 10, 0),
+            requested_end=datetime(2026, 7, 16, 11, 0),
+            requested_by="operator",
+            processed=1,
+            reports_found=1,
+            duplicate_reports=0,
+            error_count=0,
+            attempt_count=1,
+            max_attempts=3,
+            cursor=None,
+            errors="[]",
+            details="[]",
+            started_at=datetime(2026, 7, 16, 10, 0),
+            finished_at=datetime(2026, 7, 16, 10, 1),
+            cancelled_at=None,
+            next_retry_at=None,
+            created_at=datetime(2026, 7, 16, 9, 59),
+            updated_at=datetime(2026, 7, 16, 10, 1),
+        )
+
+        response = mail_sources_endpoint._backfill_to_response(row)
+
+        assert response.started_at.isoformat() == "2026-07-16T12:00:00+02:00"
+        assert response.requested_start.isoformat() == "2026-07-16T12:00:00+02:00"
+        assert response.updated_at.isoformat() == "2026-07-16T12:01:00+02:00"
+
     def test_decode_details_handles_empty_and_malformed_values(self):
         from app.api.api_v1.endpoints.mail_sources import _decode_json_details
 
@@ -1615,8 +1684,8 @@ class TestMailSourcesAPIAuthed:
         assert job["mail_source_id"] == source_id
         assert job["status"] == "queued"
         assert job["trigger"] == "manual"
-        assert job["requested_start"] == "2026-05-01T00:00:00"
-        assert job["requested_end"] == "2026-05-31T23:59:59"
+        assert job["requested_start"] == "2026-05-01T00:00:00Z"
+        assert job["requested_end"] == "2026-05-31T23:59:59Z"
         assert job["max_attempts"] == 4
         assert job["cursor_checkpoint"] is None
         assert job["errors"] == []
