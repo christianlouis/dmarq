@@ -866,7 +866,9 @@ def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
     """Normalize legacy rows and collapse repeated pending cases in-place."""
     changed = False
     seen_cases = set()
-    for row in rows:
+    # Recovery authority is based on insertion order, not provider timestamps.
+    # Legacy imports can have clock-skewed started_at values.
+    for row in sorted(rows, key=lambda candidate: candidate.id, reverse=True):
         items = _decode_recovery_metadata(row.recovery_metadata)
         row_changed = False
         details = _decode_json_details(row.details)
@@ -1667,7 +1669,11 @@ def _recovery_history_responses(
             if message_id in ignored_ids:
                 item["disposition"] = "ignored"
                 item["last_status"] = "ignored"
-            elif key in authoritative and authoritative[key][0] != row.id:
+            elif (
+                key in authoritative
+                and authoritative[key][0] != row.id
+                and (authoritative[key][1] != "pending" or _is_cache_skip(item))
+            ):
                 item["disposition"] = authoritative[key][1]
                 item["last_status"] = (
                     "success"

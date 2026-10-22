@@ -133,6 +133,19 @@ def _recovery_case_key(item: Dict[str, Any]) -> tuple:
 def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tuple, str]:
     outcomes: Dict[tuple, str] = {}
     binding = recovery_binding(source)
+    # Reconciliation must only settle a failed case when this attempt stores
+    # the corresponding recovery item.  The provider result can contain more
+    # than MAX_STORED_DETAILS entries; otherwise an omitted error would
+    # supersede the old case without leaving a successor visible in history.
+    try:
+        stored_items = json.loads(_json_recovery_metadata(source, results.get("details", [])))
+    except (TypeError, json.JSONDecodeError):
+        stored_items = []
+    stored_error_keys = {
+        _recovery_case_key(item)
+        for item in stored_items
+        if isinstance(item, dict) and item.get("disposition") == "pending"
+    }
     for value in list(results.get("details") or []):
         if not isinstance(value, dict):
             continue
@@ -142,6 +155,8 @@ def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tupl
         item = {"message_id": message_id, **binding}
         key = _recovery_case_key(item)
         if value.get("status") == "error":
+            if key not in stored_error_keys:
+                continue
             # One message can produce multiple attachment outcomes. A later
             # success must not hide an earlier failure for the same case.
             outcomes[key] = "failed"

@@ -333,6 +333,65 @@ def test_get_resolves_recent_case_before_candidate_quota(authed_client, db_sessi
     assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
 
 
+def test_get_does_not_project_newer_pending_onto_older_terminal_row(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    older_terminal = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps(
+            [_item(source, binding, "pending-projection", disposition="ignored")]
+        ),
+        started_at=datetime.utcnow() + timedelta(days=1),
+    )
+    db_session.add(older_terminal)
+    db_session.commit()
+    newer_pending = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "pending-projection")]),
+        started_at=datetime.utcnow() - timedelta(days=1),
+    )
+    db_session.add(newer_pending)
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=2",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    by_id = {row["id"]: row["recovery_items"][0] for row in response.json()}
+    assert by_id[older_terminal.id]["disposition"] == "ignored"
+    assert by_id[newer_pending.id]["disposition"] == "pending"
+
+
+def test_error_beyond_stored_recovery_details_keeps_prior_case_pending(db_session):
+    _, source, binding = _source_and_rows(db_session)
+    old = MailSourceImport(
+        mail_source_id=source.id,
+        status="failed",
+        recovery_metadata=json.dumps([_item(source, binding, "error-51")]),
+    )
+    db_session.add(old)
+    db_session.commit()
+
+    details = [{"status": "error", "message_id": f"error-{index}"} for index in range(1, 51)]
+    details.append({"status": "error", "message_id": "error-51"})
+    attempt = record_import_attempt(
+        db_session,
+        source,
+        {"success": False, "errors": ["provider failed"], "details": details},
+        started_at=datetime.utcnow(),
+        trigger="scheduled",
+    )
+    db_session.commit()
+
+    old_item = mail_sources_endpoint._decode_recovery_metadata(old.recovery_metadata)[0]
+    new_items = mail_sources_endpoint._decode_recovery_metadata(attempt.recovery_metadata)
+    assert old_item["disposition"] == "pending"
+    assert "error-51" not in {item["message_id"] for item in new_items}
+
+
 def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
     authed_client, db_session
 ):
