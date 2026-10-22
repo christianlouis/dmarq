@@ -10,6 +10,7 @@ OAuth2 helper endpoints (authorize-url, callback, fetch).
 import json
 import logging
 import math
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -42,7 +43,7 @@ from app.services.demo_data import (
 )
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
-from app.services.import_history import record_import_attempt
+from app.services.import_history import _recovery_case_key, record_import_attempt
 from app.services.mail_source_backfill_worker import run_mail_source_backfill_job_by_id
 from app.services.mail_source_recovery import (
     ignore_message,
@@ -814,6 +815,143 @@ def _recovery_item(row: MailSourceImport, message_id: str) -> Dict[str, Any]:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery item not found")
 
 
+def _claim_recovery_item(
+    db: Session, source: MailSource, import_id: int, message_id: str
+) -> tuple[MailSourceImport, Dict[str, Any], str]:
+    """Claim a pending item before contacting the provider.
+
+    The row lock and committed claim make retries from separate API workers
+    mutually exclusive.  The provider call runs after this short transaction
+    so a slow provider does not hold the database lock.
+    """
+    row = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.id == import_id, MailSourceImport.mail_source_id == source.id)
+        .with_for_update()
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
+        )
+    item = _recovery_item(row, message_id)
+    token = secrets.token_urlsafe(24)
+    items = _decode_recovery_metadata(row.recovery_metadata)
+    for stored_item in items:
+        if stored_item.get("message_id") == message_id:
+            stored_item["disposition"] = "retrying"
+            stored_item["retry_token"] = token
+            stored_item["last_status"] = "retrying"
+            item = stored_item
+            break
+    _save_recovery_metadata(row, items)
+    db.commit()
+    return row, item, token
+
+
+def _finish_recovery_claim(
+    db: Session,
+    source: MailSource,
+    import_id: int,
+    message_id: str,
+    token: str,
+    succeeded: bool,
+) -> MailSourceImport:
+    """Finalize a claim only while its token still owns the item."""
+    row = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.id == import_id, MailSourceImport.mail_source_id == source.id)
+        .with_for_update()
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
+        )
+    items = _decode_recovery_metadata(row.recovery_metadata)
+    for item in items:
+        if item.get("message_id") != message_id:
+            continue
+        if item.get("disposition") != "retrying" or item.get("retry_token") != token:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Recovery retry claim is no longer current; refresh history.",
+            )
+        item.pop("retry_token", None)
+        item["disposition"] = "retried" if succeeded else "pending"
+        item["last_status"] = "success" if succeeded else "failed"
+        _save_recovery_metadata(row, items)
+        return row
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery item not found")
+
+
+def _release_recovery_claim(
+    db: Session, source: MailSource, import_id: int, message_id: str, token: str
+) -> None:
+    """Return a claim to pending after a provider exception."""
+    db.rollback()
+    try:
+        row = (
+            db.query(MailSourceImport)
+            .filter(
+                MailSourceImport.id == import_id,
+                MailSourceImport.mail_source_id == source.id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            return
+        items = _decode_recovery_metadata(row.recovery_metadata)
+        for item in items:
+            if item.get("message_id") == message_id and item.get("retry_token") == token:
+                item.pop("retry_token", None)
+                item["disposition"] = "pending"
+                item["last_status"] = "failed"
+                _save_recovery_metadata(row, items)
+                db.commit()
+                return
+        db.rollback()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to release recovery retry claim", extra={"import_id": import_id})
+
+
+def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
+    """Normalize legacy rows and collapse repeated pending cases in-place."""
+    changed = False
+    seen_cases = set()
+    for row in rows:
+        items = _decode_recovery_metadata(row.recovery_metadata)
+        row_changed = False
+        for item in items:
+            key = _recovery_case_key(item)
+            if item.get("disposition") == "pending":
+                if item.get("reason") == "already_ingested_message":
+                    item["disposition"] = "settled"
+                    item["last_status"] = "success"
+                    row_changed = changed = True
+                    # A cache-hit observation must not settle an older real
+                    # failure for the same message.
+                    continue
+                if key in seen_cases:
+                    item["disposition"] = "superseded"
+                    item["last_status"] = "duplicate_pending"
+                    row_changed = changed = True
+                else:
+                    seen_cases.add(key)
+            elif key and item.get("disposition") in {
+                "ignored",
+                "retried",
+                "settled",
+                "superseded",
+            }:
+                seen_cases.add(key)
+        if row_changed:
+            _save_recovery_metadata(row, items)
+    return changed
+
+
 def _save_recovery_metadata(row: MailSourceImport, items: List[Dict[str, Any]]) -> None:
     row.recovery_metadata = json.dumps(items)
 
@@ -1456,7 +1594,12 @@ async def list_mail_source_imports(
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> List[MailSourceImportResponse]:
-    """Return recent sanitized import attempts for one mail source."""
+    """Return recent attempts plus a bounded set of older unresolved cases.
+
+    ``limit`` applies to the recent history window; up to the same number of
+    older rows containing pending recovery items are appended so an old case
+    cannot disappear behind routine polling history.
+    """
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,
@@ -1465,13 +1608,24 @@ async def list_mail_source_imports(
     )
     _get_source_or_404(source_id, db, workspace)
     safe_limit = min(max(limit, 1), 100)
-    rows = (
+    all_rows = (
         db.query(MailSourceImport)
         .filter(MailSourceImport.mail_source_id == source_id)
         .order_by(MailSourceImport.started_at.desc(), MailSourceImport.id.desc())
-        .limit(safe_limit)
         .all()
     )
+    if _normalize_recovery_history(all_rows):
+        db.commit()
+    recent_rows = all_rows[:safe_limit]
+    older_pending = [
+        row
+        for row in all_rows[safe_limit:]
+        if any(
+            item.get("disposition") == "pending"
+            for item in _decode_recovery_metadata(row.recovery_metadata)
+        )
+    ][:safe_limit]
+    rows = recent_rows + older_pending
     return [_import_to_response(row) for row in rows]
 
 
@@ -1490,17 +1644,12 @@ def retry_mail_source_import_item(
         _auth, db, _selected_workspace_id(selected_workspace)
     )
     source = _get_source_or_404(source_id, db, workspace)
-    row = (
-        db.query(MailSourceImport)
-        .filter(MailSourceImport.id == import_id, MailSourceImport.mail_source_id == source.id)
-        .first()
-    )
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Import history item not found"
-        )
-    item = _recovery_item(row, payload.message_id)
-    retry_result = _retry_history_item(source, item, db)
+    row, item, retry_token = _claim_recovery_item(db, source, import_id, payload.message_id)
+    try:
+        retry_result = _retry_history_item(source, item, db)
+    except Exception:
+        _release_recovery_claim(db, source, import_id, payload.message_id, retry_token)
+        raise
     if isinstance(retry_result, tuple):
         results, client = retry_result
     else:  # Compatibility for instrumented callers; production returns both values.
@@ -1509,14 +1658,7 @@ def retry_mail_source_import_item(
     _sync_recovery_ingested_id(source, payload.message_id, succeeded)
     restore_message(db, source, payload.message_id)
     _persist_recovery_refreshed_tokens(source, client)
-    items = _decode_recovery_metadata(row.recovery_metadata)
-    for stored_item in items:
-        if stored_item.get("message_id") == payload.message_id:
-            # Keep the public retry disposition for compatibility; the UI
-            # treats it as settled and only offers actions for pending items.
-            stored_item["disposition"] = "retried" if succeeded else "pending"
-            stored_item["last_status"] = "success" if succeeded else "failed"
-    _save_recovery_metadata(row, items)
+    row = _finish_recovery_claim(db, source, import_id, payload.message_id, retry_token, succeeded)
     record_import_attempt(
         db, source, results, started_at=datetime.utcnow(), trigger="recovery_retry"
     )
