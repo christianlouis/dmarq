@@ -63,7 +63,9 @@ def _json_details(values: Optional[Iterable[Any]]) -> str:
     return json.dumps(details)
 
 
-def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]]) -> str:
+def _json_recovery_metadata(  # noqa: C901
+    source: MailSource, values: Optional[Iterable[Any]]
+) -> str:
     """Persist only complete provider IDs and source binding for item recovery."""
     items = []
     binding = recovery_binding(source)
@@ -85,6 +87,11 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
             continue
         item = {
             "message_id": message_id,
+            # IMAP sequence IDs are only stable for one scan.  Older records
+            # have no namespace and are canonically treated as sequence IDs.
+            "identifier_type": (
+                str(value.get("identifier_type") or "sequence") if method == "IMAP" else ""
+            ),
             "source_id": int(source.id),
             "workspace_id": getattr(source, "workspace_id", None),
             # An already-ingested observation is useful audit history, but it
@@ -95,6 +102,14 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
             "supported": method in RECOVERY_METHODS,
             **binding,
         }
+        if method == "IMAP" and value.get("identifier_type") == "uid":
+            if value.get("uid_validity") not in (None, ""):
+                item["uid_validity"] = str(value["uid_validity"])
+            for field in ("server", "port", "use_ssl"):
+                if value.get(field) not in (None, ""):
+                    item[field] = str(value[field])
+            if value.get("account") not in (None, ""):
+                item["account"] = str(value["account"])
         for field in ("filename", "report_id"):
             label = _sanitize_detail_value(value.get(field) or "")
             if label:
@@ -115,7 +130,7 @@ def _json_recovery_metadata(source: MailSource, values: Optional[Iterable[Any]])
 
 def _recovery_case_key(item: Dict[str, Any]) -> tuple:
     """Identify one provider message within one source mailbox context."""
-    binding_keys = (
+    binding_keys = [
         "method",
         "folder",
         "account",
@@ -123,14 +138,29 @@ def _recovery_case_key(item: Dict[str, Any]) -> tuple:
         "tenant_id",
         "client_id",
         "folder_id",
-    )
+    ]
+    identifier_type = str(item.get("identifier_type") or "")
+    if str(item.get("method") or "").upper() == "IMAP":
+        identifier_type = identifier_type or "sequence"
+        binding_keys.append("identifier_type")
+        if identifier_type == "uid":
+            # UID identity is mailbox-generation scoped. Missing UIDVALIDITY
+            # cannot match a sequence key; two unknown-generation UID records
+            # in the same mailbox remain in the same conservative namespace.
+            binding_keys.extend(("uid_validity", "server", "port", "use_ssl"))
+    values = []
+    for key in binding_keys:
+        value = identifier_type if key == "identifier_type" else item.get(key)
+        values.append((key, "" if value is None else str(value)))
     return (
         str(item.get("message_id") or ""),
-        tuple((key, str(item.get(key) or "")) for key in binding_keys),
+        tuple(values),
     )
 
 
-def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tuple, str]:
+def _recovery_outcomes(  # noqa: C901
+    source: MailSource, results: Dict[str, Any]
+) -> Dict[tuple, str]:
     observed: Dict[tuple, str] = {}
     binding = recovery_binding(source)
     # Reconciliation must only settle a failed case when this attempt stores
@@ -153,6 +183,12 @@ def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tupl
         if not message_id:
             continue
         item = {"message_id": message_id, **binding}
+        if binding["method"] == "IMAP":
+            item["identifier_type"] = str(value.get("identifier_type") or "sequence")
+            if item["identifier_type"] == "uid":
+                for field in ("uid_validity", "server", "port", "use_ssl", "account"):
+                    if value.get(field) not in (None, ""):
+                        item[field] = value[field]
         key = _recovery_case_key(item)
         if value.get("status") == "error":
             # One message can produce multiple attachment outcomes. A later

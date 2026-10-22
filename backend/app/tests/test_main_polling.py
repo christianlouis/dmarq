@@ -176,9 +176,106 @@ def test_poll_single_imap_source_passes_configured_folder():
         folder="Junk Mail",
         db=db,
         workspace_id=None,
+        incremental=True,
+        last_uid=None,
+        uid_validity=None,
+        uid_account=None,
+        uid_folder=None,
+        uid_server=None,
+        uid_port=None,
+        uid_use_ssl=None,
     )
     db.commit.assert_called_once()
     db.close.assert_called_once()
+
+
+def test_poll_single_imap_source_persists_uid_cursor():
+    """A scheduled poll resumes from, and then advances, the stored UID cursor."""
+    from app.main import _poll_single_imap_source
+
+    source = SimpleNamespace(
+        id=1,
+        server="imap.example.com",
+        port=993,
+        username="u",
+        password="p",
+        use_ssl=True,
+        folder="INBOX",
+        last_uid=11,
+        uid_validity=42,
+        uid_account="u",
+        uid_folder="INBOX",
+        uid_server="imap.example.com",
+        uid_port=993,
+        uid_use_ssl=True,
+    )
+    db = MagicMock()
+    db.query.return_value.get.return_value = source
+    results = {
+        "success": True,
+        "processed": 1,
+        "reports_found": 1,
+        "new_domains": [],
+        "last_uid": 12,
+        "uid_validity": 42,
+        "uid_account": "u",
+        "uid_folder": "INBOX",
+        "uid_server": "imap.example.com",
+        "uid_port": 993,
+        "uid_use_ssl": True,
+    }
+
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.IMAPClient") as mock_client_cls,
+        patch("app.main.record_import_attempt"),
+    ):
+        mock_client_cls.return_value.fetch_reports.return_value = results
+
+        _poll_single_imap_source(source)
+
+    assert mock_client_cls.call_args.kwargs["last_uid"] == 11
+    assert mock_client_cls.call_args.kwargs["uid_validity"] == 42
+    assert source.last_uid == 12
+    assert source.uid_validity == 42
+    assert source.uid_server == "imap.example.com"
+
+
+def test_poll_single_imap_source_keeps_cursor_when_poll_fails():
+    """A failed poll must not clear the cursor and force a full rescan later."""
+    from app.main import _poll_single_imap_source
+
+    source = SimpleNamespace(
+        id=1,
+        server="imap.example.com",
+        port=993,
+        username="u",
+        password="p",
+        use_ssl=True,
+        folder="INBOX",
+        last_uid=11,
+        uid_validity=42,
+    )
+    db = MagicMock()
+    db.query.return_value.get.return_value = source
+
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.IMAPClient") as mock_client_cls,
+        patch("app.main.record_import_attempt"),
+    ):
+        mock_client_cls.return_value.fetch_reports.return_value = {
+            "success": False,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "error": "boom",
+        }
+
+        _poll_single_imap_source(source)
+
+    assert source.last_uid == 11
+    assert source.uid_validity == 42
 
 
 def test_poll_single_m365_source_persists_import_state():

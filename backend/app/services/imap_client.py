@@ -1,6 +1,7 @@
 import email
 import imaplib
 import logging
+import re
 import shlex
 import ssl
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,29 @@ from app.services.tls_report_persistence import save_tls_report
 # Setup logger
 logger = logging.getLogger(__name__)
 IMAPError = imaplib.IMAP4.error
+MAX_IMAP_UINT32 = 2**32 - 1
+
+
+class _UidMailbox:
+    """Adapt an :mod:`imaplib` connection so FETCH/STORE address messages by UID.
+
+    Message sequence numbers shift whenever messages are expunged, so they can
+    not be persisted between polls.  UIDs are stable for as long as the mailbox
+    keeps the same ``UIDVALIDITY``, which is what lets incremental polling ask
+    the server for "everything newer than the last message I saw".
+    """
+
+    def __init__(self, mail: Any):
+        self._mail = mail
+
+    def fetch(self, message_id: bytes, parts: str):
+        return self._mail.uid("FETCH", message_id, parts)
+
+    def store(self, message_id: bytes, command: str, flags: str):
+        return self._mail.uid("STORE", message_id, command, flags)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._mail, name)
 
 
 class IMAPClient:
@@ -45,6 +69,14 @@ class IMAPClient:
         folder: str = None,
         db: Any = None,
         workspace_id: Optional[int] = None,
+        incremental: bool = False,
+        last_uid: Optional[int] = None,
+        uid_validity: Optional[int] = None,
+        uid_account: Optional[str] = None,
+        uid_folder: Optional[str] = None,
+        uid_server: Optional[str] = None,
+        uid_port: Optional[int] = None,
+        uid_use_ssl: Optional[bool] = None,
     ):
         """
         Initialize the IMAP client with credentials
@@ -61,6 +93,13 @@ class IMAPClient:
             folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
             db: Optional SQLAlchemy session used to persist imported reports
             workspace_id: Optional workspace that should own imported domains/reports
+            incremental: Track IMAP UIDs so repeated polls only fetch new messages.
+                Historical backfill jobs leave this off and keep scanning their
+                full requested window.
+            last_uid: Highest IMAP UID already imported for this mailbox, if known.
+            uid_validity: ``UIDVALIDITY`` the stored ``last_uid`` belongs to.  A
+                mismatch means the server renumbered the mailbox and forces a
+                full rescan.
         """
         settings = get_settings()
         settings_folder = getattr(settings, "IMAP_FOLDER", None)
@@ -79,6 +118,14 @@ class IMAPClient:
         self.folder = folder or settings_folder or "INBOX"
         self.db = db
         self.workspace_id = workspace_id
+        self.incremental = bool(incremental)
+        self.last_uid = last_uid
+        self.uid_validity = uid_validity
+        self.uid_account = uid_account
+        self.uid_folder = uid_folder
+        self.uid_server = uid_server
+        self.uid_port = uid_port
+        self.uid_use_ssl = uid_use_ssl
 
         self.report_store = ReportStore.get_instance()
 
@@ -238,7 +285,7 @@ class IMAPClient:
                 {"diagnostic_detail": str(e)},
             )
 
-    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:  # noqa: C901
+    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> bool:  # noqa: C901
         """Fetch, parse, and store DMARC attachments from one email message."""
         message_id = email_id.decode("utf-8", errors="replace")
         try:
@@ -247,17 +294,18 @@ class IMAPClient:
             status, msg_data = mail.fetch(email_id, f"(BODY.PEEK[]<0.{MAX_DSN_BYTES + 1}>)")
             if status != "OK":
                 logger.error("Error fetching email ID %s", email_id)
+                stats.setdefault("errors", []).append("Error fetching one mailbox message.")
                 self._append_detail(
                     stats,
                     status="error",
                     reason="message_fetch_failed",
                     message_id=message_id,
                 )
-                return
+                return False
 
             raw_email = msg_data[0][1]
             if self._skip_oversized_message(mail, email_id, message_id, raw_email, stats):
-                return
+                return True
             msg = email.message_from_bytes(raw_email)
 
             if is_dsn_message(msg) and self.db is not None:
@@ -279,9 +327,10 @@ class IMAPClient:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
                     stats["deleted"] = stats.get("deleted", 0) + 1
                 stats["processed"] += 1
-                return
+                return True
 
             if ForensicParser.is_forensic_report(msg):
+                errors_before = len(stats.get("errors", []))
                 imported = self._process_forensic_email(
                     raw_email,
                     stats=stats,
@@ -292,7 +341,7 @@ class IMAPClient:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
                     stats["deleted"] = stats.get("deleted", 0) + 1
                 stats["processed"] += 1
-                return
+                return len(stats.get("errors", [])) == errors_before
 
             if self._is_dmarc_report_email(msg):
                 duplicates_before = stats.get("duplicate_reports", 0)
@@ -327,6 +376,10 @@ class IMAPClient:
                     stats["deleted"] = stats.get("deleted", 0) + 1
 
                 stats["processed"] += 1
+                return len(stats.get("errors", [])) == errors_before
+            # A non-report message was inspected successfully and can advance
+            # the cursor even though it produced no import result.
+            return True
         except Exception as e:  # pylint: disable=broad-exception-caught
             safe_email_id = sanitize_connector_error(email_id)
             logger.error(
@@ -342,6 +395,7 @@ class IMAPClient:
                 message_id=message_id,
                 error="Message processing failed. Check server logs for details.",
             )
+            return False
 
     @staticmethod
     def _skip_oversized_message(mail, email_id, message_id, raw_email, stats) -> bool:
@@ -355,7 +409,173 @@ class IMAPClient:
         stats["processed"] += 1
         return True
 
-    def fetch_reports(
+    @staticmethod
+    def _coerce_uid(value: Any) -> Optional[int]:
+        """Return ``value`` as a positive int, or ``None`` when it is not numeric."""
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("ascii", errors="ignore")
+        if isinstance(value, str):
+            value = value.strip()
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if 0 < number <= MAX_IMAP_UINT32 else None
+
+    def _read_uid_validity(self, mail: Any) -> Optional[int]:  # noqa: C901
+        """Return the mailbox ``UIDVALIDITY``, or ``None`` if it can't be read.
+
+        ``SELECT`` reports it as an untagged response; some servers/mocks only
+        answer a follow-up ``STATUS``, so both are attempted before giving up.
+        """
+        try:
+            _typ, data = mail.response("UIDVALIDITY")
+            if data:
+                uid_validity = self._coerce_uid(data[0])
+                if uid_validity is not None:
+                    return uid_validity
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # nosec B110 - fall through to STATUS below
+
+        try:
+            status, data = mail.status(self._quoted_folder(), "(UIDVALIDITY)")
+            if status == "OK" and data:
+                raw = data[0]
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="replace")
+                if isinstance(raw, str) and "UIDVALIDITY" in raw.upper():
+                    match = re.search(r"UIDVALIDITY\s+(\d+)", raw, flags=re.IGNORECASE)
+                    if match:
+                        return self._coerce_uid(match.group(1))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # nosec B110 - UIDVALIDITY is optional; caller degrades gracefully
+
+        return None
+
+    def _search_incremental_uids(self, mail: Any, date_since: str) -> Tuple[list, bool]:
+        """Return the UIDs to process plus whether the stored cursor was reset.
+
+        A stored cursor is only usable when the server still reports the same
+        ``UIDVALIDITY``; otherwise UIDs are meaningless and RFC 3501 requires the
+        client to start over.
+        """
+        server_uid_validity = self._read_uid_validity(mail)
+        cursor_reset = False
+
+        usable_cursor = (
+            self.last_uid is not None
+            and self.uid_validity is not None
+            and server_uid_validity is not None
+            and self.uid_validity == server_uid_validity
+            and self.last_uid < MAX_IMAP_UINT32
+        )
+        identity_changed = self.last_uid is not None and (
+            self.uid_account != self.username
+            or self.uid_folder != self.folder
+            or self.uid_server != self.server
+            or self.uid_port != self.port
+            or self.uid_use_ssl != self.use_ssl
+        )
+        if identity_changed:
+            usable_cursor = False
+            cursor_reset = True
+        if self.last_uid is not None and not usable_cursor:
+            cursor_reset = True
+
+        if usable_cursor:
+            criteria = f"UID {int(self.last_uid) + 1}:*"
+        else:
+            # The old UID is not comparable against the rescanned mailbox, so it
+            # must be dropped before the new high-water mark is computed.
+            self.last_uid = None
+            criteria = f"(SINCE {date_since})"
+
+        status, data = mail.uid("SEARCH", None, criteria)
+        if status != "OK":
+            raise IMAPError("Error searching mailbox")
+
+        raw_uids = data[0].split() if data and data[0] else []
+        parsed_uids = []
+        for raw_uid in raw_uids:
+            uid = self._coerce_uid(raw_uid)
+            if uid is None:
+                raise IMAPError("Mailbox returned an invalid UID search response")
+            parsed_uids.append((uid, raw_uid))
+        parsed_uids.sort(key=lambda item: item[0])
+        uids = [raw_uid for _uid, raw_uid in parsed_uids]
+        if usable_cursor:
+            # "<n>:*" always matches at least the highest existing UID, even when
+            # that message is older than the cursor, so filter it out explicitly.
+            uids = [uid for uid in uids if (self._coerce_uid(uid) or 0) > int(self.last_uid)]
+
+        self.uid_validity = server_uid_validity
+        self.uid_account = self.username
+        self.uid_folder = self.folder
+        self.uid_server = self.server
+        self.uid_port = self.port
+        self.uid_use_ssl = self.use_ssl
+        return uids, cursor_reset
+
+    def _select_messages(
+        self, mail: Any, date_since: str, stats: Dict[str, Any]
+    ) -> Tuple[Any, list]:
+        """Return the mailbox handle plus the message ids this run should process.
+
+        Raises:
+            IMAPError: if the mailbox search command fails.
+        """
+        if self.incremental:
+            # Incremental polling addresses messages by UID so only mail that
+            # arrived since the previous poll is fetched and parsed.
+            email_ids, cursor_reset = self._search_incremental_uids(mail, date_since)
+            stats["uid_cursor_reset"] = cursor_reset
+            stats["uid_validity"] = self.uid_validity
+            stats["last_uid"] = self.last_uid
+            stats["uid_account"] = self.uid_account
+            stats["uid_folder"] = self.uid_folder
+            stats["uid_server"] = self.uid_server
+            stats["uid_port"] = self.uid_port
+            stats["uid_use_ssl"] = self.uid_use_ssl
+            return _UidMailbox(mail), email_ids
+
+        # Search for all emails containing possible DMARC reports
+        status, data = mail.search(None, f"(SINCE {date_since})")
+        if status != "OK":
+            raise IMAPError("Error searching mailbox")
+        return mail, data[0].split()
+
+    def _advance_uid_cursor(
+        self, email_id: bytes, highest_uid: Optional[int], stats: Dict[str, Any]
+    ) -> Optional[int]:
+        """Return the new high-water UID after processing ``email_id``.
+
+        A no-op for non-incremental scans, which address messages by sequence
+        number and therefore have no cursor to advance.
+        """
+        if not self.incremental:
+            return highest_uid
+        uid = self._coerce_uid(email_id)
+        if uid is not None and (highest_uid is None or uid > highest_uid):
+            stats["last_uid"] = uid
+            return uid
+        return highest_uid
+
+    def _finalize_uid_cursor(self, highest_uid: Optional[int], stats: Dict[str, Any]) -> None:
+        """Publish the cursor this run reached so the caller can persist it."""
+        if not self.incremental:
+            return
+        self.last_uid = highest_uid
+        stats["last_uid"] = highest_uid
+        stats["uid_validity"] = self.uid_validity
+        stats["uid_account"] = self.uid_account
+        stats["uid_folder"] = self.uid_folder
+        stats["uid_server"] = self.uid_server
+        stats["uid_port"] = self.uid_port
+        stats["uid_use_ssl"] = self.uid_use_ssl
+
+    def fetch_reports(  # noqa: C901
         self,
         days: int = 7,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -383,31 +603,40 @@ class IMAPClient:
             # Calculate the date range for search
             date_since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
 
-            # Search for all emails containing possible DMARC reports
-            search_criteria = f"(SINCE {date_since})"
-            status, data = mail.search(None, search_criteria)
-
-            if status != "OK":
+            try:
+                mail, email_ids = self._select_messages(mail, date_since, stats)
+            except IMAPError:
                 logger.error("Error searching mailbox")
                 stats["success"] = False
                 stats["error"] = "Error searching mailbox"
                 mail.logout()
                 return stats
 
-            # Get list of email IDs
-            email_ids = data[0].split()
             stats["total_messages"] = len(email_ids)
 
             # Track domains before processing to identify new ones
             domains_before = set(self.report_store.get_domains())
 
             # Process each email
+            highest_uid = self.last_uid if self.incremental else None
+            cursor_blocked = False
             for index, email_id in enumerate(email_ids, start=1):
-                self._process_single_email(mail, email_id, stats)
+                handled = self._process_single_email(mail, email_id, stats)
+                self._annotate_recovery_namespace(stats, email_id)
+                if not handled:
+                    # Keep later healthy messages flowing, but retain the first
+                    # failed UID as a durable hole for the next retry.
+                    cursor_blocked = True
+                # Advance only after the message was handled, so a crash mid-poll
+                # re-reads it instead of silently dropping it.
+                if not cursor_blocked:
+                    highest_uid = self._advance_uid_cursor(email_id, highest_uid, stats)
                 # A mailbox scan reports every inspected message, including ordinary mail.
                 stats["processed"] = index
                 if progress_callback:
                     progress_callback(dict(stats))
+
+            self._finalize_uid_cursor(highest_uid, stats)
 
             # Actually remove emails marked for deletion
             if self.delete_emails and stats["deleted"] > 0:
@@ -430,6 +659,22 @@ class IMAPClient:
                 "processed": 0,
                 "errors": [sanitize_connector_error(e)],
             }
+
+    def _annotate_recovery_namespace(self, stats: Dict[str, Any], email_id: bytes) -> None:
+        """Attach stable UID identity to incremental IMAP recovery details."""
+        message_id = email_id.decode("utf-8", errors="replace")
+        identifier_type = "uid" if self.incremental else "sequence"
+        for detail in stats.get("details", []):
+            if detail.get("message_id") != message_id:
+                continue
+            detail["identifier_type"] = identifier_type
+            if identifier_type == "uid":
+                if self.uid_validity is not None:
+                    detail["uid_validity"] = self.uid_validity
+                detail["server"] = self.server
+                detail["port"] = self.port
+                detail["use_ssl"] = self.use_ssl
+                detail["account"] = self.username
 
     def _is_dmarc_report_email(self, msg: email.message.Message) -> bool:
         """

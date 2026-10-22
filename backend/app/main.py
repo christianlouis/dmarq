@@ -129,10 +129,28 @@ def _poll_single_imap_source(source: MailSource) -> None:
             folder=poll_source.folder,
             db=db,
             workspace_id=getattr(poll_source, "workspace_id", None),
+            incremental=True,
+            last_uid=getattr(poll_source, "last_uid", None),
+            uid_validity=getattr(poll_source, "uid_validity", None),
+            uid_account=getattr(poll_source, "uid_account", None),
+            uid_folder=getattr(poll_source, "uid_folder", None),
+            uid_server=getattr(poll_source, "uid_server", None),
+            uid_port=getattr(poll_source, "uid_port", None),
+            uid_use_ssl=getattr(poll_source, "uid_use_ssl", None),
         )
         started_at = datetime.utcnow()
         results = imap_client.fetch_reports(days=9999)
         if src:
+            if results.get("success") and "last_uid" in results:
+                # Persist the cursor so the next poll only fetches messages that
+                # arrived since this one, instead of re-parsing the whole folder.
+                src.last_uid = results.get("last_uid")
+                src.uid_validity = results.get("uid_validity")
+                src.uid_account = results.get("uid_account")
+                src.uid_folder = results.get("uid_folder")
+                src.uid_server = results.get("uid_server")
+                src.uid_port = results.get("uid_port")
+                src.uid_use_ssl = results.get("uid_use_ssl")
             src.last_checked = datetime.utcnow()
             record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
             db.commit()
