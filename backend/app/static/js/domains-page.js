@@ -362,8 +362,8 @@ function domainsApp() {
             const date = new Date(domain.dns_checked_at);
             if (Number.isNaN(date.getTime())) return '';
             const formatted = typeof window.dmarqFormatDate === 'function'
-                ? window.dmarqFormatDate(date, { dateStyle: 'medium', timeStyle: 'short' })
-                : date.toLocaleString();
+                ? window.dmarqFormatDate(domain.dns_checked_at, { dateStyle: 'medium', timeStyle: 'short' })
+                : String(domain.dns_checked_at);
             return this.t('Checked {value}', { value: formatted });
         },
 

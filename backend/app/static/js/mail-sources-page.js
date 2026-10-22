@@ -527,7 +527,7 @@ function mailSourcesApp() {
             if (typeof window !== 'undefined' && typeof window.dmarqFormatDateTime === 'function') {
                 return window.dmarqFormatDateTime(value, '—');
             }
-            return value ? new Date(value).toLocaleString() : '—';
+            return value == null || value === '' ? '—' : String(value);
         },
 
         lastCheckedLabel(source) {
@@ -728,7 +728,7 @@ function mailSourcesApp() {
                 if (typeof window.dmarqFormatDate === 'function') {
                     return window.dmarqFormatDate(value, { dateStyle: 'medium' });
                 }
-                return new Date(value).toLocaleDateString();
+                return String(value);
             };
             const start = formatDate(job.requested_start);
             const end = formatDate(job.requested_end);

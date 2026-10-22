@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_audit import record_workspace_audit_log
@@ -61,7 +62,7 @@ def _classification_projection(
         "classification": str(values.get("classification") or ""),
         "reason": str(values.get("reason") or "") or None,
         "scope": "exact_domain_source",
-        "classified_at": row.created_at.isoformat() if row.created_at else None,
+        "classified_at": ensure_utc(row.created_at).isoformat() if row.created_at else None,
     }
 
 

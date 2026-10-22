@@ -2442,7 +2442,7 @@ function domainDetailsApp(domainId = '') {
             const date = this.parsedReputationCheckedAt(reputation);
             if (!checkedAt) return 'not checked yet';
             if (!date) return checkedAt;
-            return `checked ${date.toLocaleString()}`;
+            return `checked ${window.dmarqFormatDateTime ? window.dmarqFormatDateTime(checkedAt) : checkedAt}`;
         },
 
         reputationAgeLabel(reputation) {
@@ -2555,8 +2555,8 @@ function domainDetailsApp(domainId = '') {
             const date = new Date(capturedAt);
             if (Number.isNaN(date.getTime())) return 'Evidence captured during report processing';
             const formatted = window.dmarqFormatDateTime
-                ? window.dmarqFormatDateTime(date)
-                : date.toLocaleString();
+                ? window.dmarqFormatDateTime(capturedAt)
+                : String(capturedAt);
             return `${window.dmarqT ? window.dmarqT('Captured during processing') : 'Captured during processing'} · ${formatted}`;
         },
 
@@ -2580,7 +2580,7 @@ function domainDetailsApp(domainId = '') {
             }
             return window.dmarqFormatDate
                 ? window.dmarqFormatDate(date)
-                : date.toLocaleDateString();
+                : date.toISOString();
         },
 
         sourceVolumeHistory(source) {
@@ -4084,19 +4084,15 @@ function domainDetailsApp(domainId = '') {
         
         formatDate(timestamp) {
             const date = new Date(timestamp * 1000);
-            return date.toLocaleDateString();
+            return window.dmarqFormatDate ? window.dmarqFormatDate(date) : date.toISOString();
         },
 
         formatShortDate(value) {
-            const date = new Date(`${value}T00:00:00`);
-            if (Number.isNaN(date.getTime())) return value;
-            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            return window.dmarqFormatDate ? window.dmarqFormatDate(value, { month: 'short', day: 'numeric' }) : value;
         },
 
         formatIsoDate(value) {
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return value;
-            return date.toLocaleString();
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(value) : value;
         },
 
         formatScoreDelta(value) {

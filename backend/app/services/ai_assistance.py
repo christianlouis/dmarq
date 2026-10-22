@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.redaction import SENSITIVE_VALUE, redact_sensitive_text
 from app.models.domain import Domain
@@ -213,7 +214,9 @@ def _mail_source_context(
             "server": source.server or None,
             "folder": source.folder,
             "polling_interval_minutes": source.polling_interval,
-            "last_checked": source.last_checked.isoformat() if source.last_checked else None,
+            "last_checked": (
+                ensure_utc(source.last_checked).isoformat() if source.last_checked else None
+            ),
         }
         for source in rows[:10]
     ]

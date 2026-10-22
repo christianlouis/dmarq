@@ -825,7 +825,9 @@ function providerDemo() {
                     await this.load();
                     this.openAccount(accountSlug);
                     this.accountTab = 'billing';
-                    this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+                    this.billingSavedAt = window.dmarqFormatDate
+                ? window.dmarqFormatDate(new Date(), {hour: '2-digit', minute: '2-digit'})
+                : new Date().toISOString();
                     this.showStatus('Billing und Planlimits wurden gespeichert.');
                 } catch (error) {
                     this.showStatus(error.message || 'Billing konnte nicht gespeichert werden.');
@@ -850,7 +852,9 @@ function providerDemo() {
                 action: 'billing.updated',
                 summary: `${account.plan_label}, ${this.billingStatusLabel(account.billing.status)}, ${this.formatMoney(account.billing.monthly_charge_cents)} monatlich.`,
             });
-            this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+            this.billingSavedAt = window.dmarqFormatDate
+                ? window.dmarqFormatDate(new Date(), {hour: '2-digit', minute: '2-digit'})
+                : new Date().toISOString();
             this.persistState();
             this.showStatus('Billing und Planlimits wurden lokal aktualisiert.');
         },
@@ -1086,14 +1090,14 @@ function providerDemo() {
             if (!value) return 'Noch nie';
             const dateValue = new Date(value);
             if (Number.isNaN(dateValue.getTime())) return String(value);
-            return dateValue.toLocaleDateString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric'});
+            return window.dmarqFormatDate ? window.dmarqFormatDate(value) : String(value);
         },
 
         dateTimeLabel(value) {
             if (!value) return 'Noch nie';
             const dateValue = new Date(value);
             if (Number.isNaN(dateValue.getTime())) return String(value);
-            return dateValue.toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(value) : String(value);
         },
 
         formatNumber(value) {

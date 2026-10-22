@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.domain import Domain
 from app.models.report import ForensicReport
 from app.services.forensic_redaction import ForensicRedactionPolicy, redact_forensic_value
@@ -162,7 +163,7 @@ def forensic_report_to_dict(
         "source_ip": row.source_ip,
         "auth_failure": row.auth_failure,
         "delivery_result": row.delivery_result,
-        "arrival_date": row.arrival_date.isoformat() if row.arrival_date else None,
+        "arrival_date": ensure_utc(row.arrival_date).isoformat() if row.arrival_date else None,
         "authentication_results": row.authentication_results,
         "original_mail_from": row.original_mail_from,
         "original_from": row.original_from,
@@ -171,7 +172,7 @@ def forensic_report_to_dict(
         "original_message_id": row.original_message_id,
         "original_date": row.original_date,
         "feedback_headers": feedback_headers,
-        "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+        "processed_at": ensure_utc(row.processed_at).isoformat() if row.processed_at else None,
     }
     if redaction_policy is not None:
         for field in _REDACTABLE_RESPONSE_FIELDS:

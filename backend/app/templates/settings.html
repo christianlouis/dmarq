@@ -587,7 +587,7 @@
                                 <div class="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                         <span class="font-semibold" x-text="baseline.domain"></span>
-                                        <span class="text-muted-foreground" x-text="' · ' + baseline.record_count + ' records · expires ' + new Date(baseline.expires_at).toLocaleString()"></span>
+                                        <span class="text-muted-foreground" x-text="' · ' + baseline.record_count + ' records · expires ' + formatDateTime(baseline.expires_at)"></span>
                                         <span class="badge badge-sm ml-2" :class="baseline.removed || baseline.expired ? 'badge-ghost' : 'badge-outline'" x-text="baseline.removed ? 'removed' : (baseline.expired ? 'expired' : 'comparison only')"></span>
                                     </div>
                                     <button type="button" class="btn btn-ghost btn-sm" x-show="!baseline.removed" :data-baseline-id="baseline.id" data-settings-remove-dns-baseline>Remove</button>
@@ -1017,7 +1017,7 @@
                                         <div class="text-sm font-semibold" x-text="item.key"></div>
                                         <div class="text-sm text-muted-foreground" x-text="configAuditValueLabel(item)"></div>
                                     </div>
-                                    <div class="text-xs text-muted-foreground" x-text="new Date(item.changed_at).toLocaleString()"></div>
+                                    <div class="text-xs text-muted-foreground" x-text="formatDateTime(item.changed_at)"></div>
                                 </div>
                             </div>
                         </template>
@@ -1191,7 +1191,7 @@
                                     <td class="font-mono text-xs" x-text="hook.url"></td>
                                     <td class="text-xs" x-text="hook.event_types.join(', ')"></td>
                                     <td><span class="badge" :class="hook.enabled ? 'badge-success' : 'badge-ghost'" x-text="hook.enabled ? 'Enabled' : 'Disabled'"></span></td>
-                                    <td class="text-xs text-muted-foreground" x-text="hook.last_success_at ? 'Success ' + new Date(hook.last_success_at).toLocaleString() : (hook.last_failure_at ? 'Failed ' + new Date(hook.last_failure_at).toLocaleString() : 'No deliveries')"></td>
+                                    <td class="text-xs text-muted-foreground" x-text="hook.last_success_at ? 'Success ' + formatDateTime(hook.last_success_at) : (hook.last_failure_at ? 'Failed ' + formatDateTime(hook.last_failure_at) : 'No deliveries')"></td>
                                     <td class="text-right">
                                         <button type="button" class="btn btn-outline btn-xs" :disabled="testingWebhookId === hook.id" :data-webhook-id="hook.id" data-settings-webhook-action="test">
                                             <span x-show="testingWebhookId !== hook.id">Test</span>

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import SessionLocal, get_db
 from app.core.redaction import sanitize_for_log
@@ -129,8 +130,8 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
-from app.services.provider_access import require_provider_operator_access
 from app.services.ovh_dns import get_ovh_dns_credentials
+from app.services.provider_access import require_provider_operator_access
 from app.services.ptr_lookup import PtrLookupResult, lookup_ptr_with_fallbacks
 from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
@@ -4544,7 +4545,9 @@ async def _build_domain_health_grade(
     dns_pending = bool(getattr(dns, "pending", False))
     dns_lookup_status = _dns_lookup_status(dns)
     dns_evidence = {
-        "checked_at": (dns.checked_at.isoformat() if getattr(dns, "checked_at", None) else None),
+        "checked_at": (
+            ensure_utc(dns.checked_at).isoformat() if getattr(dns, "checked_at", None) else None
+        ),
         "cache_state": "cached" if getattr(dns, "cached", False) else "fresh",
         "lookup_status": dns_lookup_status,
         "lookup_error": dns.lookup_error,
@@ -5416,7 +5419,7 @@ async def get_domains_summary(
             "dns_lookup_error": getattr(dns, "lookup_error", None),
             "dns_cached": getattr(dns, "cached", False),
             "dns_checked_at": (
-                getattr(dns, "checked_at", None).isoformat()
+                ensure_utc(getattr(dns, "checked_at", None)).isoformat()
                 if getattr(dns, "checked_at", None)
                 else None
             ),
@@ -6711,7 +6714,7 @@ async def get_domain_dns_records(
         dkim=result.dkim,
         dkimSelectors=result.dkim_selectors,
         cached=cached,
-        checkedAt=checked_at.isoformat() if checked_at else None,
+        checkedAt=ensure_utc(checked_at).isoformat() if checked_at else None,
         dmarcWarnings=result.dmarc_warnings,
         dmarcSuggestions=result.dmarc_suggestions,
         nameservers=result.nameservers,
@@ -7297,7 +7300,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
             dkimSelectors=dns_result.dkim_selectors,
             cached=bool(getattr(dns_result, "cached", False)),
             checkedAt=(
-                dns_result.checked_at.isoformat()
+                ensure_utc(dns_result.checked_at).isoformat()
                 if getattr(dns_result, "checked_at", None)
                 else None
             ),
@@ -7327,7 +7330,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
             errors=mta_sts.errors,
             warnings=mta_sts.warnings,
             cached=mta_cached,
-            checked_at=mta_checked_at.isoformat() if mta_checked_at else None,
+            checked_at=ensure_utc(mta_checked_at).isoformat() if mta_checked_at else None,
         ),
         "bimi": BIMIResponse(
             status=bimi.status,
@@ -7340,7 +7343,7 @@ async def get_cached_domain_detail_read_model(  # pylint: disable=too-many-local
             errors=bimi.errors,
             warnings=bimi.warnings,
             cached=bimi_cached,
-            checked_at=bimi_checked_at.isoformat() if bimi_checked_at else None,
+            checked_at=ensure_utc(bimi_checked_at).isoformat() if bimi_checked_at else None,
         ),
     }
 
@@ -7886,7 +7889,7 @@ async def get_domain_mta_sts(
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,
-        checked_at=checked_at.isoformat(),
+        checked_at=ensure_utc(checked_at).isoformat(),
     )
 
 
@@ -7928,7 +7931,7 @@ async def get_domain_bimi(
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,
-        checked_at=checked_at.isoformat(),
+        checked_at=ensure_utc(checked_at).isoformat(),
     )
 
 
@@ -7978,7 +7981,7 @@ async def get_domain_dane(
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,
-        checked_at=checked_at.isoformat(),
+        checked_at=ensure_utc(checked_at).isoformat(),
     )
 
 

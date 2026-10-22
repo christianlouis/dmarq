@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.workspace import Workspace
@@ -220,7 +221,9 @@ def _token_summary(db: Session, auth_context: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "scopes": sorted(scopes),
         "usage_count": int(token.usage_count or 0) if token is not None else None,
-        "last_used_at": token.last_used_at.isoformat() if token and token.last_used_at else None,
+        "last_used_at": (
+            ensure_utc(token.last_used_at).isoformat() if token and token.last_used_at else None
+        ),
     }
 
 
