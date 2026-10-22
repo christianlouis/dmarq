@@ -327,7 +327,6 @@ def test_get_resolves_recent_case_before_candidate_quota(authed_client, db_sessi
         f"/api/v1/mail-sources/{source.id}/imports?limit=1",
         headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
     )
-    print("THREE", response.json())
     assert response.status_code == 200
     assert response.json()[0]["id"] == recent_pending.id
     assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
