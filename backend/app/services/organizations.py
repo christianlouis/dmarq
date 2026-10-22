@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.app_timezone import ensure_utc
 from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -496,7 +497,7 @@ def bootstrap_default_commercial_foundation(
 def _iso(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
-    return value.isoformat()
+    return ensure_utc(value).isoformat()
 
 
 def _workspace_to_dict(workspace: Workspace) -> Dict[str, Any]:
@@ -978,8 +979,8 @@ def _period_plan_limit_usage(
         {
             "aggregate_messages": {
                 "period": usage_period,
-                "period_start": usage_period_start.isoformat(),
-                "period_end": usage_period_end.isoformat(),
+                "period_start": ensure_utc(usage_period_start).isoformat(),
+                "period_end": ensure_utc(usage_period_end).isoformat(),
             }
         },
     )
@@ -1930,8 +1931,8 @@ def _metric(
         "metric": key,
         "quantity": int(quantity or 0),
         "unit": unit,
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
+        "period_start": ensure_utc(period_start).isoformat(),
+        "period_end": ensure_utc(period_end).isoformat(),
         "organization_id": organization_id,
         "workspace_id": workspace_id,
         "source": source,
@@ -2144,8 +2145,8 @@ def build_usage_export(
                     "metric": record.metric,
                     "quantity": record.quantity,
                     "unit": record.unit,
-                    "period_start": record.period_start.isoformat(),
-                    "period_end": record.period_end.isoformat(),
+                    "period_start": ensure_utc(record.period_start).isoformat(),
+                    "period_end": ensure_utc(record.period_end).isoformat(),
                     "organization_id": record.organization_id,
                     "workspace_id": record.workspace_id,
                     "source": record.source,
@@ -2167,16 +2168,16 @@ def build_usage_export(
                     _billing_account_to_dict(billing_account) if billing_account else None
                 ),
                 "period": period_key,
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
+                "period_start": ensure_utc(period_start).isoformat(),
+                "period_end": ensure_utc(period_end).isoformat(),
                 "metrics": metrics,
             }
         )
 
     return {
         "period": period_key,
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
+        "period_start": ensure_utc(period_start).isoformat(),
+        "period_end": ensure_utc(period_end).isoformat(),
         "organizations": exports,
     }
 

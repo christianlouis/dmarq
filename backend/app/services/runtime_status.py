@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from app.core.app_timezone import ensure_utc
 
 _scheduler_state: Dict[str, Any] = {
     "running": False,
@@ -16,7 +17,7 @@ _scheduler_state: Dict[str, Any] = {
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+    return ensure_utc(value).isoformat() if value else None
 
 
 def mark_scheduler_started() -> None:

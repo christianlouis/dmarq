@@ -4,6 +4,12 @@ function settingsApp() {
             return typeof window.dmarqT === 'function' ? window.dmarqT(message, replacements) : message;
         },
 
+        formatDateTime(value) {
+            return typeof window.dmarqFormatDateTime === 'function'
+                ? window.dmarqFormatDateTime(value)
+                : (value || '—');
+        },
+
         localizeRuntimeMessage(message) {
             const text = String(message || '');
             const separator = text.indexOf(': ');

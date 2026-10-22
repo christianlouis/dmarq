@@ -149,7 +149,7 @@ function operationsHealth() {
 
         formatDate(value) {
             if (!value) return 'Not recorded';
-            return new Date(value).toLocaleString();
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(value) : String(value);
         },
 
         formatImport(value) {

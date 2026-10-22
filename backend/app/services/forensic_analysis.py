@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from app.core.app_timezone import ensure_utc
 from app.models.report import ForensicReport
 from app.services.forensic_redaction import ForensicRedactionPolicy, redact_forensic_value
 
@@ -287,7 +288,7 @@ def summarize_forensic_samples(
     )
     for group in groups:
         if group["latest_arrival"] is not None:
-            group["latest_arrival"] = group["latest_arrival"].isoformat()
+            group["latest_arrival"] = ensure_utc(group["latest_arrival"]).isoformat()
 
     samples = sorted(
         analyses,

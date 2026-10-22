@@ -9,7 +9,13 @@ if (typeof document !== 'undefined') {
         document.documentElement.dataset.appLocale || document.documentElement.lang || 'en';
 
     const dmarqFormatDateTime = (value, fallback = '—') => {
-        if (!value) return fallback;
+        if (value === null || value === undefined || value === '') return fallback;
+        if (typeof window !== 'undefined' && typeof window.dmarqFormatDate === 'function') {
+            const calendarDate = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+            return window.dmarqFormatDate(value, calendarDate
+                ? { dateStyle: 'short' }
+                : { dateStyle: 'short', timeStyle: 'medium' });
+        }
         const date = value instanceof Date ? value : new Date(value);
         if (Number.isNaN(date.getTime())) return String(value);
         try {

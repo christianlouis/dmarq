@@ -748,7 +748,7 @@ def test_notification_posture_and_incident_actions_are_workspace_scoped(authed_c
     assert list_response.json()["incidents"][0]["id"] == created["incident"]["id"]
     assert update_response.status_code == 200
     assert update_response.json()["status"] == "snoozed"
-    assert update_response.json()["snoozed_until"] == "2099-07-28T08:00:00"
+    assert update_response.json()["snoozed_until"] == "2099-07-28T08:00:00+00:00"
     assert foreign_update_response.status_code == 404
     assert missing_response.status_code == 404
     assert invalid_action.status_code == 422

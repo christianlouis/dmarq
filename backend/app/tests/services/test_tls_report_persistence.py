@@ -55,11 +55,11 @@ def test_tls_report_to_dict_fully_populated():
         "contact_info": "test@example.com",
         "policy_domain": "example.com",
         "policy_type": "sts",
-        "begin_date": "2023-01-01T12:00:00",
-        "end_date": "2023-01-01T12:00:00",
+        "begin_date": "2023-01-01T12:00:00+00:00",
+        "end_date": "2023-01-01T12:00:00+00:00",
         "total_successful_sessions": 10,
         "total_failure_sessions": 5,
-        "processed_at": "2023-01-01T12:00:00",
+        "processed_at": "2023-01-01T12:00:00+00:00",
         "failures": [
             {
                 "result_type": "certificate-expired",

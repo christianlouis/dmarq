@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.services.workspaces import get_or_create_default_workspace
@@ -464,13 +465,13 @@ def endpoint_to_dict(endpoint: WebhookEndpoint) -> Dict[str, Any]:
         "enabled": endpoint.enabled,
         "max_attempts": endpoint.max_attempts,
         "timeout_seconds": endpoint.timeout_seconds,
-        "created_at": endpoint.created_at.isoformat() if endpoint.created_at else None,
-        "updated_at": endpoint.updated_at.isoformat() if endpoint.updated_at else None,
+        "created_at": ensure_utc(endpoint.created_at).isoformat() if endpoint.created_at else None,
+        "updated_at": ensure_utc(endpoint.updated_at).isoformat() if endpoint.updated_at else None,
         "last_success_at": (
-            endpoint.last_success_at.isoformat() if endpoint.last_success_at else None
+            ensure_utc(endpoint.last_success_at).isoformat() if endpoint.last_success_at else None
         ),
         "last_failure_at": (
-            endpoint.last_failure_at.isoformat() if endpoint.last_failure_at else None
+            ensure_utc(endpoint.last_failure_at).isoformat() if endpoint.last_failure_at else None
         ),
         "failure_count": endpoint.failure_count,
         "secret_configured": bool(endpoint.secret),
@@ -489,15 +490,17 @@ def delivery_to_dict(delivery: WebhookDelivery) -> Dict[str, Any]:
         "attempt_count": delivery.attempt_count,
         "max_attempts": delivery.max_attempts,
         "next_attempt_at": (
-            delivery.next_attempt_at.isoformat() if delivery.next_attempt_at else None
+            ensure_utc(delivery.next_attempt_at).isoformat() if delivery.next_attempt_at else None
         ),
         "last_attempt_at": (
-            delivery.last_attempt_at.isoformat() if delivery.last_attempt_at else None
+            ensure_utc(delivery.last_attempt_at).isoformat() if delivery.last_attempt_at else None
         ),
-        "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
+        "delivered_at": (
+            ensure_utc(delivery.delivered_at).isoformat() if delivery.delivered_at else None
+        ),
         "last_status_code": delivery.last_status_code,
         "last_error": delivery.last_error,
         "response_excerpt": delivery.response_excerpt,
-        "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
-        "updated_at": delivery.updated_at.isoformat() if delivery.updated_at else None,
+        "created_at": ensure_utc(delivery.created_at).isoformat() if delivery.created_at else None,
+        "updated_at": ensure_utc(delivery.updated_at).isoformat() if delivery.updated_at else None,
     }

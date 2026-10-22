@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -165,7 +166,9 @@ def workspace_operator_summary(  # pylint: disable=too-many-locals
         "mail_sources": {
             "total": source_count,
             "enabled": int(enabled_sources),
-            "last_import_at": last_import.finished_at.isoformat() if last_import else None,
+            "last_import_at": (
+                ensure_utc(last_import.finished_at).isoformat() if last_import else None
+            ),
             "last_import_status": last_import.status if last_import else None,
         },
         "reports": {"aggregate_total": int(report_count)},
@@ -175,7 +178,7 @@ def workspace_operator_summary(  # pylint: disable=too-many-locals
                 "action": row.action,
                 "entity_type": row.entity_type,
                 "entity_name": row.entity_name,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": ensure_utc(row.created_at).isoformat() if row.created_at else None,
             }
             for row in drift_rows
         ],

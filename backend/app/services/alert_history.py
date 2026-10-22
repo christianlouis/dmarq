@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.alert import AlertConfigurationAudit, AlertHistory
 from app.models.domain import Domain
 
@@ -46,9 +47,9 @@ def _row_to_dict(row: AlertHistory) -> Dict[str, Any]:
         "payload": payload,
         "observed_count": row.observed_count,
         "is_active": row.is_active,
-        "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
-        "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
-        "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+        "first_seen_at": ensure_utc(row.first_seen_at).isoformat() if row.first_seen_at else None,
+        "last_seen_at": ensure_utc(row.last_seen_at).isoformat() if row.last_seen_at else None,
+        "resolved_at": ensure_utc(row.resolved_at).isoformat() if row.resolved_at else None,
     }
 
 
@@ -257,7 +258,7 @@ def _config_audit_row_to_dict(row: AlertConfigurationAudit) -> Dict[str, Any]:
         "new_value": row.new_value,
         "changed_by": row.changed_by,
         "auth_type": row.auth_type,
-        "changed_at": row.changed_at.isoformat() if row.changed_at else None,
+        "changed_at": ensure_utc(row.changed_at).isoformat() if row.changed_at else None,
     }
 
 

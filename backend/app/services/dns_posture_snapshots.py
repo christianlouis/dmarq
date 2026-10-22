@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent, DomainDNSPostureSnapshot
 from app.models.domain import Domain
 from app.services.dns_resolver import DomainDNSResult
@@ -228,7 +229,7 @@ def accepted_dns_posture_result(
         return None, None, None
     provenance = {
         "snapshot_id": snapshot.id,
-        "captured_at": snapshot.captured_at.isoformat(),
+        "captured_at": ensure_utc(snapshot.captured_at).isoformat(),
         "trigger": snapshot.trigger,
         "accepted": snapshot.accepted,
         "last_error": current.last_error,

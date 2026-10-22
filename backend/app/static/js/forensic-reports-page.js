@@ -197,8 +197,7 @@ function forensicReportsApp() {
         },
         formatDate(value) {
             if (!value) return '-';
-            const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+            return window.dmarqFormatDateTime ? window.dmarqFormatDateTime(value) : String(value);
         },
         normalizeReport(report) {
             const domain = report.domain || report.reported_domain || 'unknown';

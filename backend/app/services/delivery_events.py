@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.models.delivery_event import DeliveryEvent
 from app.models.workspace import Workspace
@@ -133,9 +134,9 @@ def _event_to_dict(row: DeliveryEvent) -> Dict[str, Any]:
         "recipient_hash": row.recipient_hash,
         "reporting_mta": row.reporting_mta,
         "remote_mta": row.remote_mta,
-        "occurred_at": row.occurred_at.isoformat(),
-        "received_at": row.received_at.isoformat(),
-        "retention_until": row.retention_until.isoformat(),
+        "occurred_at": ensure_utc(row.occurred_at).isoformat(),
+        "received_at": ensure_utc(row.received_at).isoformat(),
+        "retention_until": ensure_utc(row.retention_until).isoformat(),
         "correlation_confidence": row.correlation_confidence,
         "correlation_reasons": json.loads(row.correlation_reasons or "[]"),
         "provider_semantics": row.provider_semantics,

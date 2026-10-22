@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.health_score_snapshot import HealthScoreSnapshot
 from app.services.health_score import health_grade
 
@@ -273,7 +274,7 @@ def _snapshot_change(
     return {
         "kind": "evidence_refresh",
         "previous_snapshot_date": baseline.snapshot_date.isoformat(),
-        "previous_evidence_captured_at": baseline.updated_at.isoformat(),
+        "previous_evidence_captured_at": ensure_utc(baseline.updated_at).isoformat(),
         "score_delta": score_delta,
         "factor_deltas": factor_deltas,
         "reason": (
@@ -411,7 +412,7 @@ def snapshot_to_domain_health(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
             "source_reputation": float(snapshot.source_reputation_score),
         },
         "actions": _snapshot_actions(snapshot),
-        "evidence_captured_at": snapshot.updated_at.isoformat(),
+        "evidence_captured_at": ensure_utc(snapshot.updated_at).isoformat(),
         "assessment_version": str(evidence.get("calculation_version") or "1"),
         "core_mail_health": evidence.get("core_mail_health")
         or {
@@ -509,7 +510,7 @@ def snapshot_to_history_point(snapshot: HealthScoreSnapshot) -> Dict[str, Any]:
         "policy_strength_score": snapshot.policy_strength_score,
         "report_confidence_score": snapshot.report_confidence_score,
         "source_reputation_score": snapshot.source_reputation_score,
-        "evidence_captured_at": snapshot.updated_at.isoformat(),
+        "evidence_captured_at": ensure_utc(snapshot.updated_at).isoformat(),
         "top_actions": _snapshot_actions(snapshot),
         "path_to_100": _snapshot_path_to_100(snapshot, _snapshot_evidence(snapshot)),
     }

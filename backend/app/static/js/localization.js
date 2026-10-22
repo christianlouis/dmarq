@@ -69,14 +69,16 @@
     window.dmarqFormatNumber = (value, options = {}) =>
         new Intl.NumberFormat(locale, options).format(value);
     window.dmarqFormatDate = (value, options = {}) => {
-        // Date-only values represent calendar dates, so anchor them at UTC noon
-        // before applying APP_TIMEZONE instead of allowing the browser zone to
-        // shift them across a day boundary.
+        if (value === null || value === undefined || value === '') return '';
         const raw = typeof value === 'string' ? value.trim() : value;
         const dateOnly = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw);
+        // Legacy offset-free database/API instants mean UTC, never browser local time.
+        const naiveInstant = typeof raw === 'string'
+            && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw);
+        const normalized = naiveInstant ? `${raw.replace(' ', 'T')}Z` : raw;
         const date = value instanceof Date
             ? value
-            : new Date(dateOnly ? `${raw}T12:00:00Z` : value);
+            : new Date(dateOnly ? `${raw}T12:00:00Z` : normalized);
         if (Number.isNaN(date.getTime())) return String(value ?? '');
         const formatOptions = {
             ...options,
@@ -85,7 +87,11 @@
             // not move the displayed date to the following day.
             timeZone: dateOnly ? 'UTC' : (options.timeZone || (root.dataset.appTimezone || 'UTC')),
         };
-        return new Intl.DateTimeFormat(locale, formatOptions).format(date);
+        try {
+            return new Intl.DateTimeFormat(locale, formatOptions).format(date);
+        } catch (_error) {
+            return new Intl.DateTimeFormat('en', { ...options, timeZone: 'UTC' }).format(date);
+        }
     };
 
     document.addEventListener('DOMContentLoaded', () => {

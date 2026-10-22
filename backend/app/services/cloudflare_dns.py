@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
@@ -280,7 +281,7 @@ def _change_to_dict(change: DNSRecordChange) -> Dict[str, Any]:
         "change_type": change.change_type,
         "previous_content": change.previous_content,
         "current_content": change.current_content,
-        "observed_at": change.observed_at.isoformat() if change.observed_at else None,
+        "observed_at": ensure_utc(change.observed_at).isoformat() if change.observed_at else None,
     }
 
 

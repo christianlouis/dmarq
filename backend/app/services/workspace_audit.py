@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.organization import BillingEvent, Entitlement
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
@@ -132,7 +133,7 @@ def audit_log_to_dict(row: WorkspaceAuditLog) -> Dict[str, Any]:
         "entity_name": row.entity_name,
         "details": details,
         "ip_address": row.ip_address,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": ensure_utc(row.created_at).isoformat() if row.created_at else None,
     }
 
 
@@ -159,7 +160,7 @@ def list_workspace_audit_logs(
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+    return ensure_utc(value).isoformat() if value else None
 
 
 def _enterprise_audit_row(

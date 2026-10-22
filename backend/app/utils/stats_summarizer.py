@@ -160,7 +160,7 @@ class StatsSummarizer:
 
         try:
             # Add timestamp
-            stats["cached_at"] = datetime.now().isoformat()
+            stats["cached_at"] = datetime.now(timezone.utc).isoformat()
 
             # Write to cache file
             with open(cache_file, "w", encoding="utf-8") as f:

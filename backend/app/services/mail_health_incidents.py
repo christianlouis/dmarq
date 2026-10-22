@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.models.alert import MailHealthIncident
 from app.models.workspace import Workspace
 from app.services.workspace_audit import record_workspace_audit_log
@@ -83,16 +84,20 @@ def incident_to_dict(
         "confidence": row.confidence,
         "status": row.status,
         "assessment": assessment,
-        "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
-        "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+        "first_seen_at": ensure_utc(row.first_seen_at).isoformat() if row.first_seen_at else None,
+        "last_seen_at": ensure_utc(row.last_seen_at).isoformat() if row.last_seen_at else None,
         "last_material_change_at": (
-            row.last_material_change_at.isoformat() if row.last_material_change_at else None
+            ensure_utc(row.last_material_change_at).isoformat()
+            if row.last_material_change_at
+            else None
         ),
-        "last_notified_at": row.last_notified_at.isoformat() if row.last_notified_at else None,
+        "last_notified_at": (
+            ensure_utc(row.last_notified_at).isoformat() if row.last_notified_at else None
+        ),
         "last_notification_reason": row.last_notification_reason,
-        "snoozed_until": row.snoozed_until.isoformat() if row.snoozed_until else None,
+        "snoozed_until": ensure_utc(row.snoozed_until).isoformat() if row.snoozed_until else None,
         "operator_note": row.operator_note,
-        "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+        "resolved_at": ensure_utc(row.resolved_at).isoformat() if row.resolved_at else None,
         "resolution_evidence": row.resolution_evidence,
         "notification_reason": notification_reason,
     }
@@ -429,7 +434,9 @@ def update_incident_operator_state(
         entity_name=row.domain,
         details={
             "status": row.status,
-            "snoozed_until": row.snoozed_until.isoformat() if row.snoozed_until else None,
+            "snoozed_until": (
+                ensure_utc(row.snoozed_until).isoformat() if row.snoozed_until else None
+            ),
         },
         auth_context=auth_context,
     )
