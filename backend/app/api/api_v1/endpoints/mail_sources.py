@@ -805,6 +805,11 @@ def _recovery_item(row: MailSourceImport, message_id: str) -> Dict[str, Any]:
                     status_code=409,
                     detail="Source mailbox context changed; refresh history before retrying.",
                 )
+            if item.get("disposition") != "pending":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Recovery item is no longer pending; refresh history before retrying.",
+                )
             return item
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery item not found")
 

@@ -139,11 +139,62 @@ def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tupl
         if not message_id:
             continue
         item = {"message_id": message_id, **binding}
+        key = _recovery_case_key(item)
         if value.get("status") == "error":
-            outcomes[_recovery_case_key(item)] = "failed"
-        elif value.get("status") == "imported" or value.get("reason") == "already_ingested_message":
-            outcomes[_recovery_case_key(item)] = "settled"
+            # One message can produce multiple attachment outcomes. A later
+            # success must not hide an earlier failure for the same case.
+            outcomes[key] = "failed"
+        elif (
+            value.get("status") == "imported"
+            or value.get("reason") == "already_ingested_message"
+        ) and outcomes.get(key) != "failed":
+            outcomes[key] = "settled"
     return outcomes
+
+
+def _latest_recovery_dispositions(db: Session, source: MailSource) -> Dict[tuple, str]:
+    """Return the most recent disposition for each exact recovery case."""
+    latest: Dict[tuple, str] = {}
+    prior_rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id == source.id)
+        .order_by(MailSourceImport.id.asc())
+        .all()
+    )
+    for row in prior_rows:
+        try:
+            items = json.loads(row.recovery_metadata or "[]")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict) and item.get("message_id"):
+                latest[_recovery_case_key(item)] = str(item.get("disposition") or "")
+    return latest
+
+
+def _suppress_ignored_recovery_cases(
+    metadata: str, ignored_cases: set[tuple]
+) -> str:
+    """Keep a newly observed failure ignored when its latest case was ignored."""
+    try:
+        items = json.loads(metadata or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return metadata
+    if not isinstance(items, list):
+        return metadata
+    changed = False
+    for item in items:
+        if (
+            isinstance(item, dict)
+            and item.get("disposition") == "pending"
+            and _recovery_case_key(item) in ignored_cases
+        ):
+            item["disposition"] = "ignored"
+            item["last_status"] = "ignored"
+            changed = True
+    return json.dumps(items) if changed else metadata
 
 
 def _reconcile_recovery_row(row: MailSourceImport, outcomes: Dict[tuple, str]) -> None:
@@ -238,7 +289,14 @@ def record_import_attempt(
         started_at=started_at,
         finished_at=datetime.utcnow(),
     )
+    latest = _latest_recovery_dispositions(db, source)
     _reconcile_recovery_history(db, source, results)
+    ignored_cases = {
+        key for key, disposition in latest.items() if disposition == "ignored"
+    }
+    attempt.recovery_metadata = _suppress_ignored_recovery_cases(
+        attempt.recovery_metadata, ignored_cases
+    )
     db.add(attempt)
     _invalidate_imported_report_caches(source, results)
     return attempt

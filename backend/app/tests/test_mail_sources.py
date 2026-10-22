@@ -518,14 +518,14 @@ class TestMailSourceImportRecovery:
             patch.object(
                 mail_sources_endpoint.MicrosoftGraphClient,
                 "retry_message",
-                side_effect=[success, failure],
+                side_effect=[failure, success],
             ) as retry,
             patch.object(
                 mail_sources_endpoint.MicrosoftGraphClient,
                 "get_refreshed_tokens",
                 side_effect=[
-                    {"access_token": "success-access", "refresh_token": "success-refresh"},
                     {"access_token": "failure-access", "refresh_token": "failure-refresh"},
+                    {"access_token": "success-access", "refresh_token": "success-refresh"},
                 ],
             ),
         ):
@@ -542,13 +542,13 @@ class TestMailSourceImportRecovery:
 
         assert first.status_code == 200
         assert second.status_code == 200
-        assert first.json()["success"] is True
-        assert second.json()["success"] is False
+        assert first.json()["success"] is False
+        assert second.json()["success"] is True
         assert retry.call_count == 2
         persisted = db_session.get(MailSource, source.id)
-        assert persisted.m365_access_token == "failure-access"
-        assert persisted.m365_refresh_token == "failure-refresh"
-        assert json.loads(persisted.m365_ingested_ids) == ["older-message"]
+        assert persisted.m365_access_token == "success-access"
+        assert persisted.m365_refresh_token == "success-refresh"
+        assert json.loads(persisted.m365_ingested_ids) == ["older-message", "graph-message"]
 
     def test_retry_rejects_changed_or_malformed_recovery_context(self, authed_client, db_session):
         workspace, source, row = self._history(db_session)
@@ -800,6 +800,114 @@ class TestMailSourceImportRecovery:
         )
         assert json.loads(second.recovery_metadata)[0]["disposition"] == "settled"
         assert settled.recovery_metadata == "[]"
+
+    def test_ignored_poll_stays_ignored_but_changed_context_is_pending(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Ignored polling source",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+        )
+        db_session.add(source)
+        db_session.flush()
+        failure = {
+            "success": False,
+            "details": [{"status": "error", "message_id": "ignored-message"}],
+        }
+        first = record_import_attempt(
+            db_session, source, failure, started_at=datetime.utcnow(), trigger="scheduled"
+        )
+        db_session.flush()
+        ignored = json.loads(first.recovery_metadata)
+        ignored[0]["disposition"] = "ignored"
+        first.recovery_metadata = json.dumps(ignored)
+        db_session.flush()
+
+        repeated = record_import_attempt(
+            db_session, source, failure, started_at=datetime.utcnow(), trigger="scheduled"
+        )
+        db_session.flush()
+        assert json.loads(repeated.recovery_metadata)[0]["disposition"] == "ignored"
+
+        source.folder = "Archive"
+        changed_context = record_import_attempt(
+            db_session, source, failure, started_at=datetime.utcnow(), trigger="scheduled"
+        )
+        assert json.loads(changed_context.recovery_metadata)[0]["disposition"] == "pending"
+
+    def test_multiple_attachment_outcomes_preserve_same_message_failure(self, db_session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Partial recovery source",
+            method="GMAIL_API",
+            gmail_email="reports@example.com",
+        )
+        db_session.add(source)
+        db_session.flush()
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": False,
+                "details": [
+                    {"status": "error", "message_id": "same-message"},
+                    {"status": "imported", "message_id": "same-message"},
+                ],
+            },
+            started_at=datetime.utcnow(),
+            trigger="scheduled",
+        )
+        assert json.loads(attempt.recovery_metadata)[0]["disposition"] == "pending"
+
+    def test_terminal_recovery_items_reject_repeat_retry_and_ignore(
+        self, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        ignored = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "message-a"},
+        )
+        assert ignored.status_code == 200
+        headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+        repeat_ignore = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+        assert retry.status_code == 409
+        assert repeat_ignore.status_code == 409
+
+    @pytest.mark.parametrize("disposition", ["settled", "superseded", "retried"])
+    def test_non_pending_recovery_items_reject_retry_and_ignore(
+        self, disposition, authed_client, db_session
+    ):
+        workspace, source, row = self._history(db_session)
+        metadata = json.loads(row.recovery_metadata)
+        metadata[0]["disposition"] = disposition
+        row.recovery_metadata = json.dumps(metadata)
+        db_session.commit()
+        headers = {"X-DMARQ-Workspace-ID": str(workspace.id)}
+
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+        ignore = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/ignore",
+            headers=headers,
+            json={"message_id": "message-a"},
+        )
+        assert retry.status_code == 409
+        assert ignore.status_code == 409
 
 
 def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):

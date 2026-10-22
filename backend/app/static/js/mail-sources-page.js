@@ -477,7 +477,7 @@ function mailSourcesApp() {
         },
 
         async retryImportItem(entry, item) {
-            if (!this.historySource || !item || !item.message_id) return;
+            if (!this.historySource || !item || !item.message_id || item.loading) return;
             item.loading = true;
             try {
                 const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/retry`, {
@@ -502,7 +502,7 @@ function mailSourcesApp() {
         },
 
         async ignoreImportItem(entry, item) {
-            if (!this.historySource || !item || !item.message_id) return;
+            if (!this.historySource || !item || !item.message_id || item.loading) return;
             item.loading = true;
             try {
                 const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/ignore`, {
