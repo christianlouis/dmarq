@@ -75,6 +75,11 @@ jobs:
           pip install black isort flake8 pylint
           cd backend && pip install -r requirements.lock
 
+      - name: Validate dependency lock
+        run: |
+          python scripts/validate-requirements-lock.py
+          pip check
+
       - name: Auto-format with Black and isort
         run: |
           black backend/app

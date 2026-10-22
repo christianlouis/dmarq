@@ -61,10 +61,18 @@ the validated source image:
 ./scripts/lock-requirements.sh
 ```
 
-The script uses the pinned DMARQ image digest, verifies every direct
-requirement first, and then records that image's installed packages. To use a
+The script uses the pinned DMARQ image digest, installs the current direct
+requirements into a disposable container while retaining satisfying existing
+versions, verifies them, and records the resulting package set. This means
+new requirements and raised minimums are resolved during an intentional lock
+update; freezing an older application image alone is insufficient. To use a
 new validated image, set `DMARQ_LOCK_IMAGE` to its immutable image reference,
-run the command, and review the complete lock diff.
+run the command, and review the complete lock diff. CI also validates direct
+requirements against the lock and runs `pip check` after installation.
+
+The committed digest identifies OCI revision
+`45820c65f32322c23828e4f503da4b42ba11dc9a`; it is retained as provenance and
+does not claim to represent a newer production revision.
 
 #### CodeQL Analysis
 
