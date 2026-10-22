@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
@@ -303,7 +304,7 @@ async def start_support_session(
         "audit_event": {
             "id": audit.id,
             "action": audit.action,
-            "occurred_at": audit.created_at.isoformat(),
+            "occurred_at": ensure_utc(audit.created_at).isoformat(),
         },
     }
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -29,7 +29,7 @@ import app.models.webhook  # noqa: F401 – ensure webhook tables are registered
 import app.models.workspace  # noqa: F401 – ensure workspace table is registered
 import app.models.workspace_access  # noqa: F401 – ensure RBAC/audit tables are registered
 from app.api.api_v1.api import api_router
-from app.core.app_timezone import present_datetime
+from app.core.app_timezone import ensure_utc, present_datetime
 from app.core.auth_providers import auth_provider_registry
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import Base, SessionLocal, engine, get_db
@@ -139,7 +139,7 @@ def _poll_single_imap_source(source: MailSource) -> None:
     finally:
         db.close()
 
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
 
     if results["success"]:
         logger.info(
@@ -180,7 +180,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
                 db.commit()
         finally:
             db.close()
-        last_check_time = datetime.now()
+        last_check_time = datetime.now(timezone.utc)
         logger.info(
             "Gmail polling (source id=%d): skipped – OAuth2 not yet authorised",
             source.id,
@@ -222,7 +222,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
     finally:
         db.close()
 
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
 
     if results["success"]:
         logger.info(
@@ -294,7 +294,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
     finally:
         db.close()
 
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
 
     if results["success"]:
         logger.info(
@@ -1072,7 +1072,7 @@ def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
     )
     started_at = datetime.utcnow()
     results = imap_client.fetch_reports(days=days)
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
     source.last_checked = datetime.utcnow()
     record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
@@ -1096,7 +1096,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     )
     started_at = datetime.utcnow()
     results = gmail_client.fetch_reports()
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
 
     if results.get("new_ingested_ids"):
         all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
@@ -1134,7 +1134,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     )
     started_at = datetime.utcnow()
     results = graph_client.fetch_reports(days=days)
-    last_check_time = datetime.now()
+    last_check_time = datetime.now(timezone.utc)
 
     if results.get("new_ingested_ids"):
         all_ids = list(dict.fromkeys(ingested_ids + results["new_ingested_ids"]))
@@ -1284,7 +1284,7 @@ async def trigger_mail_source_poll(
     return {
         "success": all(r.get("success", True) for r in results_summary),
         "message": "Mail-source polling completed.",
-        "timestamp": last_check_time.isoformat() if last_check_time else None,
+        "timestamp": ensure_utc(last_check_time).isoformat() if last_check_time else None,
         "days": days,
         "sources_polled": len(results_summary),
         "sources": results_summary,
@@ -1562,7 +1562,7 @@ async def get_poll_status(auth: dict = Depends(require_admin_auth)):
     source_summary = await run_in_threadpool(_mail_source_status_summary)
     return {
         "is_running": background_task is not None and not background_task.done(),
-        "last_check": last_check_time.isoformat() if last_check_time else None,
+        "last_check": ensure_utc(last_check_time).isoformat() if last_check_time else None,
         "authenticated_by": auth.get("auth_type"),
         **source_summary,
     }

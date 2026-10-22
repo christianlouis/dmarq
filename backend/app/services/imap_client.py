@@ -3,7 +3,7 @@ import imaplib
 import logging
 import shlex
 import ssl
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.header import decode_header
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -212,7 +212,7 @@ class IMAPClient:
                 "server": self.server,
                 "port": self.port,
                 "use_ssl": self.use_ssl,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             return True, "Connection successful", stats

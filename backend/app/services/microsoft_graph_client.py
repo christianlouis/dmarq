@@ -736,22 +736,24 @@ class MicrosoftGraphClient(MailSourceConnector):
         return self._process_attachments(message_id, attachments, stats)
 
     def _list_attachments(self, message_id: str) -> List[Dict[str, Any]]:
+        """List files and item metadata; expand only individual item attachments."""
         mailbox_path = self._mailbox_path()
         data = self._request(
             "GET",
             f"{mailbox_path}/messages/{quote(message_id, safe='')}/attachments",
-            params={"$expand": "microsoft.graph.itemAttachment/item($expand=attachments)"},
         )
         return list(data.get("value", []))
 
     def _get_nested_attachments(self, message_id: str, attachment_id: str) -> List[Dict[str, Any]]:
-        """Load an item attachment and expand its child attachments."""
+        """Load an attached item, including any attachments returned with it."""
         mailbox_path = self._mailbox_path()
         data = self._request(
             "GET",
             f"{mailbox_path}/messages/{quote(message_id, safe='')}/attachments/"
             f"{quote(attachment_id, safe='')}",
-            params={"$expand": "microsoft.graph.itemAttachment/item($expand=attachments)"},
+            # Graph includes nested attachments with this documented item expansion.
+            # A further $expand=attachments is invalid on the outlookItem base type.
+            params={"$expand": "microsoft.graph.itemAttachment/item"},
         )
         item = data.get("item") if isinstance(data, dict) else None
         children = item.get("attachments") if isinstance(item, dict) else None

@@ -314,6 +314,7 @@ def test_operator_can_start_and_end_audited_role_scoped_session(
     assert started.status_code == 200
     assert started.json()["session"]["read_only"] is False
     assert SUPPORT_SESSION_COOKIE in started.cookies
+    assert started.json()["audit_event"]["occurred_at"].endswith("+00:00")
     assert (
         db_session.query(WorkspaceAuditLog)
         .filter(WorkspaceAuditLog.action == "support_session.started")

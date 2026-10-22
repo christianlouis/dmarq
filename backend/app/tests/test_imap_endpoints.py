@@ -4,6 +4,7 @@ Tests for the /api/v1/imap endpoints.
 Covers connection testing, report fetching (foreground and background), and status.
 """
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -47,6 +48,7 @@ class TestImapTestConnection:
         assert "INBOX" in data["available_mailboxes"]
         assert data["diagnostic_category"] == "ok"
         assert data["recovery_steps"] == []
+        assert datetime.fromisoformat(data["timestamp"]).tzinfo is not None
 
     def test_failed_connection(self, authed_client: TestClient):
         mock_client = MagicMock()
@@ -99,6 +101,7 @@ class TestImapFetchReports:
         assert data["processed_emails"] == 3
         assert data["reports_found"] == 2
         assert data["diagnostic_category"] == "ok"
+        assert datetime.fromisoformat(data["timestamp"]).tzinfo is not None
 
     def test_fetch_days_too_low(self, authed_client: TestClient):
         response = authed_client.post("/api/v1/imap/fetch-reports?days=0")
@@ -175,6 +178,7 @@ class TestImapStatus:
         data = response.json()
         assert "is_running" in data
         assert "timestamp" in data
+        assert datetime.fromisoformat(data["timestamp"]).tzinfo is not None
 
     def test_requires_auth(self, client: TestClient):
         response = client.get("/api/v1/imap/status")

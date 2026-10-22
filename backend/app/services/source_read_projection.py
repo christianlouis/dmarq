@@ -181,15 +181,14 @@ def _observation_window(report: Dict[str, Any]) -> tuple[int, int, int]:
     return begin or observed_at, end or observed_at, observed_at - (observed_at % 86_400)
 
 
-def materialize_source_projection(
+def _materialize_source_projection_locked(
     db: Session,
     report: Dict[str, Any],
     *,
     domain_id: int,
     db_report: DMARCReport,
 ) -> None:
-    """Upsert sender facts for a newly persisted aggregate report."""
-    _acquire_source_projection_write_lock(db)
+    """Upsert one report after the projection advisory lock is held."""
     # Backfill batches can contain multiple reports for the same sender/day.
     # SessionLocal disables autoflush, so persist facts from the preceding
     # report before looking up the next daily aggregate.
@@ -248,6 +247,23 @@ def materialize_source_projection(
     db_report.source_projection_at = datetime.utcnow()
 
 
+def materialize_source_projection(
+    db: Session,
+    report: Dict[str, Any],
+    *,
+    domain_id: int,
+    db_report: DMARCReport,
+) -> None:
+    """Upsert sender facts for a newly persisted aggregate report."""
+    _acquire_source_projection_write_lock(db)
+    _materialize_source_projection_locked(
+        db,
+        report,
+        domain_id=domain_id,
+        db_report=db_report,
+    )
+
+
 def _persisted_record_payload(record: ReportRecord) -> Dict[str, Any]:
     return {
         "source_ip": record.source_ip,
@@ -262,6 +278,49 @@ def _persisted_record_payload(record: ReportRecord) -> Dict[str, Any]:
         "extensions": _json_dict(record.record_extensions),
         "source_evidence": _json_dict(record.source_evidence),
     }
+
+
+def rebuild_source_projections(db: Session, *, domain_ids: Iterable[int]) -> int:
+    """Rebuild complete sender projections for locked domains in this transaction.
+
+    Callers that also serialize report ingestion must lock the domain rows
+    before this helper.  It then takes the global projection advisory lock,
+    matching the importer lock order and avoiding stale aggregate counters.
+    """
+    ids = sorted({int(domain_id) for domain_id in domain_ids})
+    if not ids:
+        return 0
+    _acquire_source_projection_write_lock(db)
+    db.flush()
+    db.query(DomainSourceDailyProjection).filter(
+        DomainSourceDailyProjection.domain_id.in_(ids)
+    ).delete(synchronize_session=False)
+    db.query(DMARCReport).filter(DMARCReport.domain_id.in_(ids)).update(
+        {DMARCReport.source_projection_at: None},
+        synchronize_session=False,
+    )
+    db.flush()
+    reports = (
+        db.query(DMARCReport)
+        .options(selectinload(DMARCReport.records))
+        .filter(DMARCReport.domain_id.in_(ids))
+        .order_by(DMARCReport.domain_id.asc(), DMARCReport.end_date.asc(), DMARCReport.id.asc())
+        .all()
+    )
+    for report in reports:
+        _materialize_source_projection_locked(
+            db,
+            {
+                "org_name": report.org_name,
+                "email": report.source_email,
+                "begin_timestamp": report.begin_date,
+                "end_timestamp": report.end_date,
+                "records": [_persisted_record_payload(record) for record in report.records],
+            },
+            domain_id=report.domain_id,
+            db_report=report,
+        )
+    return len(reports)
 
 
 def backfill_source_projections(db: Session, *, limit: int = 100) -> int:
