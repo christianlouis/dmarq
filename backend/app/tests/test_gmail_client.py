@@ -760,6 +760,22 @@ class TestProcessAttachments:
         assert second_stats["details"][0]["report_id"] == "123456789"
         assert client.report_store.get_domain_summary("example.com")["reports_processed"] == 1
 
+    def test_report_save_race_returns_duplicate_when_persistence_loses(
+        self, db_session, monkeypatch
+    ):
+        client = _make_client(db=db_session, workspace_id=1)
+        report = {"domain": "example.com", "report_id": "raced"}
+        monkeypatch.setattr(
+            "app.services.gmail_client.report_exists", lambda *args, **kwargs: False
+        )
+        monkeypatch.setattr(
+            "app.services.gmail_client.save_parsed_report",
+            lambda *args, **kwargs: (None, False),
+        )
+
+        assert client._store_report_if_new(report) is False
+        assert not client.report_store.has_report("example.com", "raced")
+
     def test_dmarc_attachment_with_empty_content_skipped(self):
         """A DMARC-named attachment with truly empty payload is skipped gracefully."""
         client = _make_client()

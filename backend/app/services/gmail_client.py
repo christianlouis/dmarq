@@ -457,18 +457,22 @@ class GmailClient:
         """Store a parsed report unless that domain/report ID is already present."""
         domain = report.get("domain", "unknown")
         report_id = report.get("report_id", "")
-        if report_id and (
-            self.report_store.has_report(domain, report_id)
-            or (
-                self.db is not None
-                and report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
-            )
-        ):
+        # When a database is available, it is authoritative.  The process
+        # cache can survive a caller rollback and must not suppress a retry.
+        exists = (
+            report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
+            if self.db is not None
+            else self.report_store.has_report(domain, report_id)
+        )
+        if report_id and exists:
             logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            _, created = save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            if not created:
+                logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+                return False
         self.report_store.add_report(report)
         return True
 

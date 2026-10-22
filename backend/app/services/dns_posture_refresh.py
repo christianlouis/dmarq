@@ -9,6 +9,7 @@ from typing import List, Tuple
 
 from sqlalchemy import case, func, or_, text
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 _DNS_POSTURE_REFRESH_LOCK_KEY = 1_144_591_957
 MAX_DNS_POSTURE_SELECTORS = 100
+
+
+def _source_checked_at_iso(value: datetime | None) -> str | None:
+    """Serialize cache timestamps as explicit UTC instants."""
+    return ensure_utc(value).isoformat() if value else None
 
 
 def _try_acquire_refresh_lock(db) -> bool:
@@ -205,7 +211,7 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
                 "resolver_route": result.resolver_route,
                 "resolver_identity": result.resolver_identity,
                 "fallback_attempts": list(result.fallback_attempts or []),
-                "source_checked_at": checked_at.isoformat() if checked_at else None,
+                "source_checked_at": _source_checked_at_iso(checked_at),
             },
             absence_confirmations_required=max(
                 2, int(get_settings().DNS_POSTURE_ABSENCE_CONFIRMATIONS or 2)

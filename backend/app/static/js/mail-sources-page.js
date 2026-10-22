@@ -21,6 +21,8 @@ function mailSourcesApp() {
         historySource: null,
         importHistory: [],
         historyLoading: false,
+        historyRequestId: 0,
+        historySessionId: 0,
         feedback: { message: '', type: '', diagnostic_summary: '', recovery_steps: [] },
         testResult: { message: '', success: false, diagnostic_summary: '', recovery_steps: [] },
         gmailConnected: false,
@@ -458,34 +460,52 @@ function mailSourcesApp() {
         },
 
         async loadImportHistory(source, preserveFeedback = false) {
+            const requestId = ++this.historyRequestId;
+            if (!this.historySource || this.historySource.id !== source.id) ++this.historySessionId;
             this.historySource = source;
             this.importHistory = [];
             this.historyLoading = true;
             if (!preserveFeedback) this.feedback = this.emptyFeedback();
             try {
-                const resp = await fetch(`/api/v1/mail-sources/${source.id}/imports?limit=20`);
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/imports?limit=20&include_recovery=true`);
                 if (!resp.ok) {
                     const err = await resp.json();
                     throw new Error(err.detail || 'Failed to load import history');
                 }
-                this.importHistory = await resp.json();
+                const entries = this.normalizeImportHistory(await resp.json());
+                if (requestId === this.historyRequestId) this.importHistory = entries;
             } catch (e) {
-                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                if (requestId === this.historyRequestId) {
+                    this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                }
             } finally {
-                this.historyLoading = false;
+                if (requestId === this.historyRequestId) this.historyLoading = false;
             }
         },
 
+        normalizeImportHistory(entries) {
+            return (Array.isArray(entries) ? entries : []).map(entry => ({
+                ...entry,
+                recovery_items: (Array.isArray(entry.recovery_items) ? entry.recovery_items : []).map(item => ({
+                    ...item,
+                    loading: Boolean(item.loading),
+                })),
+            }));
+        },
+
         async retryImportItem(entry, item) {
-            if (!this.historySource || !item || !item.message_id) return;
+            if (!this.historySource || !item || !item.message_id || item.loading) return;
+            const source = this.historySource;
+            const sessionId = this.historySessionId;
             item.loading = true;
             try {
-                const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/retry`, {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/imports/${entry.id}/retry`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message_id: item.message_id }),
                 });
                 const body = await resp.json();
                 if (!resp.ok) throw new Error(body.detail || 'Retry failed');
+                if (sessionId !== this.historySessionId) return;
                 const diagnostic = this.diagnosticFromResult(body);
                 this.feedback = {
                     ...this.emptyFeedback(),
@@ -495,29 +515,38 @@ function mailSourcesApp() {
                         : (diagnostic.diagnostic_summary || 'Message retry completed with errors.'),
                     type: body.success ? 'success' : 'error',
                 };
-                await this.loadImportHistory(this.historySource, true);
+                await this.loadImportHistory(source, true);
             } catch (e) {
-                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                if (sessionId === this.historySessionId) {
+                    this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                }
             } finally { item.loading = false; }
         },
 
         async ignoreImportItem(entry, item) {
-            if (!this.historySource || !item || !item.message_id) return;
+            if (!this.historySource || !item || !item.message_id || item.loading) return;
+            const source = this.historySource;
+            const sessionId = this.historySessionId;
             item.loading = true;
             try {
-                const resp = await fetch(`/api/v1/mail-sources/${this.historySource.id}/imports/${entry.id}/ignore`, {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/imports/${entry.id}/ignore`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message_id: item.message_id }),
                 });
                 const body = await resp.json();
                 if (!resp.ok) throw new Error(body.detail || 'Ignore failed');
-                await this.loadImportHistory(this.historySource);
+                if (sessionId !== this.historySessionId) return;
+                await this.loadImportHistory(source);
             } catch (e) {
-                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                if (sessionId === this.historySessionId) {
+                    this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                }
             } finally { item.loading = false; }
         },
 
         closeHistory() {
+            ++this.historyRequestId;
+            ++this.historySessionId;
             this.historySource = null;
             this.importHistory = [];
             this.historyLoading = false;

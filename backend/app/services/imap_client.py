@@ -604,7 +604,20 @@ class IMAPClient:
             if connection.dialect.name == "sqlite" and not connection.connection.in_transaction:
                 connection.exec_driver_sql("BEGIN")
             with self.db.begin_nested():
-                save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+                _, created = save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            if not created:
+                logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+                if stats is not None:
+                    stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
+                self._append_detail(
+                    stats,
+                    status="duplicate",
+                    message_id=message_id,
+                    filename=filename,
+                    domain=str(domain),
+                    report_id=str(report_id),
+                )
+                return False
         self.report_store.add_report(report)
         self._append_detail(
             stats,
