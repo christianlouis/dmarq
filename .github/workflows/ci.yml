@@ -79,6 +79,7 @@ jobs:
         run: |
           python scripts/validate-requirements-lock.py
           pip check
+          pytest scripts/tests/test_dependency_lock.py --no-cov -q
 
       - name: Auto-format with Black and isort
         run: |

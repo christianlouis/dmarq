@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 from pathlib import Path
 
 import pytest
-
-import importlib.util
-
 
 _VALIDATOR = Path(__file__).parents[1] / "validate-requirements-lock.py"
 _spec = importlib.util.spec_from_file_location("validate_requirements_lock", _VALIDATOR)
