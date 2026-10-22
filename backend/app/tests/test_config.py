@@ -12,8 +12,8 @@ from sqlalchemy import text
 from app.core.config import Settings
 from app.core.database import (
     _create_engine,
-    _ensure_sqlite_dir,
     _engine_kwargs,
+    _ensure_sqlite_dir,
     _make_sync_db_url,
 )
 
