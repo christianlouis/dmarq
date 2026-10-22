@@ -424,7 +424,7 @@ class IMAPClient:
             return None
         return number if 0 < number <= MAX_IMAP_UINT32 else None
 
-    def _read_uid_validity(self, mail: Any) -> Optional[int]:
+    def _read_uid_validity(self, mail: Any) -> Optional[int]:  # noqa: C901
         """Return the mailbox ``UIDVALIDITY``, or ``None`` if it can't be read.
 
         ``SELECT`` reports it as an untagged response; some servers/mocks only
@@ -471,15 +471,12 @@ class IMAPClient:
             and self.uid_validity == server_uid_validity
             and self.last_uid < MAX_IMAP_UINT32
         )
-        identity_changed = (
-            self.last_uid is not None
-            and (
-                self.uid_account != self.username
-                or self.uid_folder != self.folder
-                or self.uid_server != self.server
-                or self.uid_port != self.port
-                or self.uid_use_ssl != self.use_ssl
-            )
+        identity_changed = self.last_uid is not None and (
+            self.uid_account != self.username
+            or self.uid_folder != self.folder
+            or self.uid_server != self.server
+            or self.uid_port != self.port
+            or self.uid_use_ssl != self.use_ssl
         )
         if identity_changed:
             usable_cursor = False
@@ -578,7 +575,7 @@ class IMAPClient:
         stats["uid_port"] = self.uid_port
         stats["uid_use_ssl"] = self.uid_use_ssl
 
-    def fetch_reports(
+    def fetch_reports(  # noqa: C901
         self,
         days: int = 7,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,

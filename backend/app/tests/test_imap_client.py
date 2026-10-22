@@ -1456,6 +1456,14 @@ def _incremental_mock_mail(uid_validity=b"42", search_result=("OK", [b""])):
     return mail
 
 
+def test_uidvalidity_status_parses_only_following_numeric_token():
+    client = _incremental_client()
+    mail = MagicMock()
+    mail.response.return_value = ("NO", [])
+    mail.status.return_value = ("OK", [b"INBOX (UIDVALIDITY 42 MESSAGES 10)"])
+    assert client._read_uid_validity(mail) == 42
+
+
 def _incremental_client(**kwargs):
     kwargs.setdefault("uid_account", "u")
     kwargs.setdefault("uid_folder", "INBOX")
