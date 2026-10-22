@@ -1672,7 +1672,7 @@ def _recovery_history_responses(
             elif (
                 key in authoritative
                 and authoritative[key][0] != row.id
-                and (authoritative[key][1] != "pending" or _is_cache_skip(item))
+                and authoritative[key][1] != "pending"
             ):
                 item["disposition"] = authoritative[key][1]
                 item["last_status"] = (

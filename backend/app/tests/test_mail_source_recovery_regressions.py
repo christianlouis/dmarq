@@ -76,7 +76,7 @@ def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_c
     assert response.status_code == 200
     items = [item for row in response.json() for item in row["recovery_items"]]
     assert [(item["message_id"], item["disposition"]) for item in items] == [
-        ("m-1", "pending"),
+        ("m-1", "settled"),
         ("m-1", "pending"),
     ]
 
@@ -86,7 +86,7 @@ def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_c
     )
     second_items = [item for row in second.json() for item in row["recovery_items"]]
     assert [(item["message_id"], item["disposition"]) for item in second_items] == [
-        ("m-1", "pending"),
+        ("m-1", "settled"),
         ("m-1", "pending"),
     ]
 
@@ -390,6 +390,38 @@ def test_error_beyond_stored_recovery_details_keeps_prior_case_pending(db_sessio
     new_items = mail_sources_endpoint._decode_recovery_metadata(attempt.recovery_metadata)
     assert old_item["disposition"] == "pending"
     assert "error-51" not in {item["message_id"] for item in new_items}
+
+
+def test_omitted_error_wins_over_later_imported_detail(db_session):
+    _, source, binding = _source_and_rows(db_session)
+    old = MailSourceImport(
+        mail_source_id=source.id,
+        status="failed",
+        recovery_metadata=json.dumps([_item(source, binding, "mixed-51")]),
+    )
+    db_session.add(old)
+    db_session.commit()
+
+    details = [{"status": "error", "message_id": f"error-{index}"} for index in range(1, 51)]
+    details.extend(
+        [
+            {"status": "error", "message_id": "mixed-51"},
+            {"status": "imported", "message_id": "mixed-51"},
+        ]
+    )
+    record_import_attempt(
+        db_session,
+        source,
+        {"success": False, "errors": ["provider failed"], "details": details},
+        started_at=datetime.utcnow(),
+        trigger="scheduled",
+    )
+    db_session.commit()
+
+    assert (
+        mail_sources_endpoint._decode_recovery_metadata(old.recovery_metadata)[0]["disposition"]
+        == "pending"
+    )
 
 
 def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(

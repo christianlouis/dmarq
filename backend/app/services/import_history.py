@@ -131,7 +131,7 @@ def _recovery_case_key(item: Dict[str, Any]) -> tuple:
 
 
 def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tuple, str]:
-    outcomes: Dict[tuple, str] = {}
+    observed: Dict[tuple, str] = {}
     binding = recovery_binding(source)
     # Reconciliation must only settle a failed case when this attempt stores
     # the corresponding recovery item.  The provider result can contain more
@@ -155,13 +155,16 @@ def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tupl
         item = {"message_id": message_id, **binding}
         key = _recovery_case_key(item)
         if value.get("status") == "error":
-            if key not in stored_error_keys:
-                continue
             # One message can produce multiple attachment outcomes. A later
             # success must not hide an earlier failure for the same case.
-            outcomes[key] = "failed"
-        elif value.get("status") == "imported" and outcomes.get(key) != "failed":
-            outcomes[key] = "settled"
+            observed[key] = "failed"
+        elif value.get("status") == "imported" and observed.get(key) != "failed":
+            observed[key] = "settled"
+    outcomes: Dict[tuple, str] = {}
+    for key, disposition in observed.items():
+        if disposition == "failed" and key not in stored_error_keys:
+            continue
+        outcomes[key] = disposition
     return outcomes
 
 
