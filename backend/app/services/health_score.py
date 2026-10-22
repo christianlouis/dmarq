@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 ACTIVE_POLICIES = {"quarantine", "reject"}
-HEALTH_ASSESSMENT_VERSION = "3"
+HEALTH_ASSESSMENT_VERSION = "4"
 PATH_FACTOR_WEIGHTS = {
     "dmarc_compliance": 0.50,
     "dns_posture": 0.30,
@@ -119,6 +119,14 @@ def _confidence_factor(domain: Dict[str, Any]) -> float:
     return 30.0
 
 
+def _has_observed_mail(domain: Dict[str, Any]) -> bool:
+    """Return whether the current report window contains measured mail volume."""
+    try:
+        return int(domain.get("total_emails") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _reputation_factor(domain: Dict[str, Any]) -> float:
     reputation = domain.get("source_reputation") or {}
     summary = reputation.get("summary") or {}
@@ -181,7 +189,9 @@ def _monitoring_confidence(domain: Dict[str, Any], score: float) -> Dict[str, An
     if domain.get("dns_pending"):
         reasons.append("DNS evidence refresh is pending.")
     elif domain.get("dns_lookup_failed"):
-        reasons.append("DNS evidence could not be refreshed; last known report context is retained.")
+        reasons.append(
+            "DNS evidence could not be refreshed; last known report context is retained."
+        )
     reports = int(domain.get("report_count") or domain.get("reports_processed") or 0)
     emails = int(domain.get("total_emails") or 0)
     if reports < 7 or emails < 250:
@@ -411,9 +421,7 @@ def _dmarc_lint_action(domain: Dict[str, Any], *, domain_name: str) -> Optional[
         next_step="Review the DNS health details and publish a corrected DMARC record.",
         score_impact=8,
         domain=domain_name,
-        evidence=[
-            {"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}
-        ],
+        evidence=[{"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}],
     )
 
 
@@ -551,12 +559,39 @@ def _cap_path_items(items: List[Dict[str, Any]], score: int) -> List[Dict[str, A
     return capped_items
 
 
+def _path_items_for_factor(
+    *,
+    factor: str,
+    weight: float,
+    value: float,
+    confidence: float,
+    related: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    remaining = round(((100.0 - value) * weight), 1)
+    if remaining <= 0:
+        return []
+    if factor == "report_confidence" and confidence < 100:
+        return [_waiting_for_reports_item(factor, remaining)]
+    if related:
+        return [
+            _path_item_for_action(
+                factor=factor,
+                action=action,
+                expected_score_delta=round(remaining / len(related), 1),
+                primary=index == 0,
+            )
+            for index, action in enumerate(related)
+        ]
+    return [_review_path_item(factor, remaining)]
+
+
 def _path_to_100(
     *,
     score: int,
     factors: Dict[str, float],
     actions: List[Dict[str, Any]],
     confidence: float,
+    unknown_factors: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Explain remaining core-score points from persisted assessment inputs.
 
@@ -572,27 +607,41 @@ def _path_to_100(
             by_factor.setdefault(factor, []).append(action)
 
     items: List[Dict[str, Any]] = []
+    unknown = set(unknown_factors or [])
+    known_weight_total = sum(
+        weight for factor, weight in PATH_FACTOR_WEIGHTS.items() if factor not in unknown
+    )
     for factor, weight in PATH_FACTOR_WEIGHTS.items():
+        if factor in unknown:
+            continue
+        if unknown:
+            weight = weight / known_weight_total
         value = _bounded(factors.get(factor))
-        remaining = round(((100.0 - value) * weight), 1)
-        if remaining <= 0:
-            continue
-        related = by_factor.get(factor) or []
-        if factor == "report_confidence" and confidence < 100:
-            items.append(_waiting_for_reports_item(factor, remaining))
-            continue
-        if related:
-            for index, action in enumerate(related):
-                items.append(
-                    _path_item_for_action(
-                        factor=factor,
-                        action=action,
-                        expected_score_delta=round(remaining / len(related), 1),
-                        primary=index == 0,
-                    )
-                )
-        else:
-            items.append(_review_path_item(factor, remaining))
+        items.extend(
+            _path_items_for_factor(
+                factor=factor,
+                weight=weight,
+                value=value,
+                confidence=confidence,
+                related=by_factor.get(factor) or [],
+            )
+        )
+    planned_points = sum(float(item.get("expected_score_delta") or 0) for item in items)
+    cap_points = max(0.0, float(100 - int(score)) - planned_points)
+    if cap_points and unknown and confidence < 70:
+        waiting_item = next(
+            (
+                item
+                for item in items
+                if item.get("factor") == "report_confidence"
+                and item.get("kind") == "waiting_for_evidence"
+            ),
+            None,
+        )
+        if waiting_item:
+            waiting_item["expected_score_delta"] = round(
+                float(waiting_item["expected_score_delta"]) + cap_points, 1
+            )
     items.sort(key=lambda item: float(item.get("expected_score_delta") or 0), reverse=True)
     capped_items = _cap_path_items(items, score)
     return {
@@ -627,12 +676,15 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     policy = _policy_factor(policy_name)
     confidence = _confidence_factor(domain)
     reputation = _reputation_factor(domain)
-    raw_score = round(
-        (pass_rate * 0.50)
-        + (dns * 0.30)
-        + (confidence * 0.10)
-        + (reputation * 0.10)
-    )
+    observed_mail = _has_observed_mail(domain)
+    if observed_mail:
+        raw_score = round(
+            (pass_rate * 0.50) + (dns * 0.30) + (confidence * 0.10) + (reputation * 0.10)
+        )
+    else:
+        # An empty report window provides no compliance measurement.  Reweight
+        # the known factors while the confidence cap keeps the result cautious.
+        raw_score = round(((dns * 0.30) + (confidence * 0.10) + (reputation * 0.10)) / 0.50)
     score = min(raw_score, _score_cap(domain, confidence, policy=policy_name))
     actions = _domain_actions(domain)
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
@@ -645,6 +697,7 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
         "report_confidence": round(confidence, 1),
         "source_reputation": round(reputation, 1),
     }
+    unknown_factors = [] if observed_mail else ["dmarc_compliance"]
     core_health = {
         "score": int(score),
         "grade": health_grade(int(score), policy=policy_name, critical_actions=critical_actions),
@@ -660,11 +713,17 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
         "core_mail_health": core_health,
         "domain_protection": protection,
         "monitoring_confidence": monitoring_confidence,
+        "evidence_status": "observed" if observed_mail else "insufficient_evidence",
+        "unknown_factors": unknown_factors,
         "dns_evidence": dict(domain.get("dns_evidence") or {}),
         "factors": factors,
         "actions": actions[:5],
         "path_to_100": _path_to_100(
-            score=int(score), factors=factors, actions=actions, confidence=confidence
+            score=int(score),
+            factors=factors,
+            actions=actions,
+            confidence=confidence,
+            unknown_factors=unknown_factors,
         ),
     }
 

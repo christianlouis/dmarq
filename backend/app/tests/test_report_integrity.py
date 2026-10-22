@@ -3,11 +3,6 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import app.models.domain  # noqa: F401
-import app.models.organization  # noqa: F401
-import app.models.report  # noqa: F401
-import app.models.user  # noqa: F401
-import app.models.workspace  # noqa: F401
 from app.core.database import Base
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord

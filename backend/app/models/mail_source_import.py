@@ -25,6 +25,7 @@ class MailSourceImport(Base):
     new_domains = Column(Text, nullable=True)
     errors = Column(Text, nullable=True)
     details = Column(Text, nullable=True)
+    recovery_metadata = Column(Text, nullable=True)
 
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     finished_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)

@@ -276,6 +276,22 @@ class GmailClient:
         stats["new_domains"] = list(domains_after - domains_before)
         return stats
 
+    def retry_message(self, message_id: str) -> Dict[str, Any]:
+        """Reprocess one previously listed Gmail message without resetting history."""
+        stats = initial_import_stats()
+        stats["recovery_message_id"] = str(message_id)
+        try:
+            service = self._build_service()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return connector_failure_stats(stats, "Failed to initialize Gmail API.", error=exc)
+        stats["processed"] = 1
+        found = self._process_message(service, str(message_id), stats)
+        if found < 0 or stats["errors"]:
+            stats["success"] = False
+        else:
+            stats["new_ingested_ids"].append(str(message_id))
+        return stats
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

@@ -4,6 +4,40 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.mail_source import MailSource
+
+
+def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "IMAP_SERVER", "imap.example.com")
+    monkeypatch.setattr(main_module.settings, "IMAP_USERNAME", "reports@example.com")
+    monkeypatch.setattr(main_module.settings, "IMAP_PASSWORD", "secret")
+    monkeypatch.setattr(main_module.settings, "IMAP_FOLDER", "Archive / DMARC")
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+
+    main_module._migrate_imap_env_vars_to_db()
+    source = db_session.query(MailSource).one()
+    assert source.folder == "Archive / DMARC"
+
+    main_module._migrate_imap_env_vars_to_db()
+    assert db_session.query(MailSource).count() == 1
+    assert db_session.query(MailSource).one().folder == "Archive / DMARC"
+
+
+def test_migrate_imap_env_missing_folder_falls_back_to_inbox(db_session, monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "IMAP_SERVER", "imap.example.com")
+    monkeypatch.setattr(main_module.settings, "IMAP_USERNAME", "reports@example.com")
+    monkeypatch.setattr(main_module.settings, "IMAP_PASSWORD", "secret")
+    monkeypatch.setattr(main_module.settings, "IMAP_FOLDER", None)
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+
+    main_module._migrate_imap_env_vars_to_db()
+
+    assert db_session.query(MailSource).one().folder == "INBOX"
+
 
 @pytest.mark.asyncio
 async def test_cancel_background_task_cancels_pending_task():
@@ -152,12 +186,16 @@ def test_poll_single_m365_source_persists_import_state():
 
     source = SimpleNamespace(
         id=2,
+        method="M365_GRAPH",
+        workspace_id=1,
         m365_access_token="tok",
         m365_tenant_id="organizations",
         m365_client_id="cid",
         m365_client_secret="csec",
         m365_refresh_token="ref",
         m365_mailbox="shared@example.com",
+        m365_auth_mode="delegated",
+        m365_folder_id="",
         m365_ingested_ids="[]",
         folder="INBOX",
     )
@@ -215,6 +253,8 @@ def test_poll_single_m365_application_source_runs_without_stored_token():
 
     source = SimpleNamespace(
         id=4,
+        method="M365_GRAPH",
+        workspace_id=1,
         m365_auth_mode="application",
         m365_access_token=None,
         m365_tenant_id="tenant-id",
@@ -222,6 +262,7 @@ def test_poll_single_m365_application_source_runs_without_stored_token():
         m365_client_secret="client-secret",
         m365_refresh_token=None,
         m365_mailbox="dmarc-reports@example.com",
+        m365_folder_id="",
         m365_ingested_ids="[]",
         folder="INBOX",
     )

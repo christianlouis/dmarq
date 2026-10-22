@@ -27,6 +27,7 @@ import app.models.dns_cache  # noqa: E402, F401
 import app.models.domain  # noqa: E402, F401
 import app.models.mail_source  # noqa: E402, F401
 import app.models.mail_source_import  # noqa: E402, F401
+import app.models.mail_source_ignored_message  # noqa: E402, F401
 
 import_module("app.models.health_score_snapshot")
 import_module("app.models.organization")

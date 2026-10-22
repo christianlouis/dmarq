@@ -24,8 +24,8 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
-from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.dsn_parser import MAX_DSN_BYTES
+from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_delivery_events import _dsn_bytes
@@ -512,6 +512,26 @@ class TestProcessMessage:
         assert db_session.query(DMARCReport).count() == 0
         assert db_session.query(ForensicReport).count() == 1
 
+    def test_dmarc_newsletter_subject_does_not_enter_forensic_parser(self):
+        client = _make_client()
+        newsletter = MIMEMultipart("alternative")
+        newsletter["Subject"] = "Avoid DMARC Failure"
+        newsletter["From"] = "newsletter@example.test"
+        newsletter.attach(MIMEText("DMARC authentication tips", "plain"))
+        newsletter.attach(MIMEText("<p>DMARC authentication tips</p>", "html"))
+        service = MagicMock()
+        service.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            "raw": _b64_raw(newsletter.as_bytes())
+        }
+        stats = {"reports_found": 0, "errors": [], "details": []}
+
+        with patch.object(client, "_process_attachments", return_value=0) as process:
+            assert client._process_message(service, "newsletter", stats) == 0
+
+        process.assert_called_once()
+        assert not stats.get("forensic_reports_found")
+        assert not stats["errors"]
+
     def test_forensic_report_uses_configured_redaction_policy(self, db_session):
         setting = (
             db_session.query(Setting).filter(Setting.key == "forensics.redaction_mode").first()
@@ -914,6 +934,24 @@ class TestFetchReports:
 
         assert result["new_ingested_ids"] == []
         assert client.already_ingested_ids == []
+
+    def test_retry_message_marks_only_successful_processing_ingested(self):
+        client = _make_client()
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=0),
+        ):
+            successful = client.retry_message("one-message")
+        assert successful["success"] is True
+        assert successful["new_ingested_ids"] == ["one-message"]
+
+        with (
+            patch.object(client, "_build_service", return_value=MagicMock()),
+            patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
+        ):
+            failed = client.retry_message("one-message")
+        assert failed["success"] is False
+        assert failed["new_ingested_ids"] == []
 
     def test_reports_new_domains(self):
         """fetch_reports should report domains that appear after ingestion."""
