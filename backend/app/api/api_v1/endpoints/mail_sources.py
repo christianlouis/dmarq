@@ -799,6 +799,11 @@ def _recovery_item(row: MailSourceImport, message_id: str) -> Dict[str, Any]:
     for item in _decode_recovery_metadata(row.recovery_metadata):
         if item.get("message_id") == message_id:
             source = row.mail_source
+            if item.get("disposition") == "retried" and item.get("last_status") == "failed":
+                item["disposition"] = "pending"
+            elif _legacy_skip_only(item, _decode_json_details(row.details)):
+                item["disposition"] = "settled"
+                item["last_status"] = "success"
             binding = recovery_binding(source)
             if (
                 item.get("source_id") != source.id
@@ -864,15 +869,21 @@ def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
     for row in rows:
         items = _decode_recovery_metadata(row.recovery_metadata)
         row_changed = False
+        details = _decode_json_details(row.details)
         for item in items:
             key = _recovery_case_key(item)
-            if item.get("reason") == "already_ingested_message":
+            if item.get("reason") == "already_ingested_message" or (
+                item.get("disposition") == "pending" and _legacy_skip_only(item, details)
+            ):
                 if item.get("disposition") == "pending":
                     item["disposition"] = "settled"
                     item["last_status"] = "success"
                     row_changed = changed = True
                 # Cache-hit observations never resolve an older real failure.
                 continue
+            if item.get("disposition") == "retried" and item.get("last_status") == "failed":
+                item["disposition"] = "pending"
+                row_changed = changed = True
             if item.get("disposition") == "pending":
                 if key in seen_cases:
                     item["disposition"] = "superseded"
@@ -890,6 +901,17 @@ def _normalize_recovery_history(rows: List[MailSourceImport]) -> bool:
         if row_changed:
             _save_recovery_metadata(row, items)
     return changed
+
+
+def _legacy_skip_only(item: Dict[str, Any], details: List[Dict[str, str]]) -> bool:
+    """Recognize old skip evidence only when the same row proves it exactly."""
+    message_id = str(item.get("message_id") or "")
+    matching = [detail for detail in details if detail.get("message_id") == message_id]
+    return bool(matching) and all(
+        detail.get("status") == "skipped"
+        and detail.get("reason") in (None, "already_ingested_message")
+        for detail in matching
+    )
 
 
 def _save_recovery_metadata(row: MailSourceImport, items: List[Dict[str, Any]]) -> None:

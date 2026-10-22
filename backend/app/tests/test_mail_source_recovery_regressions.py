@@ -1,24 +1,24 @@
 """Focused regressions for import-history recovery lifecycle behavior."""
 
-import json
 import fcntl
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+
 from sqlalchemy.orm import sessionmaker
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
-from app.services import import_history as import_history_service
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.services import import_history as import_history_service
 from app.services.import_history import (
     _latest_recovery_dispositions,
     _recovery_case_key,
     record_import_attempt,
 )
 from app.services.mail_source_recovery import ignore_message, recovery_binding
-from app.services.mail_source_recovery_lock import source_recovery_lock
-from app.services.mail_source_recovery_lock import RecoveryLockBusy
+from app.services.mail_source_recovery_lock import RecoveryLockBusy, source_recovery_lock
 from app.services.workspaces import get_or_create_default_workspace
 
 
@@ -330,6 +330,103 @@ def test_get_resolves_recent_case_before_candidate_quota(authed_client, db_sessi
     assert response.status_code == 200
     assert response.json()[0]["id"] == recent_pending.id
     assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
+
+
+def test_legacy_retried_failure_and_reasonless_skip_are_normalized_safely(
+    authed_client, db_session
+):
+    workspace, source, binding = _source_and_rows(db_session)
+
+    def legacy(message_id, details, disposition="pending", **extra):
+        item = {
+            **_item(source, binding, message_id, disposition=disposition),
+            **extra,
+        }
+        row = MailSourceImport(
+            mail_source_id=source.id,
+            status="warning",
+            details=json.dumps(details),
+            recovery_metadata=json.dumps([item]),
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    retry_failed = legacy(
+        "legacy-retry",
+        [{"status": "error", "message_id": "legacy-retry"}],
+        disposition="retried",
+        last_status="failed",
+    )
+    skip_only = legacy(
+        "legacy-skip",
+        [{"status": "skipped", "message_id": "legacy-skip"}],
+    )
+    mixed = legacy(
+        "legacy-mixed",
+        [
+            {"status": "skipped", "message_id": "legacy-mixed"},
+            {"status": "error", "message_id": "legacy-mixed"},
+        ],
+    )
+    unrelated = legacy(
+        "legacy-unrelated",
+        [{"status": "skipped", "message_id": "different-message"}],
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=20",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    by_id = {row["id"]: row["recovery_items"][0] for row in response.json()}
+    assert by_id[retry_failed.id]["disposition"] == "pending"
+    assert by_id[skip_only.id]["disposition"] == "settled"
+    assert by_id[mixed.id]["disposition"] == "pending"
+    assert by_id[unrelated.id]["disposition"] == "pending"
+
+    with patch.object(
+        mail_sources_endpoint,
+        "_retry_history_item",
+        return_value=({"success": True, "details": []}, None),
+    ) as provider:
+        retry = authed_client.post(
+            f"/api/v1/mail-sources/{source.id}/imports/{retry_failed.id}/retry",
+            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            json={"message_id": "legacy-retry"},
+        )
+    assert retry.status_code == 200
+    provider.assert_called_once()
+
+
+def test_ambiguous_batch_success_without_matching_detail_keeps_failure_pending(db_session):
+    _, source, binding = _source_and_rows(db_session)
+    row = MailSourceImport(
+        mail_source_id=source.id,
+        status="failed",
+        details=json.dumps([{"status": "error", "message_id": "failed-message"}]),
+        recovery_metadata=json.dumps([_item(source, binding, "failed-message")]),
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    record_import_attempt(
+        db_session,
+        source,
+        {
+            "success": True,
+            "new_ingested_ids": ["failed-message"],
+            "errors": ["failed outside retained window"],
+            "details": [],
+        },
+        started_at=datetime.utcnow(),
+        trigger="scheduled",
+    )
+    db_session.commit()
+
+    items = mail_sources_endpoint._decode_recovery_metadata(row.recovery_metadata)
+    assert items[0]["disposition"] == "pending"
 
 
 def test_recovery_lock_releases_after_provider_failure(db_session):

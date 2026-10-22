@@ -37,6 +37,81 @@ def _sqlite_lock_path(db: Session) -> Optional[Path]:
     return Path(database).resolve().with_suffix(Path(database).suffix + ".mail-recovery.lock")
 
 
+def _open_postgres_lock(db: Session, source_id: int):
+    connection = db.get_bind().connect()
+    key = _advisory_key(source_id)
+    try:
+        acquired = bool(
+            connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}).scalar()
+        )
+        if not acquired:
+            raise RecoveryLockBusy
+    except Exception:
+        connection.close()
+        raise
+    return connection, key
+
+
+def _close_postgres_lock(connection, key: int) -> None:
+    try:
+        unlocked = bool(
+            connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key}).scalar()
+        )
+        if not unlocked:
+            connection.invalidate()
+    except Exception:
+        connection.invalidate()
+        raise
+    finally:
+        connection.close()
+
+
+def _open_sqlite_lock(db: Session):
+    lock_key = str(_sqlite_lock_path(db) or f"sqlite-memory:{id(db.get_bind())}")
+    mutex = _process_lock(lock_key)
+    if not mutex.acquire(blocking=False):
+        raise RecoveryLockBusy
+    lock_file = None
+    try:
+        path = _sqlite_lock_path(db)
+        if path is not None:
+            import fcntl
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = path.open("a+")
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        _discard_sqlite_lock(mutex, lock_file)
+        raise RecoveryLockBusy from exc
+    except Exception:
+        _discard_sqlite_lock(mutex, lock_file)
+        raise
+    return mutex, lock_file
+
+
+def _discard_sqlite_lock(mutex, lock_file) -> None:
+    """Release a partially acquired SQLite lock even if close itself fails."""
+    try:
+        if lock_file is not None:
+            lock_file.close()
+    finally:
+        mutex.release()
+
+
+def _close_sqlite_lock(mutex, lock_file) -> None:
+    try:
+        if lock_file is not None:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        try:
+            if lock_file is not None:
+                lock_file.close()
+        finally:
+            mutex.release()
+
+
 @contextmanager
 def source_recovery_lock(db: Session, source_id: int) -> Iterator[None]:
     """Hold one source lock through provider work and the final DB commit.
@@ -48,64 +123,19 @@ def source_recovery_lock(db: Session, source_id: int) -> Iterator[None]:
     """
     dialect = db.get_bind().dialect.name
     if dialect == "postgresql":
-        connection = db.get_bind().connect()
-        key = _advisory_key(source_id)
+        connection, key = _open_postgres_lock(db, source_id)
         try:
-            acquired = bool(
-                connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}).scalar()
-            )
-            if not acquired:
-                raise RecoveryLockBusy
-            try:
-                yield
-            finally:
-                try:
-                    unlocked = bool(
-                        connection.execute(
-                            text("SELECT pg_advisory_unlock(:key)"), {"key": key}
-                        ).scalar()
-                    )
-                    if not unlocked:
-                        connection.invalidate()
-                except Exception:
-                    connection.invalidate()
-                    raise
-        except Exception:
-            connection.close()
-            raise
-        else:
-            connection.close()
+            yield
+        finally:
+            _close_postgres_lock(connection, key)
         return
 
     if dialect == "sqlite":
-        lock_key = str(_sqlite_lock_path(db) or f"sqlite-memory:{id(db.get_bind())}")
-        mutex = _process_lock(lock_key)
-        if not mutex.acquire(blocking=False):
-            raise RecoveryLockBusy
-        lock_file = None
+        mutex, lock_file = _open_sqlite_lock(db)
         try:
-            path = _sqlite_lock_path(db)
-            if path is not None:
-                import fcntl
-
-                path.parent.mkdir(parents=True, exist_ok=True)
-                lock_file = path.open("a+")
-                try:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError as exc:
-                    raise RecoveryLockBusy from exc
             yield
         finally:
-            try:
-                if lock_file is not None:
-                    import fcntl
-
-                    try:
-                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                    finally:
-                        lock_file.close()
-            finally:
-                mutex.release()
+            _close_sqlite_lock(mutex, lock_file)
         return
 
     raise RecoveryLockBusy
