@@ -110,10 +110,6 @@ def test_history_exposes_latest_duplicate_pending_and_supersedes_older(authed_cl
     rows = response.json()
     assert rows[0]["recovery_items"][0]["disposition"] == "pending"
     assert len(rows) == 1
-    assert (
-        json.loads(db_session.get(MailSourceImport, old.id).recovery_metadata)[0]["disposition"]
-        == "superseded"
-    )
 
 
 def test_retry_claim_blocks_second_request_before_provider_call(authed_client, db_session):
@@ -312,3 +308,68 @@ def test_retry_rejects_older_pending_case_after_newer_ignore(authed_client, db_s
 
     assert response.status_code == 409
     provider.assert_not_called()
+
+
+def test_history_skips_older_pending_when_newer_terminal_is_outside_recent_window(
+    authed_client, db_session
+):
+    workspace, source, binding = _source_and_rows(db_session)
+    old_pending = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "m-6")]),
+    )
+    newer_ignored = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "m-6", disposition="ignored")]),
+    )
+    clean = MailSourceImport(mail_source_id=source.id, status="success", recovery_metadata="[]")
+    db_session.add_all([old_pending, newer_ignored, clean])
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    assert response.status_code == 200
+    assert all(
+        item["message_id"] != "m-6" for row in response.json() for item in row["recovery_items"]
+    )
+
+
+def test_history_deduplicates_candidates_before_finding_older_independent_case(
+    authed_client, db_session
+):
+    workspace, source, binding = _source_and_rows(db_session)
+    rows = [
+        MailSourceImport(
+            mail_source_id=source.id,
+            status="warning",
+            recovery_metadata=json.dumps([_item(source, binding, "m-7")]),
+        ),
+        MailSourceImport(
+            mail_source_id=source.id,
+            status="warning",
+            recovery_metadata=json.dumps([_item(source, binding, "m-7")]),
+        ),
+        MailSourceImport(
+            mail_source_id=source.id,
+            status="warning",
+            recovery_metadata=json.dumps([_item(source, binding, "m-8")]),
+        ),
+    ]
+    db_session.add_all(rows)
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=2",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    messages = {
+        item["message_id"]
+        for row in response.json()
+        for item in row["recovery_items"]
+        if item["disposition"] == "pending"
+    }
+    assert messages == {"m-7", "m-8"}

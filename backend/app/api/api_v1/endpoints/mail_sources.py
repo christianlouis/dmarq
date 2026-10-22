@@ -1552,6 +1552,11 @@ async def list_mail_source_imports(
     )
     recent_ids = [row.id for row in recent_rows]
     candidate_ids = []
+    seen_cases = set()
+    for row in recent_rows:
+        for item in _decode_recovery_metadata(row.recovery_metadata):
+            if item.get("reason") != "already_ingested_message":
+                seen_cases.add(_recovery_case_key(item))
     cursor = None
     while len(candidate_ids) < safe_limit:
         query = db.query(MailSourceImport.id, MailSourceImport.recovery_metadata).filter(
@@ -1564,11 +1569,17 @@ async def list_mail_source_imports(
         if not batch:
             break
         for row_id, metadata in batch:
-            if any(
-                item.get("disposition") == "pending"
-                and item.get("reason") != "already_ingested_message"
-                for item in _decode_recovery_metadata(metadata)
-            ):
+            actionable = False
+            for item in _decode_recovery_metadata(metadata):
+                if item.get("reason") == "already_ingested_message":
+                    continue
+                key = _recovery_case_key(item)
+                if key in seen_cases:
+                    continue
+                if item.get("disposition") == "pending":
+                    actionable = True
+                seen_cases.add(key)
+            if actionable:
                 candidate_ids.append(row_id)
                 if len(candidate_ids) >= safe_limit:
                     break
@@ -1604,6 +1615,8 @@ async def list_mail_source_imports(
                     )
                 )
                 if updated != 1:
+                    db.expire(row, ["recovery_metadata"])
+                else:
                     db.expire(row, ["recovery_metadata"])
         db.commit()
     older_pending = []
