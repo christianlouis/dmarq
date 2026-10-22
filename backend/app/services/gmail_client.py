@@ -469,7 +469,10 @@ class GmailClient:
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            _, created = save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            if not created:
+                logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+                return False
         self.report_store.add_report(report)
         return True
 

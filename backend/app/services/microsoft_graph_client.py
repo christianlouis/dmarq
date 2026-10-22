@@ -797,7 +797,10 @@ class MicrosoftGraphClient(MailSourceConnector):
             if connection.dialect.name == "sqlite" and not connection.connection.in_transaction:
                 connection.exec_driver_sql("BEGIN")
             with self.db.begin_nested():
-                save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+                _, created = save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            if not created:
+                logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+                return False
         self.report_store.add_report(report)
         return True
 

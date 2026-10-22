@@ -875,6 +875,28 @@ class TestProcessAttachments:
         assert second_stats["details"][0]["status"] == "duplicate"
         assert second_stats["details"][0]["report_id"] == "abc-123"
 
+    def test_report_save_race_returns_duplicate_when_persistence_loses(
+        self, db_session, monkeypatch
+    ):
+        client = self._make_client(db=db_session)
+        report = {"domain": "example.com", "report_id": "raced"}
+        stats = {"details": [], "duplicate_reports": 0}
+        monkeypatch.setattr("app.services.imap_client.report_exists", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            "app.services.imap_client.save_parsed_report",
+            lambda *args, **kwargs: (None, False),
+        )
+
+        assert (
+            client._store_report_if_new(
+                report, filename="report.xml", stats=stats, message_id="msg-raced"
+            )
+            is False
+        )
+        assert stats["duplicate_reports"] == 1
+        assert stats["details"][0]["status"] == "duplicate"
+        assert not client.report_store.has_report("example.com", "raced")
+
     def test_bad_attachment_does_not_raise(self):
         client = self._make_client()
         msg = email.message_from_bytes(_make_email_with_attachment("report.xml", b"not xml at all"))

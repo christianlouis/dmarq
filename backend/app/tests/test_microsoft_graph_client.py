@@ -1235,6 +1235,22 @@ class TestMicrosoftGraphFetchReports:
         assert duplicate_stats["errors"] == []
         assert duplicate_stats["duplicate_reports"] == 1
 
+    def test_report_save_race_returns_duplicate_when_persistence_loses(
+        self, db_session, monkeypatch
+    ):
+        client = _make_client(db=db_session)
+        report = {"domain": "example.com", "report_id": "raced"}
+        monkeypatch.setattr(
+            "app.services.microsoft_graph_client.report_exists", lambda *args, **kwargs: False
+        )
+        monkeypatch.setattr(
+            "app.services.microsoft_graph_client.save_parsed_report",
+            lambda *args, **kwargs: (None, False),
+        )
+
+        assert client._store_report_if_new(report) is False
+        assert not client.report_store.has_report("example.com", "raced")
+
     def test_nested_mime_savepoint_keeps_session_usable_after_flush_failure(
         self, db_session, monkeypatch
     ):
