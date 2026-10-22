@@ -1526,6 +1526,127 @@ async def get_mail_source(
     return _source_to_response(source, _latest_import_for_source(db, int(source.id)))
 
 
+def _record_recovery_history_row(
+    row_id: int,
+    metadata: Any,
+    recent_ids: set,
+    seen_cases: set,
+    authoritative: Dict[tuple, tuple[int, str]],
+    candidate_ids: List[int],
+    safe_limit: int,
+) -> None:
+    actionable = False
+    for item in _decode_recovery_metadata(metadata):
+        if item.get("reason") == "already_ingested_message":
+            continue
+        key = _recovery_case_key(item)
+        authoritative.setdefault(key, (row_id, str(item.get("disposition") or "")))
+        if key in seen_cases:
+            continue
+        actionable = actionable or item.get("disposition") == "pending"
+        seen_cases.add(key)
+    if actionable and row_id not in recent_ids and len(candidate_ids) < safe_limit:
+        candidate_ids.append(row_id)
+
+
+def _scan_recovery_history(
+    db: Session,
+    source_id: int,
+    recent_ids: set,
+    recent_cases: set,
+    safe_limit: int,
+) -> tuple[List[int], Dict[tuple, tuple[int, str]]]:
+    candidate_ids: List[int] = []
+    seen_cases = set()
+    authoritative: Dict[tuple, tuple[int, str]] = {}
+    cursor = None
+    while len(candidate_ids) < safe_limit or not recent_cases.issubset(authoritative):
+        query = db.query(MailSourceImport.id, MailSourceImport.recovery_metadata).filter(
+            MailSourceImport.mail_source_id == source_id,
+        )
+        if cursor is not None:
+            query = query.filter(MailSourceImport.id < cursor)
+        batch = query.order_by(MailSourceImport.id.desc()).limit(100).all()
+        if not batch:
+            break
+        for row_id, metadata in batch:
+            _record_recovery_history_row(
+                row_id,
+                metadata,
+                recent_ids,
+                seen_cases,
+                authoritative,
+                candidate_ids,
+                safe_limit,
+            )
+        cursor = batch[-1][0]
+        if len(batch) < 100:
+            break
+    return candidate_ids, authoritative
+
+
+def _select_recovery_history_ids(
+    db: Session,
+    source_id: int,
+    recent_rows: List[MailSourceImport],
+    safe_limit: int,
+) -> tuple[List[int], Dict[tuple, tuple[int, str]]]:
+    """Scan ID order until candidates and recent-case authority are resolved."""
+    recent_ids = {row.id for row in recent_rows}
+    recent_cases = {
+        _recovery_case_key(item)
+        for row in recent_rows
+        for item in _decode_recovery_metadata(row.recovery_metadata)
+        if item.get("reason") != "already_ingested_message"
+    }
+    return _scan_recovery_history(db, source_id, recent_ids, recent_cases, safe_limit)
+
+
+def _persist_normalized_recovery_rows(db: Session, rows: List[MailSourceImport]) -> None:
+    originals = {row.id: row.recovery_metadata for row in rows}
+    if not _normalize_recovery_history(rows):
+        return
+    with db.no_autoflush:
+        for row in rows:
+            original = originals[row.id]
+            if row.recovery_metadata == original:
+                continue
+            db.query(MailSourceImport).filter(
+                MailSourceImport.id == row.id,
+                MailSourceImport.recovery_metadata == original,
+            ).update(
+                {MailSourceImport.recovery_metadata: row.recovery_metadata},
+                synchronize_session=False,
+            )
+            db.expire(row, ["recovery_metadata"])
+    db.commit()
+
+
+def _recovery_history_responses(
+    rows: List[MailSourceImport],
+    authoritative: Dict[tuple, tuple[int, str]],
+    ignored_ids: set,
+) -> List[MailSourceImportResponse]:
+    responses = []
+    for row in rows:
+        response = _import_to_response(row)
+        for item in response.recovery_items:
+            message_id = item.get("message_id")
+            key = _recovery_case_key(item)
+            if message_id in ignored_ids:
+                item["disposition"] = "ignored"
+                item["last_status"] = "ignored"
+            elif key in authoritative and authoritative[key][0] != row.id:
+                item["disposition"] = authoritative[key][1]
+                item["last_status"] = (
+                    "success"
+                    if authoritative[key][1] in {"settled", "retried"}
+                    else authoritative[key][1]
+                )
+        responses.append(response)
+    return responses
+
+
 @router.get("/{source_id}/imports", response_model=List[MailSourceImportResponse])
 async def list_mail_source_imports(
     source_id: int,
@@ -1555,39 +1676,9 @@ async def list_mail_source_imports(
         .limit(safe_limit)
         .all()
     )
-    recent_ids = [row.id for row in recent_rows]
-    candidate_ids = []
-    seen_cases = set()
-    authoritative: Dict[tuple, tuple[int, str]] = {}
-    cursor = None
-    while len(candidate_ids) < safe_limit:
-        query = db.query(MailSourceImport.id, MailSourceImport.recovery_metadata).filter(
-            MailSourceImport.mail_source_id == source_id,
-        )
-        if cursor is not None:
-            query = query.filter(MailSourceImport.id < cursor)
-        batch = query.order_by(MailSourceImport.id.desc()).limit(100).all()
-        if not batch:
-            break
-        for row_id, metadata in batch:
-            actionable = False
-            for item in _decode_recovery_metadata(metadata):
-                if item.get("reason") == "already_ingested_message":
-                    continue
-                key = _recovery_case_key(item)
-                authoritative.setdefault(key, (row_id, str(item.get("disposition") or "")))
-                if key in seen_cases:
-                    continue
-                if item.get("disposition") == "pending":
-                    actionable = True
-                seen_cases.add(key)
-            if actionable and row_id not in recent_ids:
-                candidate_ids.append(row_id)
-                if len(candidate_ids) >= safe_limit:
-                    break
-        cursor = batch[-1][0]
-        if len(batch) < 100:
-            break
+    candidate_ids, authoritative = _select_recovery_history_ids(
+        db, source_id, recent_rows, safe_limit
+    )
     candidate_rows = []
     if candidate_ids:
         by_id = {
@@ -1597,30 +1688,7 @@ async def list_mail_source_imports(
             .all()
         }
         candidate_rows = [by_id[row_id] for row_id in candidate_ids if row_id in by_id]
-    rows_to_normalize = recent_rows + candidate_rows
-    originals = {row.id: row.recovery_metadata for row in rows_to_normalize}
-    if _normalize_recovery_history(rows_to_normalize):
-        with db.no_autoflush:
-            for row in rows_to_normalize:
-                original = originals[row.id]
-                if row.recovery_metadata == original:
-                    continue
-                updated = (
-                    db.query(MailSourceImport)
-                    .filter(
-                        MailSourceImport.id == row.id,
-                        MailSourceImport.recovery_metadata == original,
-                    )
-                    .update(
-                        {MailSourceImport.recovery_metadata: row.recovery_metadata},
-                        synchronize_session=False,
-                    )
-                )
-                if updated != 1:
-                    db.expire(row, ["recovery_metadata"])
-                else:
-                    db.expire(row, ["recovery_metadata"])
-        db.commit()
+    _persist_normalized_recovery_rows(db, recent_rows + candidate_rows)
     older_pending = []
     for row in candidate_rows:
         if any(
@@ -1632,25 +1700,7 @@ async def list_mail_source_imports(
         if len(older_pending) >= safe_limit:
             break
     rows = recent_rows + older_pending
-    ignored_ids = set(ignored_message_ids(db, source))
-    responses = []
-    for row in rows:
-        response = _import_to_response(row)
-        for item in response.recovery_items:
-            message_id = item.get("message_id")
-            key = _recovery_case_key(item)
-            if message_id in ignored_ids:
-                item["disposition"] = "ignored"
-                item["last_status"] = "ignored"
-            elif key in authoritative and authoritative[key][0] != row.id:
-                item["disposition"] = authoritative[key][1]
-                item["last_status"] = (
-                    "success"
-                    if authoritative[key][1] in {"settled", "retried"}
-                    else authoritative[key][1]
-                )
-        responses.append(response)
-    return responses
+    return _recovery_history_responses(rows, authoritative, set(ignored_message_ids(db, source)))
 
 
 @router.post("/{source_id}/imports/{import_id}/retry", response_model=Dict[str, Any])

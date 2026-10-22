@@ -207,6 +207,7 @@ def test_durable_ignore_wins_over_poll_race_for_get_and_retry(authed_client, db_
         f"/api/v1/mail-sources/{source.id}/imports?limit=1",
         headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
     )
+    print(response.json())
     assert response.status_code == 200
     item = response.json()[0]["recovery_items"][0]
     assert item["message_id"] == "race-1"
@@ -279,6 +280,41 @@ def test_get_uses_id_authority_when_started_at_order_is_reversed(authed_client, 
     )
     assert response.status_code == 200
     assert response.json()[0]["id"] == pending.id
+    assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
+
+
+def test_get_resolves_recent_case_before_candidate_quota(authed_client, db_session):
+    workspace, source, binding = _source_and_rows(db_session)
+    recent_pending = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "case-a")]),
+        started_at=datetime.utcnow() + timedelta(days=2),
+    )
+    db_session.add(recent_pending)
+    db_session.commit()
+    older_ignored = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "case-a", disposition="ignored")]),
+        started_at=datetime.utcnow() - timedelta(days=2),
+    )
+    older_independent = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "case-b")]),
+        started_at=datetime.utcnow() - timedelta(days=3),
+    )
+    db_session.add_all([older_ignored, older_independent])
+    db_session.commit()
+
+    response = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    print("THREE", response.json())
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == recent_pending.id
     assert response.json()[0]["recovery_items"][0]["disposition"] == "ignored"
 
 
