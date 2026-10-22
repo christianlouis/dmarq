@@ -223,6 +223,12 @@ def test_stats_cache_metadata_is_utc_on_non_utc_server(tmp_path, monkeypatch):
     assert stats["cached_at"] == "2026-10-22T10:41:00+00:00"
 
 
+def test_dns_posture_cache_timestamp_is_explicit_utc():
+    from app.services.dns_posture_refresh import _source_checked_at_iso
+
+    assert _source_checked_at_iso(datetime(2026, 10, 22, 10, 41)) == ("2026-10-22T10:41:00+00:00")
+
+
 def test_settings_timestamp_labels_evaluate_with_shipped_alpine_csp():
     from html.parser import HTMLParser
 
