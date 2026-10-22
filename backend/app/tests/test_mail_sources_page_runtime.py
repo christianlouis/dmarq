@@ -108,4 +108,58 @@ def test_import_history_template_has_csp_safe_recovery_state_bindings():
     template = (Path(__file__).parents[1] / "templates" / "mail_sources.html").read_text()
     assert "source.latest_import?." not in template
     assert ':disabled="historyLoading || item.loading"' in template
-    assert 'x-show="item.supported && item.disposition === \'pending\'"' in template
+    assert "x-show=\"item.supported && item.disposition === 'pending'\"" in template
+
+
+def test_import_history_ignores_stale_source_and_action_responses():
+    script_path = Path(__file__).parents[1] / "static" / "js" / "mail-sources-page.js"
+    runtime = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const historyResponses = {};
+let actionResponse;
+const context = {
+  window: {},
+  document: { addEventListener: () => {} },
+  Alpine: { data: () => {} },
+  fetch: async (url) => {
+    if (url.includes('/imports?')) return new Promise(resolve => { historyResponses[url] = resolve; });
+    return new Promise(resolve => { actionResponse = resolve; });
+  },
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const app = context.mailSourcesApp();
+const sourceA = { id: 1, name: 'A' };
+const sourceB = { id: 2, name: 'B' };
+const response = entries => ({ ok: true, json: async () => entries });
+(async () => {
+  const loadA = app.loadImportHistory(sourceA);
+  const loadB = app.loadImportHistory(sourceB);
+  historyResponses['/api/v1/mail-sources/2/imports?limit=20'](response([{ id: 'B' }]));
+  await loadB;
+  historyResponses['/api/v1/mail-sources/1/imports?limit=20'](response([{ id: 'A' }]));
+  await loadA;
+  if (app.historySource.id !== 2 || app.importHistory[0].id !== 'B') process.exit(1);
+
+  app.historySource = sourceA;
+  app.historyRequestGeneration += 1;
+  const item = { message_id: 'message-a', loading: false };
+  const action = app.retryImportItem({ id: 9 }, item);
+  const loadNewSource = app.loadImportHistory(sourceB);
+  actionResponse(response({ success: true }));
+  await action;
+  if (app.historySource.id !== 2 || app.historySource.name !== 'B') process.exit(1);
+  historyResponses['/api/v1/mail-sources/2/imports?limit=20'](response([{ id: 'B-again' }]));
+  await loadNewSource;
+  if (app.importHistory[0].id !== 'B-again' || item.loading) process.exit(1);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+    result = subprocess.run(
+        ["node", "-e", runtime, str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
