@@ -7,9 +7,15 @@ could run (see: pydantic_settings sources/providers/env.py decode_complex_value)
 """
 
 import pytest
+from sqlalchemy import text
 
 from app.core.config import Settings
-from app.core.database import _ensure_sqlite_dir, _make_sync_db_url
+from app.core.database import (
+    _create_engine,
+    _ensure_sqlite_dir,
+    _engine_kwargs,
+    _make_sync_db_url,
+)
 
 
 class TestBackendCorsOriginsValidator:
@@ -190,6 +196,59 @@ class TestEnsureSqliteDir:
         """Default DATABASE_URL places the SQLite file inside a data/ subdirectory."""
         settings = Settings()
         assert settings.DATABASE_URL.endswith("data/dmarq.db")
+
+
+class TestDatabasePoolSettings:
+    """Pool settings are bounded and applied only to PostgreSQL engines."""
+
+    def test_defaults_preserve_sqlalchemy_pool_defaults(self):
+        settings = Settings()
+        assert settings.DB_POOL_SIZE == 5
+        assert settings.DB_MAX_OVERFLOW == 10
+
+    def test_environment_values_configure_settings(self, monkeypatch):
+        monkeypatch.setenv("DB_POOL_SIZE", "7")
+        monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
+        settings = Settings()
+        assert settings.DB_POOL_SIZE == 7
+        assert settings.DB_MAX_OVERFLOW == 0
+
+    @pytest.mark.parametrize("field", ["DB_POOL_SIZE", "DB_MAX_OVERFLOW"])
+    @pytest.mark.parametrize("value", [-1, 101])
+    def test_rejects_out_of_bounds_values(self, field, value):
+        with pytest.raises(ValueError, match=field):
+            Settings(**{field: value})
+
+    def test_pool_size_rejects_zero(self):
+        with pytest.raises(ValueError, match="DB_POOL_SIZE"):
+            Settings(DB_POOL_SIZE=0)
+
+    def test_zero_overflow_is_accepted(self):
+        assert Settings(DB_MAX_OVERFLOW=0).DB_MAX_OVERFLOW == 0
+
+    def test_sqlite_omits_queue_pool_options(self):
+        settings = Settings(DB_POOL_SIZE=7, DB_MAX_OVERFLOW=8)
+        assert _engine_kwargs("sqlite://", settings) == {"pool_pre_ping": True}
+
+    def test_postgresql_engine_uses_configured_pool(self):
+        settings = Settings(DB_POOL_SIZE=7, DB_MAX_OVERFLOW=8)
+        db_engine = _create_engine("postgresql+psycopg2://user:pass@db/dmarq", settings)
+        try:
+            assert db_engine.pool.size() == 7
+            assert db_engine.pool._max_overflow == 8
+        finally:
+            db_engine.dispose()
+
+    @pytest.mark.parametrize("url", ["sqlite://", "sqlite:///dmarq-test.db"])
+    def test_sqlite_engines_are_usable(self, url, tmp_path, monkeypatch):
+        if url.endswith("dmarq-test.db"):
+            monkeypatch.chdir(tmp_path)
+        db_engine = _create_engine(url, Settings(DB_POOL_SIZE=7, DB_MAX_OVERFLOW=8))
+        try:
+            with db_engine.begin() as connection:
+                assert connection.execute(text("select 1")).scalar_one() == 1
+        finally:
+            db_engine.dispose()
 
 
 class TestAdminApiKeySetting:

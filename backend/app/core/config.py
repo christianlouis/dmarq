@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # Default to a sub-directory so the SQLite file lives in a location that
     # can be persisted via a Docker volume mount (e.g. /app/data).
     DATABASE_URL: str = "sqlite:///./data/dmarq.db"
+    # SQLAlchemy QueuePool sizing for PostgreSQL. These retain SQLAlchemy's
+    # defaults and are ignored for SQLite. Keep each bound finite so an
+    # accidental environment value cannot consume the whole database budget.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
 
     # JWT Authentication
     SECRET_KEY: Optional[str] = None
@@ -436,6 +441,18 @@ class Settings(BaseSettings):
                 len(v),
             )
 
+        return v
+
+    @validator("DB_POOL_SIZE")
+    def validate_db_pool_size(cls, v: int) -> int:  # pylint: disable=no-self-argument
+        if not 1 <= v <= 100:
+            raise ValueError("DB_POOL_SIZE must be between 1 and 100")
+        return v
+
+    @validator("DB_MAX_OVERFLOW")
+    def validate_db_max_overflow(cls, v: int) -> int:  # pylint: disable=no-self-argument
+        if not 0 <= v <= 100:
+            raise ValueError("DB_MAX_OVERFLOW must be between 0 and 100")
         return v
 
     @validator("BACKEND_CORS_ORIGINS", pre=True)

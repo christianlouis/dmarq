@@ -135,6 +135,12 @@ DMARQ can be configured through environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | SQLAlchemy SQLite or PostgreSQL URL | `sqlite:///./data/dmarq.db` |
+| `DB_POOL_SIZE` | PostgreSQL connections kept in the per-process pool; ignored for SQLite | `5` |
+| `DB_MAX_OVERFLOW` | Extra PostgreSQL connections allowed above `DB_POOL_SIZE` per process; ignored for SQLite | `10` |
+
+For PostgreSQL, budget connections across all replicas and workers, including
+rolling update surge replicas: `replicas × workers per replica ×
+(DB_POOL_SIZE + DB_MAX_OVERFLOW)`, plus other database clients.
 
 ### IMAP Settings
 

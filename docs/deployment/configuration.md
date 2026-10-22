@@ -22,6 +22,13 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `DATABASE_URL` | SQLAlchemy database URL. Supports SQLite and PostgreSQL. | `sqlite:///./data/dmarq.db` | `postgresql://dmarq:secret@db:5432/dmarq` |
+| `DB_POOL_SIZE` | PostgreSQL connections kept in the per-process SQLAlchemy pool. Ignored for SQLite. | `5` | `10` |
+| `DB_MAX_OVERFLOW` | Extra PostgreSQL connections allowed above `DB_POOL_SIZE` per process. Ignored for SQLite. | `10` | `5` |
+
+`DB_POOL_SIZE` and `DB_MAX_OVERFLOW` accept values from 1 to 100 and 0 to 100
+respectively. Budget the maximum across the whole deployment as `replicas ×
+workers per replica × (DB_POOL_SIZE + DB_MAX_OVERFLOW)`, including rolling
+update surge replicas and other PostgreSQL clients.
 
 `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` configure only the
 PostgreSQL container in the provided Compose stack. DMARQ itself always reads

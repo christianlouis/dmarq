@@ -1,5 +1,5 @@
 import os
-from typing import Generator
+from typing import Any, Generator
 from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import create_engine
@@ -60,8 +60,23 @@ _sync_url = _make_sync_db_url(settings.DATABASE_URL)
 # Ensure the parent directory exists before SQLAlchemy tries to open the file
 _ensure_sqlite_dir(_sync_url)
 
+
+def _engine_kwargs(url: str, app_settings: Any) -> dict:
+    """Return engine options, omitting QueuePool options for SQLite."""
+    kwargs = {"pool_pre_ping": True}
+    if not make_url(url).drivername.startswith("sqlite"):
+        kwargs["pool_size"] = app_settings.DB_POOL_SIZE
+        kwargs["max_overflow"] = app_settings.DB_MAX_OVERFLOW
+    return kwargs
+
+
+def _create_engine(url: str, app_settings: Any):
+    """Create the synchronous SQLAlchemy engine for the configured database."""
+    return create_engine(url, **_engine_kwargs(url, app_settings))
+
+
 # Configure SQLAlchemy (normalise async driver schemes to their sync equivalents)
-engine = create_engine(_sync_url, pool_pre_ping=True)
+engine = _create_engine(_sync_url, settings)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create base class for SQLAlchemy models
