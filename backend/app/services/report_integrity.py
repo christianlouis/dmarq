@@ -1,7 +1,7 @@
 """Read-only diagnostics for persisted DMARC report identity collisions."""
 
-import json
 import hashlib
+import json
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 

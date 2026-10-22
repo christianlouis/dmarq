@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
 from app.cli import reconcile_dmarc_duplicates as duplicate_cli  # noqa: E402
+from app.cli.reconcile_dmarc_duplicates import reconcile, restore_backup  # noqa: E402
 from app.core.database import Base  # noqa: E402
 from app.models.domain import Domain  # noqa: E402
-from app.models.report import DomainSourceDailyProjection, DMARCReport, ReportRecord  # noqa: E402
+from app.models.report import DMARCReport, DomainSourceDailyProjection, ReportRecord  # noqa: E402
 from app.models.workspace import Workspace  # noqa: E402
 from app.services.report_integrity import duplicate_report_inventory  # noqa: E402
 from app.services.report_persistence import _iso_from_timestamp, save_parsed_report  # noqa: E402
