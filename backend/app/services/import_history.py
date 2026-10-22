@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
@@ -178,9 +179,7 @@ def _latest_recovery_dispositions(db: Session, source: MailSource) -> Dict[tuple
     return latest
 
 
-def _suppress_ignored_recovery_cases(
-    metadata: str, ignored_cases: set[tuple]
-) -> str:
+def _suppress_ignored_recovery_cases(metadata: str, ignored_cases: set[tuple]) -> str:
     """Keep a newly observed failure ignored when its latest case was ignored."""
     try:
         items = json.loads(metadata or "[]")
@@ -201,13 +200,13 @@ def _suppress_ignored_recovery_cases(
     return json.dumps(items) if changed else metadata
 
 
-def _reconcile_recovery_row(row: MailSourceImport, outcomes: Dict[tuple, str]) -> None:
+def _reconcile_recovery_metadata(metadata: Optional[str], outcomes: Dict[tuple, str]) -> str:
     try:
-        items = json.loads(row.recovery_metadata or "[]")
+        items = json.loads(metadata or "[]")
     except (TypeError, json.JSONDecodeError):
-        return
+        return metadata or "[]"
     if not isinstance(items, list):
-        return
+        return metadata or "[]"
     changed = False
     for item in items:
         if not isinstance(item, dict) or item.get("disposition") != "pending":
@@ -222,7 +221,8 @@ def _reconcile_recovery_row(row: MailSourceImport, outcomes: Dict[tuple, str]) -
             item["last_status"] = "success"
             changed = True
     if changed:
-        row.recovery_metadata = json.dumps(items)
+        return json.dumps(items)
+    return metadata or "[]"
 
 
 def _reconcile_recovery_history(
@@ -235,12 +235,50 @@ def _reconcile_recovery_history(
     if not outcomes:
         return
     prior_rows = (
-        db.query(MailSourceImport)
+        db.query(MailSourceImport.id, MailSourceImport.recovery_metadata)
         .filter(MailSourceImport.mail_source_id == source.id)
         .all()
     )
-    for row in prior_rows:
-        _reconcile_recovery_row(row, outcomes)
+    for row_id, original in prior_rows:
+        replacement = _reconcile_recovery_metadata(original, outcomes)
+        if replacement == (original or "[]"):
+            continue
+        updated = (
+            db.query(MailSourceImport)
+            .filter(
+                MailSourceImport.id == row_id,
+                MailSourceImport.recovery_metadata == original,
+            )
+            .update(
+                {MailSourceImport.recovery_metadata: replacement},
+                synchronize_session=False,
+            )
+        )
+        if updated != 1:
+            # A concurrent ignore/retry won the race. Re-read and reconcile
+            # only still-pending items, never restoring a terminal outcome.
+            current = (
+                db.query(MailSourceImport.recovery_metadata)
+                .filter(MailSourceImport.id == row_id)
+                .scalar()
+            )
+            retry_replacement = _reconcile_recovery_metadata(current, outcomes)
+            if retry_replacement != (current or "[]"):
+                db.query(MailSourceImport).filter(
+                    MailSourceImport.id == row_id,
+                    MailSourceImport.recovery_metadata == current,
+                ).update(
+                    {MailSourceImport.recovery_metadata: retry_replacement},
+                    synchronize_session=False,
+                )
+                if retry_replacement != (current or "[]"):
+                    tracked = db.get(MailSourceImport, row_id)
+                    if tracked is not None:
+                        set_committed_value(tracked, "recovery_metadata", retry_replacement)
+        else:
+            tracked = db.get(MailSourceImport, row_id)
+            if tracked is not None:
+                set_committed_value(tracked, "recovery_metadata", replacement)
 
 
 def _invalidate_imported_report_caches(source: MailSource, results: Dict[str, Any]) -> None:
@@ -295,9 +333,11 @@ def record_import_attempt(
     )
     latest = _latest_recovery_dispositions(db, source)
     _reconcile_recovery_history(db, source, results)
-    ignored_cases = {
-        key for key, disposition in latest.items() if disposition == "ignored"
-    }
+    ignored_cases = {key for key, disposition in latest.items() if disposition == "ignored"}
+    # Re-read after reconciliation so an ignore committed while older rows
+    # were being inspected still suppresses this newly-created failure.
+    latest = _latest_recovery_dispositions(db, source)
+    ignored_cases.update(key for key, disposition in latest.items() if disposition == "ignored")
     attempt.recovery_metadata = _suppress_ignored_recovery_cases(
         attempt.recovery_metadata, ignored_cases
     )
