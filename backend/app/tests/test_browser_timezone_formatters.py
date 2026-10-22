@@ -55,6 +55,9 @@ def test_date_formatter_preserves_calendar_date_across_browser_timezone() -> Non
         zone: _run_formatter("localization.js", zone, "2026-07-16", "dmarqFormatDate")
         for zone in ("America/Los_Angeles", "Europe/Berlin", "Pacific/Kiritimati")
     }
-    assert outputs["America/Los_Angeles"] == outputs["Europe/Berlin"] == outputs[
-        "Pacific/Kiritimati"
-    ] == "7/16/2026"
+    assert (
+        outputs["America/Los_Angeles"]
+        == outputs["Europe/Berlin"]
+        == outputs["Pacific/Kiritimati"]
+        == "7/16/2026"
+    )
