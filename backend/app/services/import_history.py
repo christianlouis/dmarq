@@ -144,10 +144,7 @@ def _recovery_outcomes(source: MailSource, results: Dict[str, Any]) -> Dict[tupl
             # One message can produce multiple attachment outcomes. A later
             # success must not hide an earlier failure for the same case.
             outcomes[key] = "failed"
-        elif (
-            value.get("status") == "imported"
-            or value.get("reason") == "already_ingested_message"
-        ) and outcomes.get(key) != "failed":
+        elif value.get("status") == "imported" and outcomes.get(key) != "failed":
             outcomes[key] = "settled"
     return outcomes
 
