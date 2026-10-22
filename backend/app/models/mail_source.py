@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
@@ -81,10 +81,13 @@ class MailSource(Base):
     # generation those UIDs belong to.  When the server reports a different
     # UIDVALIDITY the stored UID is meaningless and the next poll rescans the
     # folder.  NULL means "never polled incrementally" and triggers a full scan.
-    last_uid = Column(Integer, nullable=True)
-    uid_validity = Column(Integer, nullable=True)
+    last_uid = Column(BigInteger, nullable=True)
+    uid_validity = Column(BigInteger, nullable=True)
     uid_account = Column(String, nullable=True)
     uid_folder = Column(String, nullable=True)
+    uid_server = Column(String, nullable=True)
+    uid_port = Column(Integer, nullable=True)
+    uid_use_ssl = Column(Boolean, nullable=True)
 
     # Source lifecycle
     enabled = Column(Boolean, default=True, index=True)

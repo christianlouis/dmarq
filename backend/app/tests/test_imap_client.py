@@ -1215,7 +1215,7 @@ class TestFetchReports:
         assert result["success"] is True
         assert result["last_uid"] == 5
         assert result["errors"]
-        assert result["processed"] == 0
+        assert result["processed"] == 1
 
     def test_account_or_folder_change_resets_cursor(self):
         client = _incremental_client(
@@ -1238,6 +1238,36 @@ class TestFetchReports:
         assert result["uid_cursor_reset"] is True
         assert result["last_uid"] == 1
         assert result["uid_account"] == "new@example.com"
+
+    def test_missing_uidvalidity_does_not_use_cursor(self):
+        client = _incremental_client(last_uid=11, uid_validity=42)
+        mail = _incremental_mock_mail(uid_validity=b"", search_result=("OK", [b"12"]))
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert mail.uid.call_args_list[0].args[2].startswith("(SINCE ")
+        assert result["uid_cursor_reset"] is True
+
+    def test_server_change_resets_cursor(self):
+        client = _incremental_client(last_uid=11, uid_validity=42, uid_server="old.example.com")
+        mail = _incremental_mock_mail(search_result=("OK", [b"1"]))
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert mail.uid.call_args_list[0].args[2].startswith("(SINCE ")
+        assert result["uid_cursor_reset"] is True
+
+    def test_failed_uid_does_not_starve_later_healthy_uid(self):
+        client = _incremental_client(last_uid=9, uid_validity=42)
+        mail = _incremental_mock_mail(search_result=("OK", [b"10 11"]))
+        mail.uid.side_effect = [
+            ("OK", [b"10 11"]),
+            ("NO", []),
+            ("OK", [(b"11", b"Subject: ordinary mail\r\n\r\nbody")]),
+        ]
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert result["last_uid"] == 9
+        assert result["total_messages"] == 2
+        assert result["errors"]
 
     def test_fetch_reports_selects_configured_folder_with_quotes(self):
         client = IMAPClient(
@@ -1429,6 +1459,9 @@ def _incremental_mock_mail(uid_validity=b"42", search_result=("OK", [b""])):
 def _incremental_client(**kwargs):
     kwargs.setdefault("uid_account", "u")
     kwargs.setdefault("uid_folder", "INBOX")
+    kwargs.setdefault("uid_server", "imap.example.com")
+    kwargs.setdefault("uid_port", 993)
+    kwargs.setdefault("uid_use_ssl", True)
     return IMAPClient(
         server="imap.example.com",
         port=993,
@@ -1498,6 +1531,35 @@ class TestIncrementalUidPolling:
         assert result["total_messages"] == 0
         assert result["processed"] == 0
         assert result["last_uid"] == 11
+
+    def test_uid_search_results_are_sorted_numerically(self):
+        client = _incremental_client(last_uid=9, uid_validity=42)
+        mail = _incremental_mock_mail(search_result=("OK", [b"11 10"]))
+        mail.uid.side_effect = [
+            ("OK", [b"11 10"]),
+            ("OK", [(b"10", b"Subject: ordinary mail\r\n\r\nbody")]),
+            ("OK", [(b"11", b"Subject: ordinary mail\r\n\r\nbody")]),
+        ]
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert [call.args[1] for call in mail.uid.call_args_list[1:]] == [b"10", b"11"]
+        assert result["last_uid"] == 11
+
+    def test_uid_maximum_forces_full_scan_without_overflow_search(self):
+        client = _incremental_client(last_uid=2**32 - 1, uid_validity=42)
+        mail = _incremental_mock_mail(search_result=("OK", [b""]))
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert mail.uid.call_args_list[0].args[2].startswith("(SINCE ")
+        assert result["uid_cursor_reset"] is True
+
+    def test_invalid_uid_search_response_is_rejected(self):
+        client = _incremental_client(last_uid=9, uid_validity=42)
+        mail = _incremental_mock_mail(search_result=("OK", [b"10 nope"]))
+        with patch("imaplib.IMAP4_SSL", return_value=mail):
+            result = client.fetch_reports(days=9999)
+        assert result["success"] is False
+        assert result["error"] == "Error searching mailbox"
 
     def test_uidvalidity_change_forces_full_rescan_and_resets_cursor(self):
         client = _incremental_client(last_uid=11, uid_validity=42)

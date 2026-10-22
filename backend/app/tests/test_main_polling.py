@@ -181,6 +181,9 @@ def test_poll_single_imap_source_passes_configured_folder():
         uid_validity=None,
         uid_account=None,
         uid_folder=None,
+        uid_server=None,
+        uid_port=None,
+        uid_use_ssl=None,
     )
     db.commit.assert_called_once()
     db.close.assert_called_once()
@@ -200,6 +203,11 @@ def test_poll_single_imap_source_persists_uid_cursor():
         folder="INBOX",
         last_uid=11,
         uid_validity=42,
+        uid_account="u",
+        uid_folder="INBOX",
+        uid_server="imap.example.com",
+        uid_port=993,
+        uid_use_ssl=True,
     )
     db = MagicMock()
     db.query.return_value.get.return_value = source
@@ -210,6 +218,11 @@ def test_poll_single_imap_source_persists_uid_cursor():
         "new_domains": [],
         "last_uid": 12,
         "uid_validity": 42,
+        "uid_account": "u",
+        "uid_folder": "INBOX",
+        "uid_server": "imap.example.com",
+        "uid_port": 993,
+        "uid_use_ssl": True,
     }
 
     with (
@@ -225,6 +238,7 @@ def test_poll_single_imap_source_persists_uid_cursor():
     assert mock_client_cls.call_args.kwargs["uid_validity"] == 42
     assert source.last_uid == 12
     assert source.uid_validity == 42
+    assert source.uid_server == "imap.example.com"
 
 
 def test_poll_single_imap_source_keeps_cursor_when_poll_fails():

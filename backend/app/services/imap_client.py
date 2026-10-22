@@ -1,6 +1,7 @@
 import email
 import imaplib
 import logging
+import re
 import shlex
 import ssl
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ from app.services.tls_report_persistence import save_tls_report
 # Setup logger
 logger = logging.getLogger(__name__)
 IMAPError = imaplib.IMAP4.error
+MAX_IMAP_UINT32 = 2**32 - 1
 
 
 class _UidMailbox:
@@ -72,6 +74,9 @@ class IMAPClient:
         uid_validity: Optional[int] = None,
         uid_account: Optional[str] = None,
         uid_folder: Optional[str] = None,
+        uid_server: Optional[str] = None,
+        uid_port: Optional[int] = None,
+        uid_use_ssl: Optional[bool] = None,
     ):
         """
         Initialize the IMAP client with credentials
@@ -118,6 +123,9 @@ class IMAPClient:
         self.uid_validity = uid_validity
         self.uid_account = uid_account
         self.uid_folder = uid_folder
+        self.uid_server = uid_server
+        self.uid_port = uid_port
+        self.uid_use_ssl = uid_use_ssl
 
         self.report_store = ReportStore.get_instance()
 
@@ -414,7 +422,7 @@ class IMAPClient:
             number = int(value)
         except (TypeError, ValueError):
             return None
-        return number if number > 0 else None
+        return number if 0 < number <= MAX_IMAP_UINT32 else None
 
     def _read_uid_validity(self, mail: Any) -> Optional[int]:
         """Return the mailbox ``UIDVALIDITY``, or ``None`` if it can't be read.
@@ -438,9 +446,9 @@ class IMAPClient:
                 if isinstance(raw, (bytes, bytearray)):
                     raw = raw.decode("utf-8", errors="replace")
                 if isinstance(raw, str) and "UIDVALIDITY" in raw.upper():
-                    tail = raw.upper().split("UIDVALIDITY", 1)[1]
-                    digits = "".join(char for char in tail.strip(" (") if char.isdigit())
-                    return self._coerce_uid(digits)
+                    match = re.search(r"UIDVALIDITY\s+(\d+)", raw, flags=re.IGNORECASE)
+                    if match:
+                        return self._coerce_uid(match.group(1))
         except Exception:  # pylint: disable=broad-exception-caught
             pass  # nosec B110 - UIDVALIDITY is optional; caller degrades gracefully
 
@@ -456,24 +464,28 @@ class IMAPClient:
         server_uid_validity = self._read_uid_validity(mail)
         cursor_reset = False
 
-        usable_cursor = self.last_uid is not None
+        usable_cursor = (
+            self.last_uid is not None
+            and self.uid_validity is not None
+            and server_uid_validity is not None
+            and self.uid_validity == server_uid_validity
+            and self.last_uid < MAX_IMAP_UINT32
+        )
         identity_changed = (
             self.last_uid is not None
-            and (self.uid_account != self.username or self.uid_folder != self.folder)
+            and (
+                self.uid_account != self.username
+                or self.uid_folder != self.folder
+                or self.uid_server != self.server
+                or self.uid_port != self.port
+                or self.uid_use_ssl != self.use_ssl
+            )
         )
         if identity_changed:
             usable_cursor = False
             cursor_reset = True
-        if usable_cursor and self.uid_validity is not None:
-            if server_uid_validity is not None and server_uid_validity != self.uid_validity:
-                logger.info(
-                    "IMAP UIDVALIDITY changed for folder %s (%s -> %s); rescanning mailbox",
-                    self.folder,
-                    self.uid_validity,
-                    server_uid_validity,
-                )
-                usable_cursor = False
-                cursor_reset = True
+        if self.last_uid is not None and not usable_cursor:
+            cursor_reset = True
 
         if usable_cursor:
             criteria = f"UID {int(self.last_uid) + 1}:*"
@@ -487,7 +499,15 @@ class IMAPClient:
         if status != "OK":
             raise IMAPError("Error searching mailbox")
 
-        uids = data[0].split() if data and data[0] else []
+        raw_uids = data[0].split() if data and data[0] else []
+        parsed_uids = []
+        for raw_uid in raw_uids:
+            uid = self._coerce_uid(raw_uid)
+            if uid is None:
+                raise IMAPError("Mailbox returned an invalid UID search response")
+            parsed_uids.append((uid, raw_uid))
+        parsed_uids.sort(key=lambda item: item[0])
+        uids = [raw_uid for _uid, raw_uid in parsed_uids]
         if usable_cursor:
             # "<n>:*" always matches at least the highest existing UID, even when
             # that message is older than the cursor, so filter it out explicitly.
@@ -496,6 +516,9 @@ class IMAPClient:
         self.uid_validity = server_uid_validity
         self.uid_account = self.username
         self.uid_folder = self.folder
+        self.uid_server = self.server
+        self.uid_port = self.port
+        self.uid_use_ssl = self.use_ssl
         return uids, cursor_reset
 
     def _select_messages(
@@ -515,6 +538,9 @@ class IMAPClient:
             stats["last_uid"] = self.last_uid
             stats["uid_account"] = self.uid_account
             stats["uid_folder"] = self.uid_folder
+            stats["uid_server"] = self.uid_server
+            stats["uid_port"] = self.uid_port
+            stats["uid_use_ssl"] = self.uid_use_ssl
             return _UidMailbox(mail), email_ids
 
         # Search for all emails containing possible DMARC reports
@@ -548,6 +574,9 @@ class IMAPClient:
         stats["uid_validity"] = self.uid_validity
         stats["uid_account"] = self.uid_account
         stats["uid_folder"] = self.uid_folder
+        stats["uid_server"] = self.uid_server
+        stats["uid_port"] = self.uid_port
+        stats["uid_use_ssl"] = self.uid_use_ssl
 
     def fetch_reports(
         self,
@@ -593,16 +622,17 @@ class IMAPClient:
 
             # Process each email
             highest_uid = self.last_uid if self.incremental else None
+            cursor_blocked = False
             for index, email_id in enumerate(email_ids, start=1):
                 handled = self._process_single_email(mail, email_id, stats)
                 if not handled:
-                    # Do not advance past a failed UID.  Stopping here also
-                    # preserves the contiguous high-water mark when later UIDs
-                    # are present in the same search result.
-                    break
+                    # Keep later healthy messages flowing, but retain the first
+                    # failed UID as a durable hole for the next retry.
+                    cursor_blocked = True
                 # Advance only after the message was handled, so a crash mid-poll
                 # re-reads it instead of silently dropping it.
-                highest_uid = self._advance_uid_cursor(email_id, highest_uid, stats)
+                if not cursor_blocked:
+                    highest_uid = self._advance_uid_cursor(email_id, highest_uid, stats)
                 # A mailbox scan reports every inspected message, including ordinary mail.
                 stats["processed"] = index
                 if progress_callback:
