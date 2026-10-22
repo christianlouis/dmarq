@@ -9,6 +9,8 @@ from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.services.import_history import _latest_recovery_dispositions, _recovery_case_key
 from app.services.mail_source_recovery import recovery_binding
+from app.services.mail_source_recovery_lock import source_recovery_lock
+from app.services.mail_source_recovery_lock import RecoveryLockBusy
 from app.services.workspaces import get_or_create_default_workspace
 
 
@@ -121,14 +123,13 @@ def test_retry_claim_blocks_second_request_before_provider_call(authed_client, d
     )
     db_session.add(row)
     db_session.commit()
-    mail_sources_endpoint._claim_recovery_item(db_session, source, row.id, "m-3")
-
-    with patch.object(mail_sources_endpoint, "_retry_history_item") as provider:
-        response = authed_client.post(
-            f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
-            headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
-            json={"message_id": "m-3"},
-        )
+    with source_recovery_lock(db_session, source.id):
+        with patch.object(mail_sources_endpoint, "_retry_history_item") as provider:
+            response = authed_client.post(
+                f"/api/v1/mail-sources/{source.id}/imports/{row.id}/retry",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+                json={"message_id": "m-3"},
+            )
 
     assert response.status_code == 409
     provider.assert_not_called()
@@ -161,3 +162,78 @@ def test_cache_skip_does_not_overwrite_explicit_ignore_disposition(db_session):
 
     key = _recovery_case_key(_item(source, binding, "m-4"))
     assert _latest_recovery_dispositions(db_session, source)[key] == "ignored"
+
+
+def test_recovery_lock_releases_after_provider_failure(db_session):
+    _, source, _ = _source_and_rows(db_session)
+
+    try:
+        with source_recovery_lock(db_session, source.id):
+            raise RuntimeError("provider failed")
+    except RuntimeError:
+        pass
+
+    with source_recovery_lock(db_session, source.id):
+        pass
+
+
+class _FakePgResult:
+    def __init__(self, acquired):
+        self.acquired = acquired
+
+    def scalar(self):
+        return self.acquired
+
+
+class _FakePgConnection:
+    def __init__(self, acquired=True):
+        self.acquired = acquired
+        self.closed = 0
+        self.statements = []
+
+    def execute(self, statement, params):
+        self.statements.append((str(statement), params))
+        return _FakePgResult(self.acquired if len(self.statements) == 1 else True)
+
+    def close(self):
+        self.closed += 1
+
+
+class _FakePgBind:
+    class _Dialect:
+        name = "postgresql"
+
+    dialect = _Dialect()
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def connect(self):
+        return self.connection
+
+
+class _FakePgSession:
+    def __init__(self, bind):
+        self.bind = bind
+
+    def get_bind(self):
+        return self.bind
+
+
+def test_postgres_recovery_lock_uses_dedicated_connection_and_unlocks():
+    connection = _FakePgConnection()
+    with source_recovery_lock(_FakePgSession(_FakePgBind(connection)), 42):
+        assert connection.closed == 0
+    assert connection.closed == 1
+    assert "pg_try_advisory_lock" in connection.statements[0][0]
+    assert "pg_advisory_unlock" in connection.statements[1][0]
+
+
+def test_postgres_recovery_lock_reports_busy_without_entering():
+    connection = _FakePgConnection(acquired=False)
+    try:
+        with source_recovery_lock(_FakePgSession(_FakePgBind(connection)), 42):
+            raise AssertionError("lock body must not run")
+    except RecoveryLockBusy:
+        pass
+    assert connection.closed == 1
