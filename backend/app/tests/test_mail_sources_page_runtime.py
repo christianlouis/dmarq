@@ -30,6 +30,18 @@ const context = {
 vm.createContext(context);
 vm.runInContext(source, context);
 const app = context.mailSourcesApp();
+const normalized = app.normalizeImportHistory([{
+  id: 17,
+  recovery_items: [
+    { message_id: 'pending-message', supported: true, disposition: 'pending' },
+    { message_id: 'settled-message', supported: true, disposition: 'settled' },
+  ],
+}]);
+const pending = normalized[0].recovery_items[0];
+const settled = normalized[0].recovery_items[1];
+if (pending.loading !== false || settled.loading !== false) process.exit(1);
+if (!(pending.supported && pending.disposition === 'pending')) process.exit(1);
+if (settled.supported && settled.disposition === 'pending') process.exit(1);
 const item = { message_id: 'ignored-message', supported: true, disposition: 'ignored' };
 const entry = { id: 17, recovery_items: [item] };
 app.historySource = { id: 9 };
@@ -90,3 +102,10 @@ app.loadImportHistory = async (_source, preserveFeedback) => {
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_import_history_template_has_csp_safe_recovery_state_bindings():
+    template = (Path(__file__).parents[1] / "templates" / "mail_sources.html").read_text()
+    assert "source.latest_import?." not in template
+    assert ':disabled="historyLoading || item.loading"' in template
+    assert 'x-show="item.supported && item.disposition === \'pending\'"' in template

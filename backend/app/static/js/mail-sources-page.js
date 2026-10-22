@@ -468,12 +468,22 @@ function mailSourcesApp() {
                     const err = await resp.json();
                     throw new Error(err.detail || 'Failed to load import history');
                 }
-                this.importHistory = await resp.json();
+                this.importHistory = this.normalizeImportHistory(await resp.json());
             } catch (e) {
                 this.feedback = { message: `Error: ${e.message}`, type: 'error' };
             } finally {
                 this.historyLoading = false;
             }
+        },
+
+        normalizeImportHistory(entries) {
+            return (Array.isArray(entries) ? entries : []).map(entry => ({
+                ...entry,
+                recovery_items: (Array.isArray(entry.recovery_items) ? entry.recovery_items : []).map(item => ({
+                    ...item,
+                    loading: Boolean(item.loading),
+                })),
+            }));
         },
 
         async retryImportItem(entry, item) {
