@@ -26,6 +26,15 @@ def test_health_check(authed_client: TestClient):
     assert "version" in data
 
 
+def test_health_timestamp_helper_serializes_persisted_instants_as_utc() -> None:
+    from datetime import datetime
+
+    from app.api.api_v1.endpoints.health import _iso
+
+    assert _iso(datetime(2026, 7, 16, 10, 0)) == "2026-07-16T10:00:00+00:00"
+    assert _iso(None) is None
+
+
 def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestClient, monkeypatch):
     """Release metadata is available for support without exposing secrets."""
     from app.api.api_v1.endpoints import (

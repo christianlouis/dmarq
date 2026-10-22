@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.core.database import get_db
@@ -67,6 +68,7 @@ def _require_global_settings_mutation_access(auth_context: dict) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Support sessions cannot modify deployment-wide settings",
         )
+
 
 # ---------------------------------------------------------------------------
 # Defaults – used to seed missing keys on first read
@@ -591,7 +593,7 @@ def _row_to_dict(row: Setting, redact_secrets: bool = True) -> Dict[str, Any]:
         "description": row.description,
         "value_type": row.value_type,
         "category": row.category,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "updated_at": ensure_utc(row.updated_at).isoformat() if row.updated_at else None,
     }
 
 

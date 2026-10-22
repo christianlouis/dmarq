@@ -137,6 +137,9 @@ class TestSettingsAPI:
         assert "notifications.redact_pii_enabled" in keys
         assert "forensics.redaction_mode" in keys
         assert "forensics.redact_long_tokens_enabled" in keys
+        assert all(
+            row["updated_at"] is None or row["updated_at"].endswith("+00:00") for row in data
+        )
 
     def test_resolver_status_marks_missing_enterprise_profile_degraded(
         self, authed_client: TestClient, db_session: Session, monkeypatch

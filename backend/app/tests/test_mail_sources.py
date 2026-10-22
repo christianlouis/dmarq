@@ -1198,6 +1198,75 @@ def test_mail_sources_template_exposes_m365_application_access_safely():
 class TestImportHistoryDecoding:
     """Unit tests for import-history JSON decoding helpers."""
 
+    def test_import_timestamps_are_explicit_utc_across_dst(self, monkeypatch):
+        """Naive UTC history values are explicit UTC instants for any browser."""
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "get_settings",
+            lambda: SimpleNamespace(APP_TIMEZONE="Europe/Berlin"),
+        )
+        row = SimpleNamespace(
+            id=7,
+            mail_source_id=3,
+            trigger="manual",
+            status="success",
+            processed=1,
+            reports_found=1,
+            duplicate_reports=0,
+            error_count=0,
+            new_domains="[]",
+            errors="[]",
+            details="[]",
+            recovery_metadata="[]",
+            started_at=datetime(2026, 3, 29, 0, 30),
+            finished_at=datetime(2026, 10, 25, 1, 30),
+            created_at=datetime(2026, 1, 1, 23, 30),
+        )
+
+        response = mail_sources_endpoint._import_to_response(row)
+
+        assert response.started_at.isoformat() == "2026-03-29T00:30:00+00:00"
+        assert response.finished_at.isoformat() == "2026-10-25T01:30:00+00:00"
+        assert response.created_at.isoformat() == "2026-01-01T23:30:00+00:00"
+
+    def test_backfill_timestamps_are_explicit_utc(self, monkeypatch):
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "get_settings",
+            lambda: SimpleNamespace(APP_TIMEZONE="Europe/Berlin"),
+        )
+        row = SimpleNamespace(
+            id=8,
+            workspace_id=1,
+            mail_source_id=3,
+            status="completed",
+            trigger="manual",
+            requested_start=datetime(2026, 7, 16, 10, 0),
+            requested_end=datetime(2026, 7, 16, 11, 0),
+            requested_by="operator",
+            processed=1,
+            reports_found=1,
+            duplicate_reports=0,
+            error_count=0,
+            attempt_count=1,
+            max_attempts=3,
+            cursor=None,
+            errors="[]",
+            details="[]",
+            started_at=datetime(2026, 7, 16, 10, 0),
+            finished_at=datetime(2026, 7, 16, 10, 1),
+            cancelled_at=None,
+            next_retry_at=None,
+            created_at=datetime(2026, 7, 16, 9, 59),
+            updated_at=datetime(2026, 7, 16, 10, 1),
+        )
+
+        response = mail_sources_endpoint._backfill_to_response(row)
+
+        assert response.started_at.isoformat() == "2026-07-16T10:00:00+00:00"
+        assert response.requested_start.isoformat() == "2026-07-16T10:00:00+00:00"
+        assert response.updated_at.isoformat() == "2026-07-16T10:01:00+00:00"
+
     def test_decode_details_handles_empty_and_malformed_values(self):
         from app.api.api_v1.endpoints.mail_sources import _decode_json_details
 
@@ -1615,8 +1684,8 @@ class TestMailSourcesAPIAuthed:
         assert job["mail_source_id"] == source_id
         assert job["status"] == "queued"
         assert job["trigger"] == "manual"
-        assert job["requested_start"] == "2026-05-01T00:00:00"
-        assert job["requested_end"] == "2026-05-31T23:59:59"
+        assert job["requested_start"] == "2026-05-01T00:00:00Z"
+        assert job["requested_end"] == "2026-05-31T23:59:59Z"
         assert job["max_attempts"] == 4
         assert job["cursor_checkpoint"] is None
         assert job["errors"] == []
@@ -5043,6 +5112,7 @@ class TestTriggerPollEndpoint:
             assert data["sources"][0]["success"] is True
             assert mock_result == data["sources"][0]
             assert mock_poll.call_args.kwargs["days"] == 30
+            assert data["timestamp"] is None or data["timestamp"].endswith("+00:00")
         finally:
             main_app.dependency_overrides.clear()
 
@@ -5081,6 +5151,7 @@ class TestTriggerPollEndpoint:
         assert data["source_labels"] == ["Gmail API: dmarc-reports@example.com"]
         assert data["sources"][0]["connection_status"] == "connected"
         assert data["latest_source_check"] == "2026-07-02T12:00:00+00:00"
+        assert data["last_check"] is None or data["last_check"].endswith("+00:00")
         assert data["authenticated_by"] == "session"
 
     def test_poll_status_surfaces_gmail_reauth_attention(self):

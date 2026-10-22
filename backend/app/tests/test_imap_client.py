@@ -8,6 +8,7 @@ and report fetching with mocked IMAP connections.
 import email
 import imaplib
 import json
+from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -338,6 +339,7 @@ class TestTestConnection:
         assert stats["message_count"] == 10
         assert "INBOX" in stats["available_mailboxes"]
         assert stats["dmarc_count_strategy"] == "common_provider_subjects"
+        assert datetime.fromisoformat(stats["timestamp"]).tzinfo is not None
 
     def test_plain_imap_connection_does_not_negotiate_implicit_tls(self):
         client = IMAPClient(

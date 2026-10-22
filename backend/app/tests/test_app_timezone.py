@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.app_timezone import (
     DEFAULT_APP_TIMEZONE,
+    ensure_utc,
     format_datetime_for_display,
     present_datetime,
     resolve_app_timezone_name,
@@ -61,6 +62,12 @@ def test_present_datetime_applies_offset_and_keeps_utc_instant() -> None:
     assert presented.astimezone(timezone.utc).replace(tzinfo=None) == stored
 
 
+def test_ensure_utc_serializes_naive_and_aware_instants_explicitly() -> None:
+    assert ensure_utc(datetime(2026, 7, 16, 10, 0)).isoformat() == ("2026-07-16T10:00:00+00:00")
+    aware = datetime(2026, 7, 16, 12, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    assert ensure_utc(aware).isoformat() == "2026-07-16T10:00:00+00:00"
+
+
 def test_format_datetime_for_display_includes_offset() -> None:
     stored = datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
     text = format_datetime_for_display(stored, tz_name="Europe/Berlin")
@@ -68,7 +75,7 @@ def test_format_datetime_for_display_includes_offset() -> None:
     assert "+01:00" in text or text.endswith("+0100")
 
 
-def test_mail_source_response_presents_last_checked_in_app_timezone(monkeypatch) -> None:
+def test_mail_source_response_keeps_last_checked_as_explicit_utc(monkeypatch) -> None:
     from types import SimpleNamespace
 
     from app.api.api_v1.endpoints import mail_sources as mail_sources_api
@@ -108,6 +115,5 @@ def test_mail_source_response_presents_last_checked_in_app_timezone(monkeypatch)
     response = mail_sources_api._source_to_response(source)
     assert response.application_timezone == "Europe/Berlin"
     assert response.last_checked is not None
-    assert response.last_checked.hour == 12
-    # Storage instant unchanged when converted back to UTC.
-    assert response.last_checked.astimezone(timezone.utc).hour == 10
+    assert response.last_checked.hour == 10
+    assert response.last_checked.utcoffset() == timezone.utc.utcoffset(response.last_checked)
