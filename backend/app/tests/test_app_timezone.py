@@ -68,7 +68,7 @@ def test_format_datetime_for_display_includes_offset() -> None:
     assert "+01:00" in text or text.endswith("+0100")
 
 
-def test_mail_source_response_presents_last_checked_in_app_timezone(monkeypatch) -> None:
+def test_mail_source_response_keeps_last_checked_as_explicit_utc(monkeypatch) -> None:
     from types import SimpleNamespace
 
     from app.api.api_v1.endpoints import mail_sources as mail_sources_api
@@ -108,6 +108,5 @@ def test_mail_source_response_presents_last_checked_in_app_timezone(monkeypatch)
     response = mail_sources_api._source_to_response(source)
     assert response.application_timezone == "Europe/Berlin"
     assert response.last_checked is not None
-    assert response.last_checked.hour == 12
-    # Storage instant unchanged when converted back to UTC.
-    assert response.last_checked.astimezone(timezone.utc).hour == 10
+    assert response.last_checked.hour == 10
+    assert response.last_checked.utcoffset() == timezone.utc.utcoffset(response.last_checked)

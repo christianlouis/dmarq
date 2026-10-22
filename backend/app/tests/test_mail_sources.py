@@ -1198,8 +1198,8 @@ def test_mail_sources_template_exposes_m365_application_access_safely():
 class TestImportHistoryDecoding:
     """Unit tests for import-history JSON decoding helpers."""
 
-    def test_import_timestamps_include_application_offset_across_dst(self, monkeypatch):
-        """Naive UTC history values are explicit app-local instants for any browser."""
+    def test_import_timestamps_are_explicit_utc_across_dst(self, monkeypatch):
+        """Naive UTC history values are explicit UTC instants for any browser."""
         monkeypatch.setattr(
             mail_sources_endpoint,
             "get_settings",
@@ -1225,11 +1225,11 @@ class TestImportHistoryDecoding:
 
         response = mail_sources_endpoint._import_to_response(row)
 
-        assert response.started_at.isoformat() == "2026-03-29T01:30:00+01:00"
-        assert response.finished_at.isoformat() == "2026-10-25T02:30:00+01:00"
-        assert response.created_at.isoformat() == "2026-01-02T00:30:00+01:00"
+        assert response.started_at.isoformat() == "2026-03-29T00:30:00+00:00"
+        assert response.finished_at.isoformat() == "2026-10-25T01:30:00+00:00"
+        assert response.created_at.isoformat() == "2026-01-01T23:30:00+00:00"
 
-    def test_backfill_timestamps_use_application_timezone(self, monkeypatch):
+    def test_backfill_timestamps_are_explicit_utc(self, monkeypatch):
         monkeypatch.setattr(
             mail_sources_endpoint,
             "get_settings",
@@ -1263,9 +1263,9 @@ class TestImportHistoryDecoding:
 
         response = mail_sources_endpoint._backfill_to_response(row)
 
-        assert response.started_at.isoformat() == "2026-07-16T12:00:00+02:00"
-        assert response.requested_start.isoformat() == "2026-07-16T12:00:00+02:00"
-        assert response.updated_at.isoformat() == "2026-07-16T12:01:00+02:00"
+        assert response.started_at.isoformat() == "2026-07-16T10:00:00+00:00"
+        assert response.requested_start.isoformat() == "2026-07-16T10:00:00+00:00"
+        assert response.updated_at.isoformat() == "2026-07-16T10:01:00+00:00"
 
     def test_decode_details_handles_empty_and_malformed_values(self):
         from app.api.api_v1.endpoints.mail_sources import _decode_json_details

@@ -69,9 +69,20 @@
     window.dmarqFormatNumber = (value, options = {}) =>
         new Intl.NumberFormat(locale, options).format(value);
     window.dmarqFormatDate = (value, options = {}) => {
-        const date = value instanceof Date ? value : new Date(value);
+        // Date-only values represent calendar dates, so anchor them at UTC noon
+        // before applying APP_TIMEZONE instead of allowing the browser zone to
+        // shift them across a day boundary.
+        const raw = typeof value === 'string' ? value.trim() : value;
+        const dateOnly = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw);
+        const date = value instanceof Date
+            ? value
+            : new Date(dateOnly ? `${raw}T12:00:00Z` : value);
         if (Number.isNaN(date.getTime())) return String(value ?? '');
-        return new Intl.DateTimeFormat(locale, options).format(date);
+        const formatOptions = {
+            ...options,
+            timeZone: options.timeZone || (root.dataset.appTimezone || 'UTC'),
+        };
+        return new Intl.DateTimeFormat(locale, formatOptions).format(date);
     };
 
     document.addEventListener('DOMContentLoaded', () => {

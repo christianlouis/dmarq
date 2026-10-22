@@ -27,7 +27,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 
-from app.core.app_timezone import present_datetime
+from app.core.app_timezone import ensure_utc
 from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
@@ -84,6 +84,11 @@ BACKFILL_RETRYABLE_STATUSES = {"failed", "cancelled", "backoff"}
 BACKFILL_CANCELABLE_STATUSES = {"queued", "running", "backoff"}
 BACKFILL_SUPPORTED_METHODS = {"IMAP", "GMAIL_API", "M365_GRAPH"}
 GENERAL_BASE_URL_KEY = "general.base_url"
+
+
+def _utc_now_iso() -> str:
+    """Serialize an API instant explicitly as UTC."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +161,7 @@ class MailSourceResponse(MailSourceBase):
     last_checked: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    # Presentation timezone applied to timestamp fields (storage remains UTC).
+    # Clients use this setting when rendering the explicit UTC instants below.
     application_timezone: str = "UTC"
     # Mask the stored password in responses
     password: Optional[str] = None
@@ -337,7 +342,7 @@ def _connection_test_response(
     """Normalize stored and ad-hoc mailbox test responses."""
     return {
         **connection_test_response(success, message, stats, details),
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _utc_now_iso(),
     }
 
 
@@ -678,7 +683,6 @@ def _source_to_response(
 ) -> MailSourceResponse:
     """Convert ORM row to response schema, masking the stored password."""
     connection_state = _connection_state_for_source(source, latest_import)
-    app_timezone = get_settings().APP_TIMEZONE
     latest_import_summary = None
     if latest_import is not None:
         diagnostic = import_row_diagnostic(latest_import) or {}
@@ -706,10 +710,10 @@ def _source_to_response(
         folder=source.folder or "INBOX",
         polling_interval=source.polling_interval or 60,
         enabled=source.enabled if source.enabled is not None else True,
-        last_checked=present_datetime(source.last_checked, tz_name=app_timezone),
-        created_at=present_datetime(source.created_at, tz_name=app_timezone),
-        updated_at=present_datetime(source.updated_at, tz_name=app_timezone),
-        application_timezone=app_timezone,
+        last_checked=ensure_utc(source.last_checked) if source.last_checked else None,
+        created_at=ensure_utc(source.created_at) if source.created_at else None,
+        updated_at=ensure_utc(source.updated_at) if source.updated_at else None,
+        application_timezone=get_settings().APP_TIMEZONE,
         gmail_client_id=source.gmail_client_id,
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,
@@ -771,7 +775,6 @@ def _decode_recovery_metadata(value: Optional[str]) -> List[Dict[str, Any]]:
 
 def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
     """Convert an import-history ORM row to an API response."""
-    app_timezone = get_settings().APP_TIMEZONE
     return MailSourceImportResponse(
         id=row.id,
         mail_source_id=row.mail_source_id,
@@ -785,9 +788,9 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
         errors=_decode_json_list(row.errors),
         details=_decode_json_details(row.details),
         recovery_items=_decode_recovery_metadata(row.recovery_metadata),
-        started_at=present_datetime(row.started_at, tz_name=app_timezone),
-        finished_at=present_datetime(row.finished_at, tz_name=app_timezone),
-        created_at=present_datetime(row.created_at, tz_name=app_timezone),
+        started_at=ensure_utc(row.started_at) if row.started_at else None,
+        finished_at=ensure_utc(row.finished_at) if row.finished_at else None,
+        created_at=ensure_utc(row.created_at) if row.created_at else None,
     )
 
 
@@ -1091,15 +1094,14 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
     )
-    app_timezone = get_settings().APP_TIMEZONE
     return MailSourceBackfillResponse(
         id=row.id,
         workspace_id=row.workspace_id,
         mail_source_id=row.mail_source_id,
         status=row.status,
         trigger=row.trigger,
-        requested_start=present_datetime(row.requested_start, tz_name=app_timezone),
-        requested_end=present_datetime(row.requested_end, tz_name=app_timezone),
+        requested_start=ensure_utc(row.requested_start) if row.requested_start else None,
+        requested_end=ensure_utc(row.requested_end) if row.requested_end else None,
         requested_by=row.requested_by,
         processed=row.processed,
         reports_found=row.reports_found,
@@ -1112,12 +1114,12 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         **metadata,
         errors=_decode_json_list(row.errors),
         details=details,
-        started_at=present_datetime(row.started_at, tz_name=app_timezone),
-        finished_at=present_datetime(row.finished_at, tz_name=app_timezone),
-        cancelled_at=present_datetime(row.cancelled_at, tz_name=app_timezone),
-        next_retry_at=present_datetime(row.next_retry_at, tz_name=app_timezone),
-        created_at=present_datetime(row.created_at, tz_name=app_timezone),
-        updated_at=present_datetime(row.updated_at, tz_name=app_timezone),
+        started_at=ensure_utc(row.started_at) if row.started_at else None,
+        finished_at=ensure_utc(row.finished_at) if row.finished_at else None,
+        cancelled_at=ensure_utc(row.cancelled_at) if row.cancelled_at else None,
+        next_retry_at=ensure_utc(row.next_retry_at) if row.next_retry_at else None,
+        created_at=ensure_utc(row.created_at) if row.created_at else None,
+        updated_at=ensure_utc(row.updated_at) if row.updated_at else None,
     )
 
 
@@ -1224,7 +1226,7 @@ def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, An
         "diagnostic_category": diagnostic["category"],
         "diagnostic_summary": diagnostic["summary"],
         "recovery_steps": diagnostic["recovery_steps"],
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _utc_now_iso(),
     }
 
 
@@ -2891,7 +2893,7 @@ async def gmail_fetch_reports(
         "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
         "new_domains": [str(d) for d in results.get("new_domains", [])],
         "error_count": len(results.get("errors", [])),
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _utc_now_iso(),
     }
 
 
