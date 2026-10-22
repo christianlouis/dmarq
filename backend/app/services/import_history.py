@@ -166,7 +166,14 @@ def _latest_recovery_dispositions(db: Session, source: MailSource) -> Dict[tuple
         if not isinstance(items, list):
             continue
         for item in items:
-            if isinstance(item, dict) and item.get("message_id"):
+            if (
+                isinstance(item, dict)
+                and item.get("message_id")
+                # A cache hit records an observation, not resolution of an
+                # existing recovery case. Preserve the authoritative outcome
+                # from an earlier failure or explicit ignore.
+                and item.get("reason") != "already_ingested_message"
+            ):
                 latest[_recovery_case_key(item)] = str(item.get("disposition") or "")
     return latest
 

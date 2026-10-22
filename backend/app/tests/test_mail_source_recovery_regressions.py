@@ -7,6 +7,7 @@ from unittest.mock import patch
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.services.import_history import _latest_recovery_dispositions, _recovery_case_key
 from app.services.mail_source_recovery import recovery_binding
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -68,6 +69,16 @@ def test_history_keeps_older_real_failure_when_newer_cache_skip_is_seen(authed_c
         ("m-1", "pending"),
     ]
 
+    second = authed_client.get(
+        f"/api/v1/mail-sources/{source.id}/imports?limit=1",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+    second_items = [item for row in second.json() for item in row["recovery_items"]]
+    assert [(item["message_id"], item["disposition"]) for item in second_items] == [
+        ("m-1", "settled"),
+        ("m-1", "pending"),
+    ]
+
 
 def test_history_exposes_latest_duplicate_pending_and_supersedes_older(authed_client, db_session):
     workspace, source, binding = _source_and_rows(db_session)
@@ -121,3 +132,32 @@ def test_retry_claim_blocks_second_request_before_provider_call(authed_client, d
 
     assert response.status_code == 409
     provider.assert_not_called()
+
+
+def test_cache_skip_does_not_overwrite_explicit_ignore_disposition(db_session):
+    _, source, binding = _source_and_rows(db_session)
+    ignored = MailSourceImport(
+        mail_source_id=source.id,
+        status="warning",
+        recovery_metadata=json.dumps([_item(source, binding, "m-4", disposition="ignored")]),
+    )
+    cache_skip = MailSourceImport(
+        mail_source_id=source.id,
+        status="success",
+        recovery_metadata=json.dumps(
+            [
+                _item(
+                    source,
+                    binding,
+                    "m-4",
+                    disposition="settled",
+                    reason="already_ingested_message",
+                )
+            ]
+        ),
+    )
+    db_session.add_all([ignored, cache_skip])
+    db_session.commit()
+
+    key = _recovery_case_key(_item(source, binding, "m-4"))
+    assert _latest_recovery_dispositions(db_session, source)[key] == "ignored"
