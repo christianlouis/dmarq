@@ -76,6 +76,18 @@ messages without a successfully handled report are also retained. Cleanup only
 considers messages within the selected fetch window; use **Backfill** for older
 mail. Confirm the import-history results before widening that window.
 
+Yahoo aggregate reports from `noreply@dmarc.yahoo.com` include an ordinary inline
+text body without a filename. DMARQ ignores that body when deciding whether all
+attachments were handled, so it does not prevent cleanup after a successful
+import or a database-confirmed duplicate. This applies to Yahoo reports received
+through any IMAP mailbox. Failed reports and other unhandled attachments still
+keep the message in the mailbox.
+
+After upgrading, use **Backfill** with a small date range to revisit Yahoo reports
+retained by an earlier version. Normal incremental polling may already have
+advanced past those messages. Check import history and confirm the handled
+messages were removed from the mailbox before widening the range.
+
 ### Polling Schedule
 
 Enabled sources are checked by the application scheduler according to their

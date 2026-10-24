@@ -6,6 +6,7 @@ import shlex
 import ssl
 from datetime import datetime, timedelta, timezone
 from email.header import decode_header
+from email.utils import getaddresses
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core.config import get_settings
@@ -790,6 +791,49 @@ class IMAPClient:
         return False
 
     @staticmethod
+    def _is_yahoo_report_sender(msg: email.message.Message) -> bool:
+        """Return true only for the exact, single Yahoo DMARC sender identity."""
+        values = msg.get_all("From", [])
+        if len(values) != 1:
+            return False
+        addresses = getaddresses(values)
+        return len(addresses) == 1 and addresses[0][1].lower() == "noreply@dmarc.yahoo.com"
+
+    @staticmethod
+    def _walk_parts_with_ancestors(msg: email.message.Message):
+        """Walk MIME parts while retaining parents for nested-attachment safety."""
+
+        def visit(part, ancestors):
+            yield part, ancestors
+            payload = part.get_payload()
+            if isinstance(payload, list):
+                for child in payload:
+                    yield from visit(child, ancestors + (part,))
+
+        yield from visit(msg, ())
+
+    @classmethod
+    def _is_yahoo_normal_body(
+        cls,
+        msg: email.message.Message,
+        part: email.message.Message,
+        ancestors,
+    ) -> bool:
+        """Identify only Yahoo's unnamed inline text body, never report parts."""
+        if not cls._is_yahoo_report_sender(msg):
+            return False
+        if part.get_content_disposition() != "inline" or part.get_filename():
+            return False
+        if part.get_content_type() not in ("text/plain", "text/html"):
+            return False
+        return not any(
+            parent.get_content_disposition() == "attachment"
+            or parent.get_filename()
+            or parent.get_content_maintype() == "message"
+            for parent in ancestors
+        )
+
+    @staticmethod
     def _is_dmarc_filename(filename: str) -> bool:
         lower = filename.lower()
         return (
@@ -1152,12 +1196,14 @@ class IMAPClient:
         """
         reports_found = 0
 
-        for part in msg.walk():
+        for part, ancestors in self._walk_parts_with_ancestors(msg):
             if part.get_content_disposition() not in ["attachment", "inline"]:
                 continue
 
             filename = part.get_filename()
             if not filename:
+                if self._is_yahoo_normal_body(msg, part, ancestors):
+                    continue
                 if stats is not None:
                     stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
                 self._append_detail(
