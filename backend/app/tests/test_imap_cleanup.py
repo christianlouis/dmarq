@@ -1,22 +1,29 @@
 """Regression coverage for opt-in cleanup of imported aggregate report mail."""
 
 import email
+import gzip
 import json
 from datetime import datetime
 from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.report import DMARCReport, TLSReport
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.models.report import DMARCReport, TLSReport
 from app.models.workspace import Workspace
 from app.services.imap_client import IMAPClient
-from app.services.mail_connector import initial_import_stats
 from app.services.import_history import record_import_attempt
-from app.tests.test_imap_client import MINIMAL_TLS_RPT_JSON, _make_email_with_attachment
+from app.services.mail_connector import initial_import_stats
+from app.tests.test_imap_client import (
+    MINIMAL_DMARC_XML,
+    MINIMAL_TLS_RPT_JSON,
+    _make_email_with_attachment,
+)
 
 
 def make_client(db, enabled=True, workspace_id=None):
@@ -40,6 +47,192 @@ def mailbox(raw=None):
     mail.fetch.return_value = ("OK", [(b"1", raw or _make_email_with_attachment())])
     mail.store.return_value = ("OK", [])
     return mail
+
+
+def yahoo_report_message(
+    *,
+    from_header="Yahoo Reports <noreply@dmarc.yahoo.com>",
+    body_style="plain",
+    attachment=True,
+    nested_body=False,
+):
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = "DMARC Aggregate Report"
+    if isinstance(from_header, (list, tuple)):
+        for value in from_header:
+            msg["From"] = value
+    else:
+        msg["From"] = from_header
+    if body_style == "alternative":
+        body = MIMEMultipart("alternative")
+        for subtype in ("plain", "html"):
+            body_part = MIMEText("Your DMARC report is attached.", subtype)
+            body_part["Content-Disposition"] = "inline"
+            body.attach(body_part)
+    else:
+        body = MIMEText("Your DMARC report is attached.", "plain")
+        body["Content-Disposition"] = "inline"
+    msg.attach(body)
+    if attachment:
+        part = MIMEApplication(gzip.compress(MINIMAL_DMARC_XML), _subtype="gzip")
+        part.add_header(
+            "Content-Disposition", "attachment", filename="yahoo.com!example!123.xml.gz"
+        )
+        msg.attach(part)
+    if nested_body:
+        nested = MIMEMultipart("mixed")
+        nested["Content-Disposition"] = "attachment"
+        nested_body_part = MIMEText("nested content", "plain")
+        nested_body_part["Content-Disposition"] = "inline"
+        nested.attach(nested_body_part)
+        msg.attach(nested)
+    return msg.as_bytes()
+
+
+@pytest.mark.parametrize("body_style", ["plain", "alternative"])
+@pytest.mark.parametrize(
+    "from_header", ["YAHOO <NOREPLY@DMARC.YAHOO.COM>", "Yahoo Reports <noreply@dmarc.yahoo.com>"]
+)
+def test_yahoo_report_body_is_ignored_and_new_report_is_deleted(
+    db_session, body_style, from_header
+):
+    mail = mailbox(yahoo_report_message(body_style=body_style, from_header=from_header))
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["skipped_attachments"] == 0
+    assert stats["deleted"] == 1
+    mail.store.assert_any_call(b"1", "+FLAGS", "\\Deleted")
+    assert db_session.query(DMARCReport).count() == 1
+
+
+def test_yahoo_report_body_is_ignored_and_persisted_duplicate_is_deleted(db_session):
+    client = make_client(db_session, enabled=False)
+    client._process_single_email(
+        mailbox(yahoo_report_message()), b"1", initial_import_stats(deleted=True)
+    )
+    db_session.commit()
+
+    mail = mailbox(yahoo_report_message())
+    stats = initial_import_stats(deleted=True)
+    make_client(db_session, enabled=True)._process_single_email(mail, b"2", stats)
+
+    assert stats["duplicate_reports"] == 1
+    assert stats["skipped_attachments"] == 0
+    assert stats["deleted"] == 1
+    mail.store.assert_any_call(b"2", "+FLAGS", "\\Deleted")
+
+
+def test_yahoo_cleanup_disabled_retains_successfully_imported_report(db_session):
+    mail = mailbox(yahoo_report_message())
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=False)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["deleted"] == 0
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+def test_yahoo_text_only_message_is_retained(db_session):
+    mail = mailbox(yahoo_report_message(attachment=False))
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 0
+    assert stats["deleted"] == 0
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+def test_yahoo_nested_attachment_body_remains_protective(db_session):
+    mail = mailbox(yahoo_report_message(nested_body=True))
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["deleted"] == 0
+    assert stats["skipped_attachments"] == 2
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+@pytest.mark.parametrize("content_type", ["text/plain", "application/gzip"])
+@pytest.mark.parametrize("filename", ["body.bin", None])
+def test_yahoo_named_or_binary_inline_sibling_remains_protective(
+    db_session, content_type, filename
+):
+    msg = email.message_from_bytes(yahoo_report_message())
+    sibling = MIMEApplication(b"not a body", _subtype="octet-stream")
+    sibling.set_type(content_type)
+    if filename:
+        sibling.add_header("Content-Disposition", "inline", filename=filename)
+    else:
+        sibling.add_header("Content-Disposition", "inline")
+    msg.attach(sibling)
+    mail = mailbox(msg.as_bytes())
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    expected_ignored = filename is None and content_type == "text/plain"
+    assert stats["deleted"] == int(expected_ignored)
+    assert stats["skipped_attachments"] == int(not expected_ignored)
+    if expected_ignored:
+        mail.store.assert_any_call(b"1", "+FLAGS", "\\Deleted")
+    else:
+        mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+@pytest.mark.parametrize(
+    "from_header",
+    ["alerts@example.com", ["noreply@dmarc.yahoo.com", "attacker@example.com"]],
+)
+def test_yahoo_body_exception_rejects_non_yahoo_or_multiple_from(db_session, from_header):
+    mail = mailbox(yahoo_report_message(from_header=from_header))
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["deleted"] == 0
+    assert stats["skipped_attachments"] == 1
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+def test_yahoo_commit_failure_retains_message(db_session):
+    mail = mailbox(yahoo_report_message())
+    stats = initial_import_stats(deleted=True)
+
+    with patch.object(db_session, "commit", side_effect=RuntimeError("commit failed")):
+        make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["errors"]
+    assert stats["deleted"] == 0
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+
+
+@pytest.mark.parametrize(
+    "from_header",
+    [
+        "noreply@dmarc.yahoo.com.evil.example",
+        "noreply@dmarc.yahoo.com via evil.example <attacker@evil.example>",
+        "noreply@dmarc.yahoo.com, noreply@dmarc.yahoo.com <attacker@evil.example>",
+    ],
+)
+def test_yahoo_body_exception_requires_exact_single_sender(db_session, from_header):
+    mail = mailbox(yahoo_report_message(from_header=from_header))
+    stats = initial_import_stats(deleted=True)
+
+    make_client(db_session, enabled=True)._process_single_email(mail, b"1", stats)
+
+    assert stats["reports_found"] == 1
+    assert stats["deleted"] == 0
+    assert stats["skipped_attachments"] == 1
+    mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
 
 
 @pytest.mark.parametrize("enabled", [False, True])
