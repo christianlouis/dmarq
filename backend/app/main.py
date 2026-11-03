@@ -47,6 +47,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
+from app.services.alert_rules import send_current_alerts
 from app.services.calm_watch import evaluate_and_send_calm_watch
 from app.services.delivery_events import purge_expired_delivery_events
 from app.services.demo_data import build_demo_mail_sources
@@ -390,6 +391,24 @@ def _send_due_summary_notifications() -> None:
         db.close()
 
 
+def _send_current_alert_notifications() -> None:
+    """Evaluate active alert rules and deliver their notification summary."""
+    db = SessionLocal()
+    try:
+        result = send_current_alerts(db)
+        notification = result.get("notification", {})
+        if notification.get("success"):
+            if not notification.get("skipped"):
+                logger.info("Sent DMARC alert notification")
+        else:
+            logger.warning(
+                "DMARC alert notification was not sent: %s",
+                notification.get("message", "Unknown error"),
+            )
+    finally:
+        db.close()
+
+
 def _deliver_due_webhook_events() -> None:
     """Attempt due outbound webhook deliveries."""
     db = SessionLocal()
@@ -457,6 +476,7 @@ def _run_mailbox_scheduler_cycle() -> List[MailSource]:
     if calm_watch["sent"]:
         logger.info("Calm Watch sent %d incident notification(s)", len(calm_watch["sent"]))
     _send_due_summary_notifications()
+    _send_current_alert_notifications()
     _deliver_due_webhook_events()
     return enabled_sources
 

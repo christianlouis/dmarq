@@ -422,6 +422,7 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
             return_value={"sent": [], "suppressed": [], "resolved": []},
         ) as calm_watch,
         patch("app.main._send_due_summary_notifications") as summaries,
+        patch("app.main._send_current_alert_notifications") as alerts,
         patch("app.main._deliver_due_webhook_events") as webhooks,
     ):
         assert _run_mailbox_scheduler_cycle() == ["source"]
@@ -430,6 +431,7 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
     backfills.assert_called_once_with()
     calm_watch.assert_called_once_with()
     summaries.assert_called_once_with()
+    alerts.assert_called_once_with()
     webhooks.assert_called_once_with()
 
 
