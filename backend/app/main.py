@@ -400,6 +400,11 @@ def _send_current_alert_notifications() -> None:
         if notification.get("success"):
             if not notification.get("skipped"):
                 logger.info("Sent DMARC alert notification")
+        elif notification.get("skipped"):
+            logger.debug(
+                "DMARC alert notification skipped: %s",
+                notification.get("message", "Unknown reason"),
+            )
         else:
             logger.warning(
                 "DMARC alert notification was not sent: %s",

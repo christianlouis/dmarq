@@ -1,10 +1,126 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.report import DMARCReport, ReportRecord
+from app.models.setting import Setting
+
+
+def _seed_scheduled_alert(db_session):
+    domain = Domain(name="scheduled-alert.example")
+    db_session.add(domain)
+    db_session.flush()
+    now = int(datetime.now(timezone.utc).timestamp())
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="scheduled-alert-report",
+        org_name="receiver.example",
+        begin_date=now,
+        end_date=now + 3600,
+        policy="none",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip="203.0.113.99",
+            count=1,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+            header_from=domain.name,
+        )
+    )
+    db_session.add_all(
+        [
+            Setting(key="notifications.apprise_enabled", value="true", category="notifications"),
+            Setting(
+                key="notifications.apprise_urls", value="fake://target", category="notifications"
+            ),
+            Setting(
+                key="notifications.min_send_interval_minutes", value="5", category="notifications"
+            ),
+            Setting(
+                key="notifications.alert_new_sources_enabled",
+                value="true",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.alert_failure_threshold_enabled",
+                value="false",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.alert_missing_reports_enabled",
+                value="false",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.alert_compliance_drop_enabled",
+                value="false",
+                category="notifications",
+            ),
+        ]
+    )
+    db_session.commit()
+
+
+def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, monkeypatch):
+    """Scheduled active alerts use Apprise and retry delivery failures."""
+    import app.main as main_module
+
+    _seed_scheduled_alert(db_session)
+    outcomes = iter([True, False, True])
+    notifications = []
+
+    class FakeApprise:
+        def add(self, url):
+            assert url == "fake://target"
+            return True
+
+        def notify(self, *, title, body):
+            notifications.append((title, body))
+            return next(outcomes)
+
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
+    with (
+        patch.object(main_module, "_poll_all_enabled_sources", return_value=[]),
+        patch.object(main_module, "_run_due_mail_source_backfills", return_value=0),
+        patch.object(
+            main_module,
+            "_run_calm_watch_cycle",
+            return_value={"sent": [], "suppressed": [], "resolved": []},
+        ),
+        patch.object(main_module, "_send_due_summary_notifications"),
+        patch.object(main_module, "_deliver_due_webhook_events"),
+    ):
+        main_module._run_mailbox_scheduler_cycle()
+        assert len(notifications) == 1
+
+        main_module._run_mailbox_scheduler_cycle()
+        assert len(notifications) == 1
+
+        last_sent = db_session.query(Setting).filter_by(key="notifications.last_sent_at").one()
+        old_value = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+        last_sent.value = old_value
+        db_session.commit()
+        main_module._run_mailbox_scheduler_cycle()
+        assert len(notifications) == 2
+        assert (
+            db_session.query(Setting).filter_by(key="notifications.last_sent_at").one().value
+            == old_value
+        )
+
+        main_module._run_mailbox_scheduler_cycle()
+
+    assert len(notifications) == 3
 
 
 def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
