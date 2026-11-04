@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -242,6 +243,19 @@ def evaluate_alert_rules(db: Session) -> List[Dict[str, Any]]:
         drop_points = _int_setting(settings.get("notifications.alert_compliance_drop_points"), 10)
         alerts.extend(_compliance_drop_alerts(db, drop_points))
 
+    domain_names = {str(alert["domain"]) for alert in alerts if alert.get("domain")}
+    workspace_ids = {
+        row.name: row.workspace_id
+        for row in db.query(Domain.name, Domain.workspace_id)
+        .filter(Domain.name.in_(domain_names))
+        .all()
+    }
+    for alert in alerts:
+        domain = alert.get("domain")
+        if domain in workspace_ids:
+            # Preserve an explicit None for legacy, unscoped domains.  The
+            # webhook enqueue path distinguishes it from an unknown owner.
+            alert["workspace_id"] = workspace_ids[domain]
     return alerts
 
 
@@ -256,15 +270,25 @@ def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> N
         rule = alert.get("rule", "alert")
         event_type = event_by_rule.get(rule, EVENT_ALERT_CREATED)
         domain = alert.get("domain", "global")
-        idempotency_key = f"{event_type}:{domain}:{rule}:{alert.get('detail', '')}"
+        if "workspace_id" not in alert:
+            logger.warning("Skipping webhook for alert with unknown domain owner: %s", domain)
+            continue
+        alert_workspace_id = alert.get("workspace_id")
+        legacy_key = f"{event_type}:{domain}:{rule}:{alert.get('detail', '')}"
+        idempotency_key = legacy_key
+        if len(idempotency_key) > 160:
+            digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+            idempotency_key = f"{idempotency_key[:95]}:{digest}"
         try:
             enqueue_webhook_event(
                 db,
                 event_type=event_type,
                 payload=alert,
                 idempotency_key=idempotency_key,
+                workspace_id=alert_workspace_id,
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            db.rollback()
             logger.warning("Failed to queue alert webhook event: %s", exc)
 
 
@@ -275,12 +299,19 @@ def send_current_alerts(db: Session) -> Dict[str, Any]:
     enqueue_alert_webhook_events(db, alerts)
     if not alerts:
         return {
-            "alerts": [],
+            "alerts": alerts,
             "notification": NotificationResult(
-                success=True, skipped=True, message="No alerts."
+                success=True,
+                skipped=True,
+                message="No alerts.",
             ).to_dict(),
         }
 
+    return send_alert_summary_notification(db, alerts)
+
+
+def send_alert_summary_notification(db: Session, alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Send one notification for an already evaluated alert set."""
     lines = [f"{alert['title']}: {alert['detail']}" for alert in alerts[:10]]
     if len(alerts) > 10:
         lines.append(f"...and {len(alerts) - 10} more alert(s).")
