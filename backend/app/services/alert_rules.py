@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -272,8 +273,12 @@ def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> N
         if "workspace_id" not in alert:
             logger.warning("Skipping webhook for alert with unknown domain owner: %s", domain)
             continue
-        alert_workspace_id = alert["workspace_id"]
-        idempotency_key = f"{event_type}:{alert_workspace_id or 'default'}:{domain}:{rule}:{alert.get('detail', '')}"
+        alert_workspace_id = alert.get("workspace_id")
+        legacy_key = f"{event_type}:{domain}:{rule}:{alert.get('detail', '')}"
+        idempotency_key = legacy_key
+        if len(idempotency_key) > 160:
+            digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+            idempotency_key = f"{idempotency_key[:95]}:{digest}"
         try:
             enqueue_webhook_event(
                 db,
@@ -283,6 +288,7 @@ def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> N
                 workspace_id=alert_workspace_id,
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            db.rollback()
             logger.warning("Failed to queue alert webhook event: %s", exc)
 
 

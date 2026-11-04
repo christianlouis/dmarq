@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import app.main as main_module
+import app.services.alert_rules as alert_rules
 from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
@@ -14,6 +15,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.models.workspace import Workspace
+from app.services.notifications import NotificationResult
 
 
 def _seed_scheduled_alert(db_session):
@@ -260,6 +262,117 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
         db_session.query(AlertHistory).filter(AlertHistory.domain == "legacy.example").one()
     )
     assert legacy_history.observed_count == 3
+
+
+def test_alert_webhook_keys_preserve_legacy_dedupe_and_bound_long_details(db_session):
+    """Legacy short keys remain stable while new keys fit delivery storage."""
+    workspace = Workspace(slug="default", name="Default")
+    db_session.add(workspace)
+    db_session.flush()
+    db_session.add(
+        WebhookEndpoint(
+            workspace_id=workspace.id,
+            name="default endpoint",
+            url="https://default.example/hook",
+            secret="default-secret",
+            event_types="dmarq.alert.created",
+            enabled=True,
+        )
+    )
+    db_session.commit()
+
+    alert = {
+        "rule": "custom",
+        "domain": "legacy.example",
+        "detail": "stable",
+        "workspace_id": None,
+    }
+    alert_rules.enqueue_alert_webhook_events(db_session, [alert])
+    alert_rules.enqueue_alert_webhook_events(db_session, [alert])
+    deliveries = db_session.query(WebhookDelivery).all()
+    assert len(deliveries) == 1
+    assert deliveries[0].idempotency_key == "dmarq.alert.created:legacy.example:custom:stable"
+    alert["workspace_id"] = workspace.id
+    alert_rules.enqueue_alert_webhook_events(db_session, [alert])
+    assert db_session.query(WebhookDelivery).count() == 1
+
+    long_alert = {
+        "rule": "custom",
+        "domain": "legacy.example",
+        "detail": "x" * 500,
+        "workspace_id": None,
+    }
+    alert_rules.enqueue_alert_webhook_events(db_session, [long_alert])
+    long_delivery = db_session.query(WebhookDelivery).order_by(WebhookDelivery.id.desc()).first()
+    assert long_delivery is not None
+    assert len(long_delivery.idempotency_key) == 160
+    alert_rules.enqueue_alert_webhook_events(db_session, [long_alert])
+    assert db_session.query(WebhookDelivery).count() == 2
+    assert (
+        db_session.query(WebhookDelivery)
+        .order_by(WebhookDelivery.id.desc())
+        .first()
+        .idempotency_key
+        == long_delivery.idempotency_key
+    )
+
+
+def test_alert_webhook_failure_rolls_back_before_next_alert_cycle(db_session, monkeypatch):
+    """A failed enqueue does not poison the session or block the next alert send."""
+    workspace = Workspace(slug="default", name="Default")
+    db_session.add(workspace)
+    db_session.flush()
+    endpoint = WebhookEndpoint(
+        workspace_id=workspace.id,
+        name="default endpoint",
+        url="https://default.example/hook",
+        secret="default-secret",
+        event_types="dmarq.alert.created",
+        enabled=True,
+    )
+    db_session.add(endpoint)
+    db_session.commit()
+    alert = {
+        "rule": "custom",
+        "domain": "recover.example",
+        "detail": "recover",
+        "title": "Recovery alert",
+        "workspace_id": None,
+    }
+    monkeypatch.setattr(alert_rules, "evaluate_alert_rules", lambda db: [alert])
+    monkeypatch.setattr(
+        alert_rules,
+        "send_notification",
+        lambda *args, **kwargs: NotificationResult(success=True, message="sent"),
+    )
+    original_enqueue = alert_rules.enqueue_webhook_event
+    failed = {"value": True}
+
+    def flaky_enqueue(*args, **kwargs):
+        if failed["value"]:
+            failed["value"] = False
+            db_session.add(
+                WebhookDelivery(
+                    endpoint_id=None,
+                    event_type="dmarq.alert.created",
+                    payload="{}",
+                    idempotency_key="poisoned-before-rollback",
+                    status="pending",
+                    max_attempts=5,
+                )
+            )
+            db_session.flush()
+        return original_enqueue(*args, **kwargs)
+
+    monkeypatch.setattr(alert_rules, "enqueue_webhook_event", flaky_enqueue)
+    first = alert_rules.send_current_alerts(db_session)
+    history = db_session.query(AlertHistory).filter(AlertHistory.domain == "recover.example").one()
+    assert history.is_active is True
+    second = alert_rules.send_current_alerts(db_session)
+
+    assert first["notification"]["success"] is True
+    assert second["notification"]["success"] is True
+    assert db_session.query(WebhookDelivery).count() == 1
 
 
 def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
