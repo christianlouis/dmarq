@@ -127,13 +127,15 @@ def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, m
 
 
 def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
-    """Scheduled alerts never enqueue one workspace's domain for another."""
+    """Scheduled alerts retain owner routing while preserving legacy domains."""
+    default = Workspace(slug="default", name="Default")
     first = Workspace(slug="first", name="First")
     second = Workspace(slug="second", name="Second")
-    db_session.add_all([first, second])
+    db_session.add_all([default, first, second])
     db_session.flush()
     db_session.add_all(
         [
+            Domain(name="legacy.example"),
             Domain(name="first.example", workspace_id=first.id),
             Domain(name="second.example", workspace_id=second.id),
             Setting(key="notifications.apprise_enabled", value="true", category="notifications"),
@@ -168,6 +170,14 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
     db_session.add_all(
         [
             WebhookEndpoint(
+                workspace_id=default.id,
+                name="default endpoint",
+                url="https://default.example/hook",
+                secret="default-secret",
+                event_types="dmarq.reports.missing",
+                enabled=True,
+            ),
+            WebhookEndpoint(
                 workspace_id=first.id,
                 name="first endpoint",
                 url="https://first.example/hook",
@@ -186,7 +196,24 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
         ]
     )
     db_session.commit()
-    first_id, second_id = first.id, second.id
+    default_id, first_id, second_id = default.id, first.id, second.id
+
+    # This mirrors history recorded before workspace ownership was added to
+    # alert payloads. It must be updated, not resolved and recreated.
+    from app.services.alert_history import record_alert_evaluation
+
+    record_alert_evaluation(
+        db_session,
+        [
+            {
+                "rule": "missing_reports",
+                "severity": "warning",
+                "domain": "legacy.example",
+                "title": "DMARC reports missing",
+                "detail": "No DMARC aggregate report for legacy.example in the last 2 day(s).",
+            }
+        ],
+    )
 
     notifications = []
 
@@ -204,11 +231,12 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
     main_module._send_current_alert_notifications()
 
     deliveries = db_session.query(WebhookDelivery).all()
-    assert len(deliveries) == 2
+    assert len(deliveries) == 3
     assert len(notifications) == 1
+    assert "legacy.example" in notifications[0][1]
     assert "first.example" in notifications[0][1]
     assert "second.example" in notifications[0][1]
-    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 2
+    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 3
     payloads = {delivery.endpoint_id: json.loads(delivery.payload) for delivery in deliveries}
     endpoints = {endpoint.id: endpoint for endpoint in db_session.query(WebhookEndpoint).all()}
     assert {
@@ -219,14 +247,19 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
         )
         for endpoint_id, payload in payloads.items()
     } == {
+        (default_id, "legacy.example", None),
         (first_id, "first.example", first_id),
         (second_id, "second.example", second_id),
     }
 
     main_module._send_current_alert_notifications()
-    assert len(db_session.query(WebhookDelivery).all()) == 2
+    assert len(db_session.query(WebhookDelivery).all()) == 3
     assert len(notifications) == 1
-    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 2
+    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 3
+    legacy_history = (
+        db_session.query(AlertHistory).filter(AlertHistory.domain == "legacy.example").one()
+    )
+    assert legacy_history.observed_count == 3
 
 
 def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
