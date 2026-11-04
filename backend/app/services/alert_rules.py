@@ -232,7 +232,7 @@ def _compliance_drop_alerts(
     return alerts
 
 
-def evaluate_alert_rules(
+def _evaluate_alert_rules_for_workspace(
     db: Session, workspace_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """Evaluate all enabled alert rules against persisted DMARC data."""
@@ -260,6 +260,27 @@ def evaluate_alert_rules(
     return alerts
 
 
+def evaluate_alert_rules(db: Session, workspace_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Evaluate alert rules across workspaces while retaining alert ownership."""
+    if workspace_id is not None:
+        return _evaluate_alert_rules_for_workspace(db, workspace_id)
+
+    workspace_ids = [
+        row.workspace_id
+        for row in db.query(Domain.workspace_id)
+        .filter(Domain.workspace_id.isnot(None))
+        .distinct()
+        .all()
+    ]
+    if not workspace_ids:
+        return _evaluate_alert_rules_for_workspace(db)
+    return [
+        alert
+        for current_workspace_id in workspace_ids
+        for alert in _evaluate_alert_rules_for_workspace(db, current_workspace_id)
+    ]
+
+
 def enqueue_alert_webhook_events(
     db: Session, alerts: List[Dict[str, Any]], workspace_id: Optional[int] = None
 ) -> None:
@@ -273,16 +294,15 @@ def enqueue_alert_webhook_events(
         rule = alert.get("rule", "alert")
         event_type = event_by_rule.get(rule, EVENT_ALERT_CREATED)
         domain = alert.get("domain", "global")
-        idempotency_key = (
-            f"{event_type}:{workspace_id or 'default'}:{domain}:{rule}:{alert.get('detail', '')}"
-        )
+        alert_workspace_id = workspace_id if workspace_id is not None else alert.get("workspace_id")
+        idempotency_key = f"{event_type}:{alert_workspace_id or 'default'}:{domain}:{rule}:{alert.get('detail', '')}"
         try:
             enqueue_webhook_event(
                 db,
                 event_type=event_type,
                 payload=alert,
                 idempotency_key=idempotency_key,
-                workspace_id=workspace_id,
+                workspace_id=alert_workspace_id,
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning("Failed to queue alert webhook event: %s", exc)

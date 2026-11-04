@@ -47,8 +47,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
-from app.models.workspace import Workspace
-from app.services.alert_rules import send_alert_summary_notification, send_current_alerts
+from app.services.alert_rules import send_current_alerts
 from app.services.calm_watch import evaluate_and_send_calm_watch
 from app.services.delivery_events import purge_expired_delivery_events
 from app.services.demo_data import build_demo_mail_sources
@@ -396,38 +395,21 @@ def _send_current_alert_notifications() -> None:
     """Evaluate active alert rules and deliver their notification summary."""
     db = SessionLocal()
     try:
-        workspace_ids = [
-            row.workspace_id
-            for row in db.query(Domain.workspace_id)
-            .join(Workspace, Workspace.id == Domain.workspace_id)
-            .filter(Workspace.active.is_(True), Domain.workspace_id.isnot(None))
-            .distinct()
-            .all()
-        ]
-        has_scoped_domains = (
-            db.query(Domain.id).filter(Domain.workspace_id.isnot(None)).first() is not None
-        )
-        if not workspace_ids and not has_scoped_domains:
-            workspace_ids = [None]
-        alerts = []
-        for workspace_id in workspace_ids:
-            alerts.extend(
-                send_current_alerts(db, workspace_id=workspace_id, notify=False).get("alerts", [])
-            )
-        if alerts:
-            notification = send_alert_summary_notification(db, alerts).get("notification", {})
-            if notification.get("success"):
+        result = send_current_alerts(db)
+        notification = result.get("notification", {})
+        if notification.get("success"):
+            if not notification.get("skipped"):
                 logger.info("Sent DMARC alert notification")
-            elif notification.get("skipped"):
-                logger.debug(
-                    "DMARC alert notification skipped: %s",
-                    notification.get("message", "Unknown reason"),
-                )
-            else:
-                logger.warning(
-                    "DMARC alert notification was not sent: %s",
-                    notification.get("message", "Unknown error"),
-                )
+        elif notification.get("skipped"):
+            logger.debug(
+                "DMARC alert notification skipped: %s",
+                notification.get("message", "Unknown reason"),
+            )
+        else:
+            logger.warning(
+                "DMARC alert notification was not sent: %s",
+                notification.get("message", "Unknown error"),
+            )
     finally:
         db.close()
 

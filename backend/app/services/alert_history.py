@@ -23,6 +23,7 @@ def alert_fingerprint(alert: Dict[str, Any]) -> str:
     identity = {
         "rule": alert.get("rule"),
         "domain": alert.get("domain"),
+        "workspace_id": alert.get("workspace_id"),
         "source_ip": alert.get("source_ip"),
         "threshold": alert.get("threshold"),
     }

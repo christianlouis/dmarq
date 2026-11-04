@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import app.main as main_module
+from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
@@ -135,11 +136,14 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
         [
             Domain(name="first.example", workspace_id=first.id),
             Domain(name="second.example", workspace_id=second.id),
+            Setting(key="notifications.apprise_enabled", value="true", category="notifications"),
             Setting(
-                key="notifications.apprise_enabled", value="false", category="notifications"
+                key="notifications.apprise_urls", value="fake://target", category="notifications"
             ),
             Setting(
-                key="notifications.alert_new_sources_enabled", value="false", category="notifications"
+                key="notifications.alert_new_sources_enabled",
+                value="false",
+                category="notifications",
             ),
             Setting(
                 key="notifications.alert_failure_threshold_enabled",
@@ -147,7 +151,9 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
                 category="notifications",
             ),
             Setting(
-                key="notifications.alert_missing_reports_enabled", value="true", category="notifications"
+                key="notifications.alert_missing_reports_enabled",
+                value="true",
+                category="notifications",
             ),
             Setting(
                 key="notifications.alert_missing_reports_days", value="2", category="notifications"
@@ -182,20 +188,45 @@ def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
     db_session.commit()
     first_id, second_id = first.id, second.id
 
+    notifications = []
+
+    class FakeApprise:
+        def add(self, url):
+            assert url == "fake://target"
+            return True
+
+        def notify(self, *, title, body):
+            notifications.append((title, body))
+            return True
+
     monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
     main_module._send_current_alert_notifications()
 
     deliveries = db_session.query(WebhookDelivery).all()
     assert len(deliveries) == 2
+    assert len(notifications) == 1
+    assert "first.example" in notifications[0][1]
+    assert "second.example" in notifications[0][1]
+    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 2
     payloads = {delivery.endpoint_id: json.loads(delivery.payload) for delivery in deliveries}
     endpoints = {endpoint.id: endpoint for endpoint in db_session.query(WebhookEndpoint).all()}
     assert {
-        (endpoints[endpoint_id].workspace_id, payload["data"]["domain"], payload["data"]["workspace_id"])
+        (
+            endpoints[endpoint_id].workspace_id,
+            payload["data"]["domain"],
+            payload["data"]["workspace_id"],
+        )
         for endpoint_id, payload in payloads.items()
     } == {
         (first_id, "first.example", first_id),
         (second_id, "second.example", second_id),
     }
+
+    main_module._send_current_alert_notifications()
+    assert len(db_session.query(WebhookDelivery).all()) == 2
+    assert len(notifications) == 1
+    assert db_session.query(AlertHistory).filter(AlertHistory.is_active.is_(True)).count() == 2
 
 
 def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
