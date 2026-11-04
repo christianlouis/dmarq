@@ -47,21 +47,21 @@ def _days_ago_ts(days: int) -> int:
     return int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
 
 
-def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]]:
+def _new_source_alerts(
+    db: Session, window_days: int = 7, workspace_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
     cutoff_ts = _days_ago_ts(window_days)
-    previous_sources = {
-        (row.domain, row.source_ip)
-        for row in (
-            db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
-            .join(DMARCReport, DMARCReport.domain_id == Domain.id)
-            .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.begin_date < cutoff_ts)
-            .distinct()
-            .all()
-        )
-    }
+    previous_query = (
+        db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
+        .join(DMARCReport, DMARCReport.domain_id == Domain.id)
+        .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(DMARCReport.begin_date < cutoff_ts)
+    )
+    if workspace_id is not None:
+        previous_query = previous_query.filter(Domain.workspace_id == workspace_id)
+    previous_sources = {(row.domain, row.source_ip) for row in previous_query.distinct().all()}
 
-    current_sources = (
+    current_query = (
         db.query(
             Domain.name.label("domain"),
             ReportRecord.source_ip.label("source_ip"),
@@ -72,8 +72,10 @@ def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]
         .filter(DMARCReport.begin_date >= cutoff_ts)
         .group_by(Domain.name, ReportRecord.source_ip)
         .order_by(func.sum(ReportRecord.count).desc())
-        .all()
     )
+    if workspace_id is not None:
+        current_query = current_query.filter(Domain.workspace_id == workspace_id)
+    current_sources = current_query.all()
 
     alerts = []
     for row in current_sources:
@@ -95,10 +97,10 @@ def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]
 
 
 def _failure_threshold_alerts(
-    db: Session, threshold: int, window_days: int = 1
+    db: Session, threshold: int, window_days: int = 1, workspace_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     cutoff_ts = _days_ago_ts(window_days)
-    rows = (
+    query = (
         db.query(
             Domain.name.label("domain"),
             func.sum(ReportRecord.count).label("failed_messages"),
@@ -110,8 +112,10 @@ def _failure_threshold_alerts(
         .filter(func.coalesce(ReportRecord.spf, "fail") != "pass")
         .group_by(Domain.name)
         .having(func.sum(ReportRecord.count) >= threshold)
-        .all()
     )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    rows = query.all()
     return [
         {
             "rule": "dmarc_failures_above_threshold",
@@ -129,17 +133,21 @@ def _failure_threshold_alerts(
     ]
 
 
-def _missing_report_alerts(db: Session, missing_days: int) -> List[Dict[str, Any]]:
+def _missing_report_alerts(
+    db: Session, missing_days: int, workspace_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
     cutoff_ts = _days_ago_ts(missing_days)
-    latest_rows = (
+    query = (
         db.query(
             Domain.name.label("domain"),
             func.max(DMARCReport.end_date).label("last_report_ts"),
         )
         .outerjoin(DMARCReport, DMARCReport.domain_id == Domain.id)
         .group_by(Domain.id, Domain.name)
-        .all()
     )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    latest_rows = query.all()
     alerts = []
     for row in latest_rows:
         last_report_ts = int(row.last_report_ts or 0)
@@ -164,10 +172,10 @@ def _missing_report_alerts(db: Session, missing_days: int) -> List[Dict[str, Any
 
 
 def _compliance_drop_alerts(
-    db: Session, drop_points: int, window_days: int = 2
+    db: Session, drop_points: int, window_days: int = 2, workspace_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     cutoff_ts = _days_ago_ts(window_days)
-    rows = (
+    query = (
         db.query(
             Domain.name.label("domain"),
             DMARCReport.begin_date.label("begin_date"),
@@ -187,8 +195,10 @@ def _compliance_drop_alerts(
         .filter(DMARCReport.begin_date >= cutoff_ts)
         .group_by(Domain.name, DMARCReport.begin_date)
         .order_by(Domain.name, DMARCReport.begin_date)
-        .all()
     )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    rows = query.all()
 
     by_domain: Dict[str, List[Dict[str, float]]] = {}
     for row in rows:
@@ -222,30 +232,37 @@ def _compliance_drop_alerts(
     return alerts
 
 
-def evaluate_alert_rules(db: Session) -> List[Dict[str, Any]]:
+def evaluate_alert_rules(
+    db: Session, workspace_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
     """Evaluate all enabled alert rules against persisted DMARC data."""
     settings = _settings(db)
     alerts: List[Dict[str, Any]] = []
 
     if _truthy(settings.get("notifications.alert_new_sources_enabled")):
-        alerts.extend(_new_source_alerts(db))
+        alerts.extend(_new_source_alerts(db, workspace_id=workspace_id))
 
     if _truthy(settings.get("notifications.alert_failure_threshold_enabled")):
         threshold = _int_setting(settings.get("notifications.alert_failure_threshold_count"), 100)
-        alerts.extend(_failure_threshold_alerts(db, threshold))
+        alerts.extend(_failure_threshold_alerts(db, threshold, workspace_id=workspace_id))
 
     if _truthy(settings.get("notifications.alert_missing_reports_enabled")):
         missing_days = _int_setting(settings.get("notifications.alert_missing_reports_days"), 2)
-        alerts.extend(_missing_report_alerts(db, missing_days))
+        alerts.extend(_missing_report_alerts(db, missing_days, workspace_id=workspace_id))
 
     if _truthy(settings.get("notifications.alert_compliance_drop_enabled")):
         drop_points = _int_setting(settings.get("notifications.alert_compliance_drop_points"), 10)
-        alerts.extend(_compliance_drop_alerts(db, drop_points))
+        alerts.extend(_compliance_drop_alerts(db, drop_points, workspace_id=workspace_id))
 
+    if workspace_id is not None:
+        for alert in alerts:
+            alert["workspace_id"] = workspace_id
     return alerts
 
 
-def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> None:
+def enqueue_alert_webhook_events(
+    db: Session, alerts: List[Dict[str, Any]], workspace_id: Optional[int] = None
+) -> None:
     """Queue webhook events for alert-rule results without failing alert evaluation."""
     event_by_rule = {
         "new_sender_source": EVENT_SENDER_NEW,
@@ -256,31 +273,43 @@ def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> N
         rule = alert.get("rule", "alert")
         event_type = event_by_rule.get(rule, EVENT_ALERT_CREATED)
         domain = alert.get("domain", "global")
-        idempotency_key = f"{event_type}:{domain}:{rule}:{alert.get('detail', '')}"
+        idempotency_key = (
+            f"{event_type}:{workspace_id or 'default'}:{domain}:{rule}:{alert.get('detail', '')}"
+        )
         try:
             enqueue_webhook_event(
                 db,
                 event_type=event_type,
                 payload=alert,
                 idempotency_key=idempotency_key,
+                workspace_id=workspace_id,
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.warning("Failed to queue alert webhook event: %s", exc)
 
 
-def send_current_alerts(db: Session) -> Dict[str, Any]:
+def send_current_alerts(
+    db: Session, workspace_id: Optional[int] = None, notify: bool = True
+) -> Dict[str, Any]:
     """Evaluate current alert rules and send one summary notification when needed."""
-    alerts = evaluate_alert_rules(db)
+    alerts = evaluate_alert_rules(db, workspace_id=workspace_id)
     record_alert_evaluation(db, alerts)
-    enqueue_alert_webhook_events(db, alerts)
-    if not alerts:
+    enqueue_alert_webhook_events(db, alerts, workspace_id=workspace_id)
+    if not alerts or not notify:
         return {
-            "alerts": [],
+            "alerts": alerts,
             "notification": NotificationResult(
-                success=True, skipped=True, message="No alerts."
+                success=True,
+                skipped=True,
+                message="No alerts." if not alerts else "Notification deferred.",
             ).to_dict(),
         }
 
+    return send_alert_summary_notification(db, alerts)
+
+
+def send_alert_summary_notification(db: Session, alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Send one notification for an already evaluated, workspace-scoped alert set."""
     lines = [f"{alert['title']}: {alert['detail']}" for alert in alerts[:10]]
     if len(alerts) > 10:
         lines.append(f"...and {len(alerts) - 10} more alert(s).")

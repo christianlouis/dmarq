@@ -1,14 +1,18 @@
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import app.main as main_module
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
+from app.models.webhook import WebhookDelivery, WebhookEndpoint
+from app.models.workspace import Workspace
 
 
 def _seed_scheduled_alert(db_session):
@@ -73,8 +77,6 @@ def _seed_scheduled_alert(db_session):
 
 def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, monkeypatch):
     """Scheduled active alerts use Apprise and retry delivery failures."""
-    import app.main as main_module
-
     _seed_scheduled_alert(db_session)
     outcomes = iter([True, False, True])
     notifications = []
@@ -123,9 +125,80 @@ def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, m
     assert len(notifications) == 3
 
 
-def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
-    import app.main as main_module
+def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
+    """Scheduled alerts never enqueue one workspace's domain for another."""
+    first = Workspace(slug="first", name="First")
+    second = Workspace(slug="second", name="Second")
+    db_session.add_all([first, second])
+    db_session.flush()
+    db_session.add_all(
+        [
+            Domain(name="first.example", workspace_id=first.id),
+            Domain(name="second.example", workspace_id=second.id),
+            Setting(
+                key="notifications.apprise_enabled", value="false", category="notifications"
+            ),
+            Setting(
+                key="notifications.alert_new_sources_enabled", value="false", category="notifications"
+            ),
+            Setting(
+                key="notifications.alert_failure_threshold_enabled",
+                value="false",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.alert_missing_reports_enabled", value="true", category="notifications"
+            ),
+            Setting(
+                key="notifications.alert_missing_reports_days", value="2", category="notifications"
+            ),
+            Setting(
+                key="notifications.alert_compliance_drop_enabled",
+                value="false",
+                category="notifications",
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            WebhookEndpoint(
+                workspace_id=first.id,
+                name="first endpoint",
+                url="https://first.example/hook",
+                secret="first-secret",
+                event_types="dmarq.reports.missing",
+                enabled=True,
+            ),
+            WebhookEndpoint(
+                workspace_id=second.id,
+                name="second endpoint",
+                url="https://second.example/hook",
+                secret="second-secret",
+                event_types="dmarq.reports.missing",
+                enabled=True,
+            ),
+        ]
+    )
+    db_session.commit()
+    first_id, second_id = first.id, second.id
 
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+    main_module._send_current_alert_notifications()
+
+    deliveries = db_session.query(WebhookDelivery).all()
+    assert len(deliveries) == 2
+    payloads = {delivery.endpoint_id: json.loads(delivery.payload) for delivery in deliveries}
+    endpoints = {endpoint.id: endpoint for endpoint in db_session.query(WebhookEndpoint).all()}
+    assert {
+        (endpoints[endpoint_id].workspace_id, payload["data"]["domain"], payload["data"]["workspace_id"])
+        for endpoint_id, payload in payloads.items()
+    } == {
+        (first_id, "first.example", first_id),
+        (second_id, "second.example", second_id),
+    }
+
+
+def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, monkeypatch):
     monkeypatch.setattr(main_module.settings, "IMAP_SERVER", "imap.example.com")
     monkeypatch.setattr(main_module.settings, "IMAP_USERNAME", "reports@example.com")
     monkeypatch.setattr(main_module.settings, "IMAP_PASSWORD", "secret")
@@ -142,8 +215,6 @@ def test_migrate_imap_env_uses_configured_folder_and_is_idempotent(db_session, m
 
 
 def test_migrate_imap_env_missing_folder_falls_back_to_inbox(db_session, monkeypatch):
-    import app.main as main_module
-
     monkeypatch.setattr(main_module.settings, "IMAP_SERVER", "imap.example.com")
     monkeypatch.setattr(main_module.settings, "IMAP_USERNAME", "reports@example.com")
     monkeypatch.setattr(main_module.settings, "IMAP_PASSWORD", "secret")
@@ -157,7 +228,7 @@ def test_migrate_imap_env_missing_folder_falls_back_to_inbox(db_session, monkeyp
 
 @pytest.mark.asyncio
 async def test_cancel_background_task_cancels_pending_task():
-    from app.main import _cancel_background_task
+    _cancel_background_task = main_module._cancel_background_task
 
     task = asyncio.create_task(asyncio.Event().wait())
 
@@ -168,7 +239,7 @@ async def test_cancel_background_task_cancels_pending_task():
 
 @pytest.mark.asyncio
 async def test_cancel_background_task_ignores_completed_task():
-    from app.main import _cancel_background_task
+    _cancel_background_task = main_module._cancel_background_task
 
     async def done():
         return "finished"
@@ -186,7 +257,7 @@ async def test_cancel_background_task_ignores_completed_task():
 class TestNextSleepSeconds:
     @pytest.mark.parametrize("min_sleep, expected", [(60, 3600), (7200, 7200)])
     def test_empty_sources_default_to_one_hour(self, min_sleep, expected):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         with patch("app.main.SessionLocal") as mock_session:
             result = _next_sleep_seconds(min_sleep=min_sleep, enabled_sources=[])
@@ -195,7 +266,7 @@ class TestNextSleepSeconds:
         mock_session.assert_not_called()
 
     def test_empty_database_defaults_to_one_hour(self):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.all.return_value = []
@@ -208,14 +279,14 @@ class TestNextSleepSeconds:
 
     @pytest.mark.parametrize("interval", [None, 0, 60])
     def test_source_default_interval_is_one_hour(self, interval):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         source = SimpleNamespace(polling_interval=interval)
 
         assert _next_sleep_seconds(enabled_sources=[source]) == 3600
 
     def test_uses_shortest_enabled_source_interval_without_db_query(self):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         slow = SimpleNamespace(polling_interval=30)
         fast = SimpleNamespace(polling_interval=5)
@@ -227,14 +298,14 @@ class TestNextSleepSeconds:
         mock_session.assert_not_called()
 
     def test_respects_min_sleep(self):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         source = SimpleNamespace(polling_interval=1)
 
         assert _next_sleep_seconds(min_sleep=120, enabled_sources=[source]) == 120
 
     def test_queries_database_when_sources_not_supplied(self):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         source = SimpleNamespace(polling_interval=2)
         mock_db = MagicMock()
@@ -247,14 +318,14 @@ class TestNextSleepSeconds:
         mock_db.close.assert_called_once()
 
     def test_database_exception_falls_back_to_one_hour(self):
-        from app.main import _next_sleep_seconds
+        _next_sleep_seconds = main_module._next_sleep_seconds
 
         with patch("app.main.SessionLocal", side_effect=RuntimeError("db unavailable")):
             assert _next_sleep_seconds() == 3600
 
 
 def test_poll_single_imap_source_passes_configured_folder():
-    from app.main import _poll_single_imap_source
+    _poll_single_imap_source = main_module._poll_single_imap_source
 
     source = SimpleNamespace(
         id=1,
@@ -307,7 +378,7 @@ def test_poll_single_imap_source_passes_configured_folder():
 
 def test_poll_single_imap_source_persists_uid_cursor():
     """A scheduled poll resumes from, and then advances, the stored UID cursor."""
-    from app.main import _poll_single_imap_source
+    _poll_single_imap_source = main_module._poll_single_imap_source
 
     source = SimpleNamespace(
         id=1,
@@ -359,7 +430,7 @@ def test_poll_single_imap_source_persists_uid_cursor():
 
 def test_poll_single_imap_source_keeps_cursor_when_poll_fails():
     """A failed poll must not clear the cursor and force a full rescan later."""
-    from app.main import _poll_single_imap_source
+    _poll_single_imap_source = main_module._poll_single_imap_source
 
     source = SimpleNamespace(
         id=1,
@@ -395,7 +466,7 @@ def test_poll_single_imap_source_keeps_cursor_when_poll_fails():
 
 
 def test_poll_single_m365_source_persists_import_state():
-    from app.main import _poll_single_m365_source
+    _poll_single_m365_source = main_module._poll_single_m365_source
 
     source = SimpleNamespace(
         id=2,
@@ -451,7 +522,7 @@ def test_poll_single_m365_source_persists_import_state():
 
 
 def test_poll_single_m365_source_skips_without_token():
-    from app.main import _poll_single_m365_source
+    _poll_single_m365_source = main_module._poll_single_m365_source
 
     source = SimpleNamespace(id=3, m365_access_token=None)
 
@@ -462,7 +533,7 @@ def test_poll_single_m365_source_skips_without_token():
 
 
 def test_poll_single_m365_application_source_runs_without_stored_token():
-    from app.main import _poll_single_m365_source
+    _poll_single_m365_source = main_module._poll_single_m365_source
 
     source = SimpleNamespace(
         id=4,
@@ -512,7 +583,7 @@ def test_poll_single_m365_application_source_runs_without_stored_token():
 
 
 def test_run_due_mail_source_backfills_logs_processed_count():
-    from app.main import _run_due_mail_source_backfills
+    _run_due_mail_source_backfills = main_module._run_due_mail_source_backfills
 
     db = MagicMock()
     with (
@@ -528,7 +599,7 @@ def test_run_due_mail_source_backfills_logs_processed_count():
 
 
 def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
-    from app.main import _run_mailbox_scheduler_cycle
+    _run_mailbox_scheduler_cycle = main_module._run_mailbox_scheduler_cycle
 
     with (
         patch("app.main._poll_all_enabled_sources", return_value=["source"]) as poll,
@@ -553,7 +624,7 @@ def test_mailbox_scheduler_cycle_runs_blocking_work_in_order():
 
 @pytest.mark.asyncio
 async def test_scheduled_polling_without_sources_sleeps_for_one_hour():
-    from app.main import scheduled_imap_polling
+    scheduled_imap_polling = main_module.scheduled_imap_polling
 
     with (
         patch("app.main._run_mailbox_scheduler_cycle", return_value=[]) as cycle,
@@ -570,7 +641,7 @@ async def test_scheduled_polling_without_sources_sleeps_for_one_hour():
 
 @pytest.mark.asyncio
 async def test_scheduled_imap_polling_sleep_exception_falls_back_then_cancels():
-    from app.main import scheduled_imap_polling
+    scheduled_imap_polling = main_module.scheduled_imap_polling
 
     with (
         patch("app.main._poll_all_enabled_sources", return_value=[]),
@@ -586,7 +657,7 @@ async def test_scheduled_imap_polling_sleep_exception_falls_back_then_cancels():
 
 @pytest.mark.asyncio
 async def test_scheduled_polling_waits_until_http_startup_can_finish():
-    from app.main import _scheduled_imap_polling_after_startup
+    _scheduled_imap_polling_after_startup = main_module._scheduled_imap_polling_after_startup
 
     with (
         patch("app.main.asyncio.sleep") as sleep,
