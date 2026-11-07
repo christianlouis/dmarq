@@ -175,6 +175,11 @@ def record_alert_evaluation(
             db.add(row)
             continue
 
+        if not row.is_active:
+            # A resolved signal returning is a new occurrence, even though
+            # its stable fingerprint and history row are reused.
+            row.last_notified_at = None
+            row.notified_severity = None
         row.rule = str(alert.get("rule") or row.rule)
         row.severity = str(alert.get("severity") or row.severity)
         row.domain = alert.get("domain")
@@ -194,6 +199,53 @@ def record_alert_evaluation(
 
     db.commit()
     return list_alert_history(db, limit=max(50, len(alerts)))
+
+
+_SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+
+
+def pending_alert_notifications(db: Session, alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select unsent occurrences and severity escalations, ignoring routine count changes."""
+    by_fingerprint = {alert_fingerprint(alert): alert for alert in alerts}
+    rows = (
+        db.query(AlertHistory)
+        .filter(
+            AlertHistory.fingerprint.in_(list(by_fingerprint)), AlertHistory.is_active.is_(True)
+        )
+        .all()
+    )
+    notified = {
+        row.fingerprint: _SEVERITY_RANK.get(row.notified_severity, -1)
+        for row in rows
+        if row.last_notified_at is not None
+    }
+    return [
+        alert
+        for fingerprint, alert in by_fingerprint.items()
+        if fingerprint not in notified
+        or _SEVERITY_RANK.get(str(alert.get("severity") or "warning"), 1) > notified[fingerprint]
+    ]
+
+
+def record_alert_notifications(db: Session, alerts: List[Dict[str, Any]]) -> None:
+    """Remember successfully delivered alerts for their current active occurrence."""
+    by_fingerprint = {alert_fingerprint(alert): alert for alert in alerts}
+    rows = (
+        db.query(AlertHistory)
+        .filter(
+            AlertHistory.fingerprint.in_(list(by_fingerprint)), AlertHistory.is_active.is_(True)
+        )
+        .all()
+    )
+    timestamp = datetime.utcnow()
+    for row in rows:
+        severity = str(by_fingerprint[row.fingerprint].get("severity") or "warning")
+        if row.last_notified_at is None or _SEVERITY_RANK.get(severity, 1) > _SEVERITY_RANK.get(
+            row.notified_severity, -1
+        ):
+            row.notified_severity = severity
+        row.last_notified_at = timestamp
+    db.commit()
 
 
 def list_alert_history(

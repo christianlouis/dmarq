@@ -395,7 +395,7 @@ def _send_current_alert_notifications() -> None:
     """Evaluate active alert rules and deliver their notification summary."""
     db = SessionLocal()
     try:
-        result = send_current_alerts(db)
+        result = send_current_alerts(db, only_unnotified=True)
         notification = result.get("notification", {})
         if notification.get("success"):
             if not notification.get("skipped"):

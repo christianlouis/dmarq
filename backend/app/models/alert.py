@@ -23,6 +23,8 @@ class AlertHistory(Base):
     first_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
+    last_notified_at = Column(DateTime, nullable=True)
+    notified_severity = Column(String, nullable=True)
 
     __table_args__ = (
         Index("ix_alert_history_active_last_seen", "is_active", "last_seen_at"),

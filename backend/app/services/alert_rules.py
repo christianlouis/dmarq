@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
-from app.services.alert_history import record_alert_evaluation
+from app.services.alert_history import (
+    pending_alert_notifications,
+    record_alert_evaluation,
+    record_alert_notifications,
+)
 from app.services.notifications import NotificationResult, send_notification
 from app.services.webhook_events import (
     EVENT_ALERT_CREATED,
@@ -292,8 +296,8 @@ def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> N
             logger.warning("Failed to queue alert webhook event: %s", exc)
 
 
-def send_current_alerts(db: Session) -> Dict[str, Any]:
-    """Evaluate current alert rules and send one summary notification when needed."""
+def send_current_alerts(db: Session, *, only_unnotified: bool = False) -> Dict[str, Any]:
+    """Evaluate alerts; scheduled delivery only sends unsent or escalated occurrences."""
     alerts = evaluate_alert_rules(db)
     record_alert_evaluation(db, alerts)
     enqueue_alert_webhook_events(db, alerts)
@@ -307,7 +311,22 @@ def send_current_alerts(db: Session) -> Dict[str, Any]:
             ).to_dict(),
         }
 
-    return send_alert_summary_notification(db, alerts)
+    pending = pending_alert_notifications(db, alerts) if only_unnotified else alerts
+    if not pending:
+        return {
+            "alerts": alerts,
+            "notification": NotificationResult(
+                success=True,
+                skipped=True,
+                message="All active alerts have already been notified.",
+            ).to_dict(),
+        }
+
+    result = send_alert_summary_notification(db, pending)
+    if result["notification"]["success"] and not result["notification"]["skipped"]:
+        record_alert_notifications(db, pending)
+    # Keep API callers' view of all active alerts, even when only a subset was sent.
+    return {"alerts": alerts, "notification": result["notification"]}
 
 
 def send_alert_summary_notification(db: Session, alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
