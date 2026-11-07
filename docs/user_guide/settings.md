@@ -77,7 +77,16 @@ credentials are not exposed through the settings API or page reloads.
 
 The notification page also includes a minimum send interval. This cooldown
 limits repeated outbound notifications if several alert checks run close
-together. Email addresses in notification titles and bodies are redacted by
+together. Automatic alert notifications are also deduplicated in the database:
+after successful delivery, an unchanged active alert is not sent again, even
+after the cooldown expires or the application restarts. New alerts, alerts
+that return after being resolved, and severity escalations are eligible for
+delivery. Each alert notification includes the details of every alert it marks
+as delivered. Failed, disabled, or rate-limited sends remain pending. On the first
+run after upgrading, existing active alerts are eligible for one notification
+because earlier versions did not retain per-alert delivery receipts.
+
+Email addresses in notification titles and bodies are redacted by
 default before messages are sent.
 
 ### Alert Thresholds
@@ -91,6 +100,9 @@ Set alert rules and thresholds in **Settings** > **Notifications**:
 
 Use **Check Alerts** to preview the current alert count, or **Send Alerts Now** to
 send the current alert summary through the configured Apprise targets.
+**Send Alerts Now** deliberately includes already notified alerts and still
+respects the minimum send interval. Daily and weekly summaries continue to
+include the current active alert count.
 
 ### Summary Notifications
 

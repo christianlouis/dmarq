@@ -6,7 +6,9 @@ import hashlib
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import ensure_utc
@@ -175,6 +177,13 @@ def record_alert_evaluation(
             db.add(row)
             continue
 
+        if not row.is_active:
+            # A resolved signal returning is a new occurrence, even though
+            # its stable fingerprint and history row are reused.
+            row.last_notified_at = None
+            row.notified_severity = None
+        if not row.is_active or not row.occurrence_id:
+            row.occurrence_id = uuid4().hex
         row.rule = str(alert.get("rule") or row.rule)
         row.severity = str(alert.get("severity") or row.severity)
         row.domain = alert.get("domain")
@@ -194,6 +203,67 @@ def record_alert_evaluation(
 
     db.commit()
     return list_alert_history(db, limit=max(50, len(alerts)))
+
+
+_SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+
+
+def pending_alert_notifications(
+    db: Session, alerts: List[Dict[str, Any]], *, include_notified: bool = False
+) -> List[Dict[str, Any]]:
+    """Snapshot eligible occurrences; routine count changes do not trigger another send."""
+    by_fingerprint = {alert_fingerprint(alert): alert for alert in alerts}
+    rows = (
+        db.query(AlertHistory)
+        .filter(
+            AlertHistory.fingerprint.in_(list(by_fingerprint)), AlertHistory.is_active.is_(True)
+        )
+        .all()
+    )
+    by_row_fingerprint = {row.fingerprint: row for row in rows}
+    return [
+        {**alert, "_notification_occurrence_id": by_row_fingerprint[fingerprint].occurrence_id}
+        for fingerprint, alert in by_fingerprint.items()
+        if fingerprint in by_row_fingerprint
+        and (
+            include_notified
+            or by_row_fingerprint[fingerprint].last_notified_at is None
+            or _SEVERITY_RANK.get(str(alert.get("severity") or "warning"), 1)
+            > _SEVERITY_RANK.get(by_row_fingerprint[fingerprint].notified_severity, -1)
+        )
+    ]
+
+
+def record_alert_notifications(db: Session, alerts: List[Dict[str, Any]]) -> None:
+    """Atomically receipt only the occurrence sent, preserving concurrent escalations."""
+    timestamp = datetime.utcnow()
+    notified_rank = case(_SEVERITY_RANK, value=AlertHistory.notified_severity, else_=-1)
+    for alert in alerts:
+        occurrence_id = alert.get("_notification_occurrence_id")
+        if not occurrence_id:
+            continue
+        severity = str(alert.get("severity") or "warning")
+        db.query(AlertHistory).filter(
+            AlertHistory.fingerprint == alert_fingerprint(alert),
+            AlertHistory.occurrence_id == occurrence_id,
+            AlertHistory.is_active.is_(True),
+        ).update(
+            {
+                AlertHistory.last_notified_at: timestamp,
+                AlertHistory.notified_severity: case(
+                    (
+                        or_(
+                            AlertHistory.last_notified_at.is_(None),
+                            _SEVERITY_RANK.get(severity, 1) > notified_rank,
+                        ),
+                        severity,
+                    ),
+                    else_=AlertHistory.notified_severity,
+                ),
+            },
+            synchronize_session=False,
+        )
+    db.commit()
 
 
 def list_alert_history(

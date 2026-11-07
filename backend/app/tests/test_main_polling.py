@@ -81,7 +81,7 @@ def _seed_scheduled_alert(db_session):
 def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, monkeypatch):
     """Scheduled active alerts use Apprise and retry delivery failures."""
     _seed_scheduled_alert(db_session)
-    outcomes = iter([True, False, True])
+    outcomes = iter([False, True])
     notifications = []
 
     class FakeApprise:
@@ -108,15 +108,19 @@ def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, m
     ):
         main_module._run_mailbox_scheduler_cycle()
         assert len(notifications) == 1
+        assert db_session.query(AlertHistory).one().last_notified_at is None
+        assert db_session.query(Setting).filter_by(key="notifications.last_sent_at").first() is None
 
         main_module._run_mailbox_scheduler_cycle()
-        assert len(notifications) == 1
+        assert len(notifications) == 2
+        assert db_session.query(AlertHistory).one().last_notified_at is not None
 
         last_sent = db_session.query(Setting).filter_by(key="notifications.last_sent_at").one()
         old_value = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
         last_sent.value = old_value
         db_session.commit()
         main_module._run_mailbox_scheduler_cycle()
+        # An expired cooldown does not resend an already delivered occurrence.
         assert len(notifications) == 2
         assert (
             db_session.query(Setting).filter_by(key="notifications.last_sent_at").one().value
@@ -125,7 +129,55 @@ def test_scheduler_delivers_alerts_and_retries_failed_apprise_send(db_session, m
 
         main_module._run_mailbox_scheduler_cycle()
 
-    assert len(notifications) == 3
+    assert len(notifications) == 2
+
+
+def test_new_scheduled_alert_waits_for_cooldown_without_repeating_old_alert(
+    db_session, monkeypatch
+):
+    _seed_scheduled_alert(db_session)
+    notifications = []
+
+    class FakeApprise:
+        def add(self, url):
+            return True
+
+        def notify(self, *, title, body):
+            notifications.append((title, body))
+            return True
+
+    monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    report = db_session.query(DMARCReport).one()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip="203.0.113.100",
+            count=1,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+            header_from="scheduled-alert.example",
+        )
+    )
+    db_session.commit()
+    blocked = alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    assert blocked["notification"]["rate_limited"] is True
+    assert len(notifications) == 1
+    assert (
+        db_session.query(AlertHistory).filter(AlertHistory.last_notified_at.is_(None)).count() == 1
+    )
+
+    last_sent = db_session.query(Setting).filter_by(key="notifications.last_sent_at").one()
+    last_sent.value = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    db_session.commit()
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    assert len(notifications) == 2
+    assert "203.0.113.100" in notifications[-1][1]
+    assert "203.0.113.99" not in notifications[-1][1]
+    assert (
+        db_session.query(AlertHistory).filter(AlertHistory.last_notified_at.is_(None)).count() == 0
+    )
 
 
 def test_scheduler_scopes_alert_webhooks_per_workspace(db_session, monkeypatch):
