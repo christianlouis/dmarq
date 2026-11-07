@@ -29,6 +29,9 @@ def delivery(monkeypatch):
 
     def send(db, *, title, body):  # pylint: disable=unused-argument
         messages.append({"title": title, "body": body})
+        during_send = state.pop("during_send", None)
+        if during_send:
+            during_send()
         return state["result"]
 
     monkeypatch.setattr(alert_rules, "evaluate_alert_rules", lambda db: list(observed))
@@ -121,6 +124,44 @@ def test_resolved_alert_returning_is_notified_again_even_after_a_preview(db_sess
     alert_rules.send_current_alerts(db_session, only_unnotified=True)
     assert len(messages) == 2
     assert db_session.query(AlertHistory).count() == 1
+
+
+@pytest.mark.parametrize("reactivate", [False, True], ids=["same-occurrence", "new-occurrence"])
+def test_receipt_matches_the_occurrence_sent_when_another_session_evaluates(
+    db_session, delivery, reactivate
+):
+    observed, messages, state = delivery
+    record_alert_evaluation(db_session, observed)
+    original_occurrence = db_session.query(AlertHistory).one().occurrence_id
+
+    def evaluate_during_send():
+        with Session(db_session.get_bind()) as other_session:
+            if reactivate:
+                record_alert_evaluation(other_session, [])
+            record_alert_evaluation(other_session, observed)
+
+    state["during_send"] = evaluate_during_send
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    row = db_session.query(AlertHistory).one()
+    assert (row.occurrence_id != original_occurrence) is reactivate
+    assert (row.last_notified_at is None) is reactivate
+
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    assert len(messages) == (2 if reactivate else 1)
+    assert db_session.query(AlertHistory).one().last_notified_at is not None
+
+
+def test_legacy_history_gets_an_occurrence_before_delivery(db_session, delivery):
+    observed, messages, _ = delivery
+    record_alert_evaluation(db_session, observed)
+    db_session.query(AlertHistory).one().occurrence_id = None
+    db_session.commit()
+
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+    row = db_session.query(AlertHistory).one()
+    assert row.occurrence_id
+    assert row.last_notified_at is not None
+    assert len(messages) == 1
 
 
 def test_severity_escalation_sends_once_but_count_changes_do_not(db_session, delivery):

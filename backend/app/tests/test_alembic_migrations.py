@@ -31,9 +31,11 @@ def test_alert_notification_receipts_upgrade_and_downgrade(tmp_path, monkeypatch
     command.upgrade(config, "head")
     with engine.connect() as connection:
         row = connection.execute(
-            text("SELECT detail, last_notified_at, notified_severity FROM alert_history")
+            text(
+                "SELECT detail, last_notified_at, notified_severity, occurrence_id FROM alert_history"
+            )
         ).one()
-        assert tuple(row) == ("Existing alert", None, None)
+        assert tuple(row) == ("Existing alert", None, None, None)
 
     command.downgrade(config, "4b5c6d7e8f9a")
     assert {column["name"] for column in inspect(engine).get_columns("alert_history")} == {

@@ -311,7 +311,7 @@ def send_current_alerts(db: Session, *, only_unnotified: bool = False) -> Dict[s
             ).to_dict(),
         }
 
-    pending = pending_alert_notifications(db, alerts) if only_unnotified else alerts
+    pending = pending_alert_notifications(db, alerts, include_notified=not only_unnotified)
     if not pending:
         return {
             "alerts": alerts,

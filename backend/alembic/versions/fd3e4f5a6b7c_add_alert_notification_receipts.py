@@ -14,8 +14,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("alert_history", sa.Column("last_notified_at", sa.DateTime(), nullable=True))
     op.add_column("alert_history", sa.Column("notified_severity", sa.String(), nullable=True))
+    op.add_column("alert_history", sa.Column("occurrence_id", sa.String(32), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("alert_history", "occurrence_id")
     op.drop_column("alert_history", "notified_severity")
     op.drop_column("alert_history", "last_notified_at")
