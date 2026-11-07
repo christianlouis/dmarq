@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from alembic import command
@@ -16,12 +17,16 @@ def test_alembic_revision_graph_has_single_head():
     assert len(heads) == 1, f"Expected a single Alembic head, got {heads}"
 
 
-def test_alert_notification_receipts_upgrade_and_downgrade(tmp_path, monkeypatch):
+def test_alert_notification_receipts_upgrade_and_downgrade(tmp_path, monkeypatch, caplog):
     """Existing history survives the receipt migration without pretending it was delivered."""
     database_url = f"sqlite:///{tmp_path / 'alert-receipts.sqlite'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
     backend_dir = Path(__file__).resolve().parents[2]
-    config = Config(str(backend_dir / "alembic.ini"))
+    # Running env.py with alembic.ini invokes fileConfig, which disables app
+    # loggers and removes pytest's capture handlers for all following tests.
+    config = Config()
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    logger = logging.getLogger("app.migration_logging_probe")
     engine = create_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alert_history (id INTEGER PRIMARY KEY, detail TEXT)"))
@@ -48,3 +53,6 @@ def test_alert_notification_receipts_upgrade_and_downgrade(tmp_path, monkeypatch
             == "Existing alert"
         )
     engine.dispose()
+    with caplog.at_level(logging.WARNING):
+        logger.warning("Migration preserved logging capture")
+    assert "Migration preserved logging capture" in caplog.text
