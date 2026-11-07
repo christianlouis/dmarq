@@ -64,6 +64,25 @@ def test_new_alert_is_sent_without_repeating_old_alerts(db_session, delivery):
     assert all(row.last_notified_at is not None for row in db_session.query(AlertHistory))
 
 
+def test_large_alert_set_delivers_every_receipted_alert_in_one_notification(db_session, delivery):
+    observed, messages, _ = delivery
+    observed[:] = [_alert(f"domain-{index}.example") for index in range(53)]
+    alert_rules.send_current_alerts(db_session, only_unnotified=True)
+
+    assert len(messages) == 1
+    assert messages[0]["title"] == "DMARQ alert summary: 53 alert(s)"
+    for alert in observed:
+        assert alert["detail"] in messages[0]["body"]
+    assert (
+        db_session.query(AlertHistory).filter(AlertHistory.last_notified_at.is_not(None)).count()
+        == 53
+    )
+    assert alert_rules.send_current_alerts(db_session, only_unnotified=True)["notification"][
+        "skipped"
+    ]
+    assert len(messages) == 1
+
+
 @pytest.mark.parametrize(
     "result",
     [

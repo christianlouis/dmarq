@@ -331,9 +331,8 @@ def send_current_alerts(db: Session, *, only_unnotified: bool = False) -> Dict[s
 
 def send_alert_summary_notification(db: Session, alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Send one notification for an already evaluated alert set."""
-    lines = [f"{alert['title']}: {alert['detail']}" for alert in alerts[:10]]
-    if len(alerts) > 10:
-        lines.append(f"...and {len(alerts) - 10} more alert(s).")
+    # Every receipted alert must have its details in the delivered summary.
+    lines = [f"{alert['title']}: {alert['detail']}" for alert in alerts]
     result = send_notification(
         db,
         title=f"DMARQ alert summary: {len(alerts)} alert(s)",

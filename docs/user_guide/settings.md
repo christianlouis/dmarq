@@ -81,7 +81,8 @@ together. Automatic alert notifications are also deduplicated in the database:
 after successful delivery, an unchanged active alert is not sent again, even
 after the cooldown expires or the application restarts. New alerts, alerts
 that return after being resolved, and severity escalations are eligible for
-delivery. Failed, disabled, or rate-limited sends remain pending. On the first
+delivery. Each alert notification includes the details of every alert it marks
+as delivered. Failed, disabled, or rate-limited sends remain pending. On the first
 run after upgrading, existing active alerts are eligible for one notification
 because earlier versions did not retain per-alert delivery receipts.
 
