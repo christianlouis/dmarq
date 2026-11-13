@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.app_timezone import ensure_utc
 from app.models.alert import AlertHistory
+from app.models.domain import Domain
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_audit import record_workspace_audit_log
@@ -95,6 +96,42 @@ def latest_sender_classifications(
     return result
 
 
+def legitimate_sender_scopes(
+    db: Session, scopes: set[tuple[Optional[int], str, str]]
+) -> set[tuple[Optional[int], str, str]]:
+    """Return trusted current scopes with one bounded audit-history query."""
+    if not scopes:
+        return set()
+    workspace_ids = {workspace_id for workspace_id, _, _ in scopes if workspace_id is not None}
+    domains = {domain for _, domain, _ in scopes}
+    if not workspace_ids or not domains:
+        return set()
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .filter(
+            WorkspaceAuditLog.workspace_id.in_(workspace_ids),
+            WorkspaceAuditLog.entity_name.in_(domains),
+            WorkspaceAuditLog.action == SENDER_CLASSIFICATION_ACTION,
+            WorkspaceAuditLog.entity_type == SENDER_CLASSIFICATION_ENTITY,
+        )
+        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+        .all()
+    )
+    latest: set[tuple[Optional[int], str, str]] = set()
+    seen: set[tuple[Optional[int], str, str]] = set()
+    for row in rows:
+        details = _details(row)
+        domain = str(details.get("domain") or "")
+        source_ip = str(details.get("source_ip") or "")
+        key = (row.workspace_id, domain, source_ip)
+        if key not in scopes or key in seen:
+            continue
+        seen.add(key)
+        if details.get("classification") == "legitimate":
+            latest.add(key)
+    return latest
+
+
 def record_sender_classification(
     db: Session,
     *,
@@ -138,9 +175,11 @@ def record_sender_classification(
         # alert immediately; the next rule evaluation also omits it.
         active_rows = (
             db.query(AlertHistory)
+            .join(Domain, Domain.name == AlertHistory.domain)
             .filter(
                 AlertHistory.rule == "new_sender_source",
                 AlertHistory.domain == normalized_domain,
+                Domain.workspace_id == workspace.id,
                 AlertHistory.is_active.is_(True),
             )
             .all()

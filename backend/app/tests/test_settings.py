@@ -968,9 +968,10 @@ class TestSettingsAPI:
     def test_trusted_sender_does_not_cross_domain_or_rule_boundaries(self, db_session: Session):
         """Trusting one domain/IP leaves another domain and rule active."""
         workspace = Workspace(slug="boundary-sources", name="Boundary Sources")
+        other_workspace = Workspace(slug="other-boundary-sources", name="Other Boundary Sources")
         trusted_domain = Domain(name="trusted-boundary.example", workspace=workspace)
-        other_domain = Domain(name="other-boundary.example", workspace=workspace)
-        db_session.add_all([workspace, trusted_domain, other_domain])
+        other_domain = Domain(name="other-boundary.example", workspace=other_workspace)
+        db_session.add_all([workspace, other_workspace, trusted_domain, other_domain])
         db_session.flush()
         for domain, report_id in (
             (trusted_domain, "trusted-boundary-source"),

@@ -14,14 +14,13 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
-from app.models.workspace import Workspace
 from app.services.alert_history import (
     pending_alert_notifications,
     record_alert_evaluation,
     record_alert_notifications,
 )
 from app.services.notifications import NotificationResult, send_notification
-from app.services.sender_classifications import latest_sender_classifications
+from app.services.sender_classifications import legitimate_sender_scopes
 from app.services.webhook_events import (
     EVENT_ALERT_CREATED,
     EVENT_COMPLIANCE_DROP,
@@ -96,15 +95,10 @@ def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]
         .all()
     )
 
-    legitimate_sources = set()
-    for workspace in db.query(Workspace).all():
-        legitimate_sources.update(
-            _source_key(workspace.id, domain, source_ip)
-            for (domain, source_ip), classification in latest_sender_classifications(
-                db, workspace=workspace
-            ).items()
-            if classification.get("classification") == "legitimate"
-        )
+    current_scopes = {
+        _source_key(row.workspace_id, row.domain, row.source_ip) for row in current_sources
+    }
+    legitimate_sources = legitimate_sender_scopes(db, current_scopes)
 
     alerts = []
     for row in current_sources:
