@@ -16,10 +16,20 @@ Logto SDK calls are mocked so no live Logto instance is needed.
 
 from __future__ import annotations
 
+import json
 import logging
+import ssl
+import threading
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -33,11 +43,13 @@ from app.core.auth_providers import (
     create_oidc_state,
     decode_oidc_state,
     exchange_oidc_callback,
+    fetch_oidc_discovery,
     mfa_claim_context,
     normalize_external_claims,
     sync_external_user,
     trusted_proxy_auth_context,
     trusted_proxy_claims_from_request,
+    _oidc_tls_verify,
 )
 from app.core.config import Settings, get_settings
 from app.core.logto import (
@@ -252,6 +264,7 @@ class TestExternalAuthProviders:
             OIDC_CLIENT_ID="client-id",
             OIDC_CLIENT_SECRET="client-secret",
             OIDC_PROVIDER_LABEL="Keycloak",
+            OIDC_CA_CERT_FILE="/run/secrets/keycloak-ca.pem",
         )
 
         provider = configured_oidc_provider(settings)
@@ -259,6 +272,7 @@ class TestExternalAuthProviders:
         assert settings.active_auth_provider == "oidc"
         assert provider is not None
         assert provider.label == "Keycloak"
+        assert provider.ca_cert_file == "/run/secrets/keycloak-ca.pem"
 
     def test_generic_oidc_presets_require_explicit_provider_match(self):
         settings = Settings(
@@ -1218,6 +1232,214 @@ class TestExternalAuthProviders:
 
         assert claims.mfa_verified is True
         assert claims.mfa_claims == ("amr:single_factor", "amr:mfa")
+
+
+class TestOIDCTLSConfiguration:
+    def _provider(self, **overrides):
+        values = {
+            "provider": "oidc",
+            "label": "Keycloak",
+            "issuer_url": "https://idp.example.test/realms/dmarq",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "redirect_uri": None,
+            "scopes": "openid email profile",
+            "skip_ssl_verify": False,
+        }
+        values.update(overrides)
+        return OIDCProviderConfig(**values)
+
+    def test_default_oidc_tls_verification_is_enabled(self):
+        assert _oidc_tls_verify(self._provider()) is True
+
+    def test_explicit_skip_ssl_verify_remains_opt_in(self):
+        assert _oidc_tls_verify(self._provider(skip_ssl_verify=True)) is False
+
+    def test_custom_ca_uses_context_and_preserves_verification(self, monkeypatch):
+        context = object()
+        create_context = MagicMock(return_value=context)
+        monkeypatch.setattr("app.core.auth_providers.ssl.create_default_context", create_context)
+
+        assert _oidc_tls_verify(self._provider(ca_cert_file="/run/secrets/keycloak-ca.pem")) is context
+        create_context.assert_called_once_with(cafile="/run/secrets/keycloak-ca.pem")
+
+    def test_invalid_custom_ca_fails_closed(self, monkeypatch, caplog):
+        monkeypatch.setattr(
+            "app.core.auth_providers.ssl.create_default_context",
+            MagicMock(side_effect=ssl.SSLError("bad certificate")),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            _oidc_tls_verify(self._provider(ca_cert_file="/tmp/not-a-ca.pem"))
+
+        assert exc.value.status_code == 503
+        assert "OIDC_CA_CERT_FILE" in exc.value.detail
+        assert "custom CA bundle could not be loaded" in caplog.text
+
+    @staticmethod
+    def _tls_server(tmp_path):
+        ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "DMARQ test CA")])
+        ca_cert = (
+            x509.CertificateBuilder()
+            .subject_name(ca_name)
+            .issuer_name(ca_name)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
+            .not_valid_after(datetime.now(timezone.utc) + timedelta(minutes=5))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True,
+                    content_commitment=False,
+                    key_encipherment=False,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=True,
+                    crl_sign=True,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+        server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        server_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+        server_cert = (
+            x509.CertificateBuilder()
+            .subject_name(server_name)
+            .issuer_name(ca_name)
+            .public_key(server_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
+            .not_valid_after(datetime.now(timezone.utc) + timedelta(minutes=5))
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+                critical=False,
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+        ca_path = tmp_path / "ca.pem"
+        cert_path = tmp_path / "server.pem"
+        key_path = tmp_path / "server.key"
+        ca_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
+        cert_path.write_bytes(server_cert.public_bytes(serialization.Encoding.PEM))
+        key_path.write_bytes(
+            server_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+        )
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 - stdlib handler API
+                body = json.dumps(
+                    {
+                        "authorization_endpoint": "https://localhost/auth",
+                        "token_endpoint": "https://localhost/token",
+                    }
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        server_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        server_context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+        server.socket = server_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, thread, ca_path
+
+    @pytest.mark.asyncio
+    async def test_custom_ca_works_on_loopback_and_keeps_hostname_verification(self, tmp_path):
+        server, thread, ca_path = self._tls_server(tmp_path)
+        try:
+            with pytest.raises(httpx.ConnectError):
+                await fetch_oidc_discovery(
+                    self._provider(issuer_url=f"https://localhost:{server.server_port}")
+                )
+
+            metadata = await fetch_oidc_discovery(
+                self._provider(
+                    issuer_url=f"https://localhost:{server.server_port}",
+                    ca_cert_file=str(ca_path),
+                )
+            )
+            assert metadata["token_endpoint"].endswith("/token")
+
+            with pytest.raises(httpx.ConnectError):
+                await fetch_oidc_discovery(
+                    self._provider(
+                        issuer_url=f"https://127.0.0.1:{server.server_port}",
+                        ca_cert_file=str(ca_path),
+                    )
+                )
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    @pytest.mark.asyncio
+    async def test_callback_passes_custom_tls_context_to_token_and_userinfo(self, tmp_path):
+        server, thread, ca_path = self._tls_server(tmp_path)
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+        provider = self._provider(ca_cert_file=str(ca_path))
+        request = MagicMock()
+        request.base_url = "https://dmarq.example.test/"
+        token_response = MagicMock()
+        token_response.json.return_value = {"access_token": "access-token"}
+        userinfo_response = MagicMock()
+        userinfo_response.json.return_value = {
+            "sub": "oidc-user-1",
+            "email": "owner@example.com",
+        }
+        token_response.raise_for_status = MagicMock()
+        userinfo_response.raise_for_status = MagicMock()
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.post = AsyncMock(return_value=token_response)
+        client.get = AsyncMock(return_value=userinfo_response)
+
+        with (
+            patch(
+                "app.core.auth_providers.fetch_oidc_discovery",
+                new=AsyncMock(
+                    return_value={
+                        "token_endpoint": "https://idp.example.test/token",
+                        "userinfo_endpoint": "https://idp.example.test/userinfo",
+                    }
+                ),
+            ),
+            patch("app.core.auth_providers.httpx.AsyncClient", return_value=client) as constructor,
+        ):
+            claims = await exchange_oidc_callback(request, provider, code="callback-code")
+
+        assert claims.email == "owner@example.com"
+        verify = constructor.call_args.kwargs["verify"]
+        assert isinstance(verify, ssl.SSLContext)
+        assert client.post.await_args.kwargs["headers"] == {"Accept": "application/json"}
+        assert client.get.await_args.kwargs["headers"]["Authorization"] == "Bearer access-token"
 
 
 class TestAuthProviderEndpoint:

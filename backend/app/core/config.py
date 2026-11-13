@@ -227,6 +227,9 @@ class Settings(BaseSettings):
     OIDC_REDIRECT_URI: Optional[str] = None
     OIDC_SCOPES: str = "openid email profile"
     OIDC_PROVIDER_LABEL: str = "OpenID Connect"
+    # Optional PEM CA bundle for private/internal OIDC providers. The default
+    # trust store remains in use when unset; hostname verification is retained.
+    OIDC_CA_CERT_FILE: Optional[str] = None
     OIDC_SKIP_SSL_VERIFY: bool = False
     ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION: bool = False
     OIDC_ALLOWED_EMAILS: Optional[str] = None

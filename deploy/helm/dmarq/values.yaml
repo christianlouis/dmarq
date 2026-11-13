@@ -75,7 +75,9 @@ postgresql:
   enabled: true
   image:
     repository: postgres
-    tag: 14-alpine
+    # Keep the bundled database default aligned with Compose. PostgreSQL 18
+    # needs a versioned data-directory migration before this mount is changed.
+    tag: 17-alpine
     pullPolicy: IfNotPresent
   securityContext:
     allowPrivilegeEscalation: false
