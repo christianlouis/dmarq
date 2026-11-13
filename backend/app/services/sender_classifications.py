@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from ipaddress import ip_address
 from typing import Any, Dict, Optional
 
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import ensure_utc
+from app.models.alert import AlertHistory
+from app.models.domain import Domain
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_audit import record_workspace_audit_log
@@ -93,6 +97,57 @@ def latest_sender_classifications(
     return result
 
 
+def legitimate_sender_scopes(
+    db: Session, scopes: set[tuple[Optional[int], str, str]]
+) -> set[tuple[Optional[int], str, str]]:
+    """Return trusted current scopes with one bounded audit-history query."""
+    if not scopes:
+        return set()
+    workspace_ids = {workspace_id for workspace_id, _, _ in scopes if workspace_id is not None}
+    domains = {domain for _, domain, _ in scopes}
+    if not workspace_ids or not domains:
+        return set()
+    requested_keys = {
+        (_scope_id(domain, source_ip), workspace_id) for workspace_id, domain, source_ip in scopes
+    }
+    ranked = (
+        db.query(
+            WorkspaceAuditLog.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=(WorkspaceAuditLog.workspace_id, WorkspaceAuditLog.entity_id),
+                order_by=(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .filter(
+            tuple_(WorkspaceAuditLog.entity_id, WorkspaceAuditLog.workspace_id).in_(requested_keys),
+            WorkspaceAuditLog.action == SENDER_CLASSIFICATION_ACTION,
+            WorkspaceAuditLog.entity_type == SENDER_CLASSIFICATION_ENTITY,
+        )
+        .subquery()
+    )
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .join(ranked, ranked.c.id == WorkspaceAuditLog.id)
+        .filter(ranked.c.row_number == 1)
+        .all()
+    )
+    latest: set[tuple[Optional[int], str, str]] = set()
+    seen: set[tuple[Optional[int], str, str]] = set()
+    for row in rows:
+        details = _details(row)
+        domain = str(details.get("domain") or "")
+        source_ip = str(details.get("source_ip") or "")
+        key = (row.workspace_id, domain, source_ip)
+        if key not in scopes or key in seen:
+            continue
+        seen.add(key)
+        if details.get("classification") == "legitimate":
+            latest.add(key)
+    return latest
+
+
 def record_sender_classification(
     db: Session,
     *,
@@ -129,6 +184,34 @@ def record_sender_classification(
         },
         auth_context=auth_context,
         request=request,
-        commit=True,
+        commit=False,
     )
+    if normalized_classification == "legitimate":
+        # A trusted sender decision must settle an already-active new-source
+        # alert immediately; the next rule evaluation also omits it.
+        active_rows = (
+            db.query(AlertHistory)
+            .join(Domain, Domain.name == AlertHistory.domain)
+            .filter(
+                AlertHistory.rule == "new_sender_source",
+                AlertHistory.domain == normalized_domain,
+                Domain.workspace_id == workspace.id,
+                AlertHistory.is_active.is_(True),
+            )
+            .all()
+        )
+        for alert in active_rows:
+            try:
+                payload = json.loads(alert.payload or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            try:
+                alert_ip = str(ip_address(str(payload.get("source_ip") or "").strip()))
+            except ValueError:
+                continue
+            if alert_ip == normalized_ip:
+                alert.is_active = False
+                alert.resolved_at = datetime.utcnow()
+    # Persist the audit decision and any alert resolution atomically.
+    db.commit()
     return _classification_projection(row)

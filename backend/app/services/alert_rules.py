@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, func
@@ -19,6 +20,7 @@ from app.services.alert_history import (
     record_alert_notifications,
 )
 from app.services.notifications import NotificationResult, send_notification
+from app.services.sender_classifications import legitimate_sender_scopes
 from app.services.webhook_events import (
     EVENT_ALERT_CREATED,
     EVENT_COMPLIANCE_DROP,
@@ -52,12 +54,24 @@ def _days_ago_ts(days: int) -> int:
     return int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
 
 
+def _source_key(workspace_id: Optional[int], domain: str, source_ip: str) -> tuple:
+    try:
+        normalized_ip = str(ip_address(str(source_ip).strip()))
+    except ValueError:
+        normalized_ip = str(source_ip or "")
+    return workspace_id, domain, normalized_ip
+
+
 def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]]:
     cutoff_ts = _days_ago_ts(window_days)
     previous_sources = {
-        (row.domain, row.source_ip)
+        _source_key(row.workspace_id, row.domain, row.source_ip)
         for row in (
-            db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
+            db.query(
+                Domain.workspace_id.label("workspace_id"),
+                Domain.name.label("domain"),
+                ReportRecord.source_ip.label("source_ip"),
+            )
             .join(DMARCReport, DMARCReport.domain_id == Domain.id)
             .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
             .filter(DMARCReport.begin_date < cutoff_ts)
@@ -69,20 +83,29 @@ def _new_source_alerts(db: Session, window_days: int = 7) -> List[Dict[str, Any]
     current_sources = (
         db.query(
             Domain.name.label("domain"),
+            Domain.workspace_id.label("workspace_id"),
             ReportRecord.source_ip.label("source_ip"),
             func.sum(ReportRecord.count).label("message_count"),
         )
         .join(DMARCReport, DMARCReport.domain_id == Domain.id)
         .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
         .filter(DMARCReport.begin_date >= cutoff_ts)
-        .group_by(Domain.name, ReportRecord.source_ip)
+        .group_by(Domain.name, Domain.workspace_id, ReportRecord.source_ip)
         .order_by(func.sum(ReportRecord.count).desc())
         .all()
     )
 
+    current_scopes = {
+        _source_key(row.workspace_id, row.domain, row.source_ip) for row in current_sources
+    }
+    legitimate_sources = legitimate_sender_scopes(db, current_scopes)
+
     alerts = []
     for row in current_sources:
-        if (row.domain, row.source_ip) in previous_sources:
+        source_key = _source_key(row.workspace_id, row.domain, row.source_ip)
+        if source_key in previous_sources:
+            continue
+        if source_key in legitimate_sources:
             continue
         count = int(row.message_count or 0)
         alerts.append(
