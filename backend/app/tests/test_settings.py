@@ -1042,8 +1042,8 @@ class TestSettingsAPI:
             record_sender_classification(
                 db_session,
                 workspace=workspace,
-                domain=f"history-{index}.example",
-                source_ip=f"203.0.113.{index + 1}",
+                domain="requested.example",
+                source_ip="203.0.113.88",
                 classification="legitimate",
                 reason="History",
                 auth_context={"auth_type": "test"},
@@ -1076,16 +1076,6 @@ class TestSettingsAPI:
             reason="Trusted",
             auth_context={"auth_type": "test"},
         )
-        latest_rows = (
-            db_session.query(WorkspaceAuditLog)
-            .filter(WorkspaceAuditLog.workspace_id == workspace.id)
-            .order_by(WorkspaceAuditLog.id.desc())
-            .limit(2)
-            .all()
-        )
-        for row in latest_rows:
-            row.created_at = datetime(2026, 1, 1)
-        db_session.commit()
         record_sender_classification(
             db_session,
             workspace=workspace,
@@ -1095,16 +1085,30 @@ class TestSettingsAPI:
             reason="Needs review",
             auth_context={"auth_type": "test"},
         )
+        audit_rows = (
+            db_session.query(WorkspaceAuditLog)
+            .filter(WorkspaceAuditLog.workspace_id == workspace.id)
+            .all()
+        )
+        for row in audit_rows:
+            row.created_at = datetime(2026, 1, 1)
+        db_session.commit()
         requested = {
             (workspace.id, "requested.example", "2001:db8::1"),
             (workspace.id, "requested.example", "203.0.113.88"),
         }
         loaded = []
+        statements = []
+        engine = db_session.get_bind()
 
         def on_load(_target, _context):
             loaded.append(True)
 
+        def on_query(_connection, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
         event.listen(WorkspaceAuditLog, "load", on_load)
+        event.listen(engine, "before_cursor_execute", on_query)
         try:
             db_session.expunge_all()
             assert legitimate_sender_scopes(db_session, requested) == {
@@ -1112,14 +1116,17 @@ class TestSettingsAPI:
             }
             assert len(loaded) <= 2
             loaded.clear()
+            statements.clear()
             assert legitimate_sender_scopes(db_session, set()) == set()
             assert (
                 legitimate_sender_scopes(db_session, {(None, "requested.example", "2001:db8::1")})
                 == set()
             )
             assert loaded == []
+            assert statements == []
         finally:
             event.remove(WorkspaceAuditLog, "load", on_load)
+            event.remove(engine, "before_cursor_execute", on_query)
 
     def test_trusted_sender_resolution_uses_current_domain_owner(self, db_session: Session):
         former = Workspace(slug="former-owner", name="Former Owner")
