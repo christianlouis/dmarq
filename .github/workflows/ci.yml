@@ -190,7 +190,17 @@ jobs:
         env:
           TEST_POSTGRESQL_URL: postgresql://dmarq_ci:dmarq_ci_password@127.0.0.1:5432/dmarq_ci
         working-directory: backend
-        run: pytest -q app/tests/test_postgresql_compatibility.py --no-cov
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine(os.environ["TEST_POSTGRESQL_URL"])
+          with engine.connect() as connection:
+              print(connection.scalar(text("SELECT version()")))
+          engine.dispose()
+          PY
+          pytest -q app/tests/test_postgresql_compatibility.py --no-cov
 
   docker-compose-smoke:
     name: Docker Compose Greenfield Smoke

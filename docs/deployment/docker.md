@@ -253,12 +253,15 @@ successfully.
 For example, the safe shape of a 14/16/17 to 17/18 move is:
 
 ```bash
+(
+set -eu
 docker compose stop app
 docker compose exec -T db sh -c \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
   > "dmarq-before-postgres-upgrade.dump"
 docker compose exec -T db sh -c 'pg_restore --list' \
   < "dmarq-before-postgres-upgrade.dump" >/dev/null
+)
 ```
 
 Create a separately named target volume and restore into a target container;
@@ -267,13 +270,15 @@ temporary override keeps the target on the Compose network and makes the
 volume switch explicit:
 
 ```bash
+(
+set -eu
 docker compose stop db
 docker volume create dmarq_postgres_data_v17
 cat > /tmp/dmarq-postgres-target.yml <<'YAML'
 services:
   db:
     image: postgres:17-alpine
-    volumes:
+    volumes: !override
       - dmarq_postgres_data_v17:/var/lib/postgresql/data
 volumes:
   dmarq_postgres_data_v17:
@@ -293,6 +298,7 @@ test "$ready" -eq 1
 docker compose -f docker-compose.yml -f /tmp/dmarq-postgres-target.yml exec -T db sh -c \
   'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' \
   < "dmarq-before-postgres-upgrade.dump"
+)
 ```
 
 After checking the target database, stop the temporary target before starting
@@ -300,7 +306,7 @@ Compose on that volume, then update the Compose image and volume to match the
 override and run `docker compose up -d --wait`. Roll back by stopping the target
 and restoring the original image/volume configuration; do not delete the old
 volume until the rollback window has expired. PostgreSQL 18's [official image
-documentation](https://github.com/docker-library/postgres/blob/master/README.md)
+documentation](https://github.com/docker-library/docs/blob/master/postgres/README.md)
 sets `PGDATA` to `/var/lib/postgresql/18/docker`; mount the new volume at the
 parent `/var/lib/postgresql` for that target. The PostgreSQL major-version
 upgrade itself is an operator/database-administration task; DMARQ only applies
@@ -311,9 +317,17 @@ its Alembic migrations after the target database is available.
 ```bash
 docker compose logs --tail=200 app
 docker compose logs -f app
+```
+
+Create a backup with a fail-closed command group:
+
+```bash
+(
+set -eu
 docker compose exec -T db sh -c \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
   > "dmarq-$(date +%Y%m%d-%H%M%S).dump"
+)
 ```
 
 See [Database Backup and Restore](backups.md) before upgrades or restore work.
