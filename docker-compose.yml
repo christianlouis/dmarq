@@ -2,7 +2,10 @@ name: dmarq
 
 services:
   db:
-    image: postgres:14-alpine
+    # PostgreSQL 17 is the default supported Compose runtime. PostgreSQL 18
+    # uses a different official-image data layout; see the upgrade guidance
+    # before changing this tag on an existing volume.
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Run ./scripts/bootstrap-docker-env.sh first}

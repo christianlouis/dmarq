@@ -5,6 +5,12 @@ default stack pulls the tested `docker-stable` image from GHCR, starts PostgreSQ
 on an internal network, and publishes DMARQ only on
 `127.0.0.1:8080`.
 
+The bundled Compose database defaults to PostgreSQL 17 (`postgres:17-alpine`).
+DMARQ's database code and migrations are tested against PostgreSQL 16, 17, and
+18. PostgreSQL 14 was retained from the original Compose stack; it was not a
+DMARQ application requirement, and its final upstream release was November 12,
+2026. PostgreSQL 16, 17, and 18 remain supported upstream.
+
 ## Prerequisites
 
 - Docker Engine 24 or later
@@ -234,13 +240,59 @@ curl -fsS http://localhost:8080/healthz
 Migrations run automatically in the application entrypoint. Do not use
 `docker compose down -v` during a normal update; `-v` deletes the database.
 
+#### PostgreSQL major-version changes
+
+Changing the `postgres` image tag is a database major-version migration, not a
+normal DMARQ update. Never point a new major-version container at an existing
+volume and rely on the container to upgrade it automatically. Before changing
+the tag, stop the app, create and verify a custom-format dump, and restore that
+dump into a newly initialized volume running the target major version. Keep the
+old volume until the restored instance has been checked and the app has started
+successfully.
+
+For example, the safe shape of a 14/16/17 to 17/18 move is:
+
+```bash
+docker compose stop app
+docker compose exec -T db sh -c \
+  'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
+  > "dmarq-before-postgres-upgrade.dump"
+docker compose exec -T db sh -c 'pg_restore --list' \
+  < "dmarq-before-postgres-upgrade.dump" >/dev/null
+```
+
+Create a separately named target volume and restore into a target container;
+keep the old `dmarq_postgres_data` volume untouched until verification succeeds:
+
+```bash
+docker compose stop db
+docker volume create dmarq_postgres_data_v17
+docker run -d --name dmarq-postgres-target --env-file .env \
+  -p 127.0.0.1:5433:5432 \
+  -v dmarq_postgres_data_v17:/var/lib/postgresql/data postgres:17-alpine
+until docker exec dmarq-postgres-target sh -c \
+  'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; do sleep 2; done
+docker exec -i dmarq-postgres-target sh -c \
+  'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' \
+  < "dmarq-before-postgres-upgrade.dump"
+```
+
+After checking the target database, update the Compose volume/image configuration
+to use the target and start the stack. Roll back by stopping the target and
+restoring the original volume/image configuration; do not delete the old volume
+until the rollback window has expired. PostgreSQL 18's official image stores
+data under `/var/lib/postgresql/18/docker`, so a PostgreSQL 18 target must mount
+its new volume at that path. The PostgreSQL major-version upgrade itself is an
+operator/database-administration task; DMARQ only applies its Alembic migrations
+after the target database is available.
+
 ## Logs And Backups
 
 ```bash
 docker compose logs --tail=200 app
 docker compose logs -f app
 docker compose exec -T db pg_dump \
-  -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
   > "dmarq-$(date +%Y%m%d-%H%M%S).dump"
 ```
 

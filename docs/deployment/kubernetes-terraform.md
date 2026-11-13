@@ -36,6 +36,11 @@ credentials; do not mix unrelated credentials into it.
 The bundled database service is named `<release>-postgresql`. For the default
 release name, the database URL host is `dmarq-postgresql`. With an external
 database, disable bundled PostgreSQL and provide its URL in the same Secret.
+The bundled Helm database defaults to PostgreSQL 17, matching Compose. Existing
+releases using PostgreSQL 14 must be migrated with a tested dump/restore into a
+new PostgreSQL 17 volume; do not change the image tag against an existing data
+volume and expect an automatic major-version upgrade. Production clusters using
+an external PostgreSQL operator should follow that operator's upgrade procedure.
 
 ## Helm Install
 
