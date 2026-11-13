@@ -936,6 +936,21 @@ class TestSettingsAPI:
             for row in db_session.query(AlertHistory).all()
         )
 
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="trusted.example",
+            source_ip="2001:db8::1",
+            classification="legitimate",
+            reason="Reconfirmed provider",
+            auth_context={"auth_type": "test"},
+        )
+        assert [
+            alert["source_ip"]
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ] == ["203.0.113.25"]
+
         reassigned_workspace = Workspace(slug="reassigned-sources", name="Reassigned Sources")
         db_session.add(reassigned_workspace)
         domain.workspace = reassigned_workspace
