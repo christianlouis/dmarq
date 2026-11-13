@@ -194,8 +194,9 @@ jobs:
           python - <<'PY'
           import os
           from sqlalchemy import create_engine, text
+          from app.core.database import _make_sync_db_url
 
-          engine = create_engine(os.environ["TEST_POSTGRESQL_URL"])
+          engine = create_engine(_make_sync_db_url(os.environ["TEST_POSTGRESQL_URL"]))
           with engine.connect() as connection:
               print(connection.scalar(text("SELECT version()")))
           engine.dispose()
