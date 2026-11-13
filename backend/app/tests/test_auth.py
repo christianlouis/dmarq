@@ -16,22 +16,22 @@ Logto SDK calls are mocked so no live Logto instance is needed.
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import ssl
 import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
+import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.auth import _create_next_cookie, _handle_external_oidc_callback
 from app.core.auth_providers import (
@@ -1299,7 +1299,10 @@ class TestOIDCTLSConfiguration:
                 ),
                 critical=True,
             )
-            .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()),
+                critical=False,
+            )
             .sign(ca_key, hashes.SHA256())
         )
         server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -1312,7 +1315,10 @@ class TestOIDCTLSConfiguration:
             .serial_number(x509.random_serial_number())
             .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
             .not_valid_after(datetime.now(timezone.utc) + timedelta(minutes=5))
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+                critical=False,
+            )
             .add_extension(
                 x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
                 critical=False,
@@ -1384,12 +1390,14 @@ class TestOIDCTLSConfiguration:
         finally:
             server.shutdown()
             thread.join(timeout=2)
+            server.server_close()
 
     @pytest.mark.asyncio
     async def test_callback_passes_custom_tls_context_to_token_and_userinfo(self, tmp_path):
         server, thread, ca_path = self._tls_server(tmp_path)
         server.shutdown()
         thread.join(timeout=2)
+        server.server_close()
         provider = self._provider(ca_cert_file=str(ca_path))
         request = MagicMock()
         request.base_url = "https://dmarq.example.test/"
