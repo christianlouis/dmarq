@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import ssl
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -40,6 +41,7 @@ class OIDCProviderConfig:
     redirect_uri: Optional[str]
     scopes: str
     skip_ssl_verify: bool
+    ca_cert_file: Optional[str] = None
     allowed_emails: Optional[str] = None
     allowed_domains: Optional[str] = None
     group_workspace_role_map: Optional[str] = None
@@ -486,6 +488,7 @@ def configured_oidc_provider(settings: Settings | None = None) -> Optional[OIDCP
             client_secret=client_secret,
             redirect_uri=cfg.AUTHENTIK_REDIRECT_URI or cfg.OIDC_REDIRECT_URI,
             scopes=cfg.AUTHENTIK_SCOPES or cfg.OIDC_SCOPES,
+            ca_cert_file=cfg.OIDC_CA_CERT_FILE,
             skip_ssl_verify=cfg.OIDC_SKIP_SSL_VERIFY,
             allowed_emails=cfg.AUTHENTIK_ALLOWED_EMAILS or cfg.OIDC_ALLOWED_EMAILS,
             allowed_domains=cfg.AUTHENTIK_ALLOWED_DOMAINS or cfg.OIDC_ALLOWED_DOMAINS,
@@ -507,6 +510,7 @@ def configured_oidc_provider(settings: Settings | None = None) -> Optional[OIDCP
             client_secret=cfg.OIDC_CLIENT_SECRET,
             redirect_uri=cfg.OIDC_REDIRECT_URI,
             scopes=cfg.OIDC_SCOPES,
+            ca_cert_file=cfg.OIDC_CA_CERT_FILE,
             skip_ssl_verify=cfg.OIDC_SKIP_SSL_VERIFY,
             allowed_emails=cfg.OIDC_ALLOWED_EMAILS,
             allowed_domains=cfg.OIDC_ALLOWED_DOMAINS,
@@ -545,12 +549,37 @@ def decode_oidc_state(value: str, settings: Settings | None = None) -> Optional[
         return None
 
 
+def _oidc_tls_verify(provider: OIDCProviderConfig) -> bool | ssl.SSLContext:
+    """Build the TLS verification setting shared by every OIDC request.
+
+    A custom CA selects the operator-supplied trust bundle and does not disable
+    hostname verification. Invalid operator configuration is surfaced as a
+    503 rather than silently falling back to an insecure trust store.
+    """
+    if provider.skip_ssl_verify:
+        return False
+    ca_cert_file = (provider.ca_cert_file or "").strip()
+    if not ca_cert_file:
+        return True
+    try:
+        return ssl.create_default_context(cafile=ca_cert_file)
+    except (OSError, ssl.SSLError) as exc:
+        logger.error("OIDC custom CA bundle could not be loaded from %s", ca_cert_file)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "OIDC custom CA bundle could not be loaded. Check OIDC_CA_CERT_FILE "
+                "and ensure it points to a readable PEM CA bundle."
+            ),
+        ) from exc
+
+
 async def fetch_oidc_discovery(provider: OIDCProviderConfig) -> dict[str, Any]:
     """Fetch the provider's OIDC discovery document."""
     url = f"{provider.issuer_url}/.well-known/openid-configuration"
     async with httpx.AsyncClient(
         timeout=10,
-        verify=not provider.skip_ssl_verify,
+        verify=_oidc_tls_verify(provider),
         follow_redirects=True,
     ) as client:
         response = await client.get(url)
@@ -596,7 +625,7 @@ async def exchange_oidc_callback(
     redirect_uri = provider.redirect_uri or default_redirect_uri(request)
     async with httpx.AsyncClient(
         timeout=10,
-        verify=not provider.skip_ssl_verify,
+        verify=_oidc_tls_verify(provider),
         follow_redirects=True,
     ) as client:
         token_response = await client.post(

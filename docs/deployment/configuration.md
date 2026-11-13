@@ -127,12 +127,41 @@ other OIDC-capable providers.
 | `OIDC_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com` |
 | `OIDC_GROUP_WORKSPACE_ROLE_MAP` | Optional IdP group to DMARQ workspace role mapping. Use comma- or semicolon-separated `group=workspace-slug:role` entries. | - | `dmarq-admins=primary:workspace_owner` |
 | `OIDC_GROUP_ORGANIZATION_ROLE_MAP` | Optional IdP group to DMARQ organization role mapping. Use comma- or semicolon-separated `group=organization-slug:role` entries. | - | `dmarq-admins=customer-one:organization_owner` |
+| `OIDC_CA_CERT_FILE` | Optional path to a readable PEM CA bundle used for internal/private OIDC TLS. Certificate and hostname verification remain enabled. | - | `/run/secrets/keycloak-ca.pem` |
 | `OIDC_SKIP_SSL_VERIFY` | Disable TLS verification for provider requests. Do not use in production unless explicitly allowed. | `false` | `true`, `false` |
 
 Presets such as Keycloak, Microsoft Entra ID, and Google Workspace do not need
 bespoke DMARQ code paths. Use `AUTH_MODE=oidc`, set `OIDC_PROVIDER_LABEL` to
 the provider name, and restrict single-user/self-hosted installs with
 `OIDC_ALLOWED_EMAILS` or `OIDC_ALLOWED_DOMAINS`.
+
+For a Keycloak realm signed by an internal CA, mount the CA certificate into
+the DMARQ container and set `OIDC_CA_CERT_FILE` to that path. This setting is
+used for discovery, token, and userinfo requests and keeps normal TLS
+certificate and hostname verification enabled. If the setting is omitted,
+HTTPX uses its default CA trust configuration (including the standard
+`SSL_CERT_FILE`/`SSL_CERT_DIR` environment workarounds). A missing or invalid
+CA file fails closed with an actionable request error; do not use
+`OIDC_SKIP_SSL_VERIFY=true` except for a separately approved temporary
+diagnostic.
+
+For Keycloak, create a confidential client with Standard Flow enabled, set the
+DMARQ callback URL as an allowed redirect URI, and ensure the client can return
+the `openid`, `email`, and `profile` scopes through the userinfo endpoint. For
+example, mount the realm CA bundle at `/run/secrets/keycloak-ca.pem` and set:
+
+```dotenv
+AUTH_MODE=oidc
+OIDC_PROVIDER_LABEL=Keycloak
+OIDC_ISSUER_URL=https://keycloak.internal/realms/dmarq
+OIDC_CLIENT_ID=dmarq
+OIDC_CLIENT_SECRET=replace-with-secret
+OIDC_CA_CERT_FILE=/run/secrets/keycloak-ca.pem
+```
+
+The current generic flow does not send a PKCE challenge, so a Keycloak client
+configured to require PKCE is not compatible without a separate implementation
+change.
 
 For team, ISP, or provider deployments, map IdP groups to existing local DMARQ
 workspace and organization slugs. DMARQ still keeps canonical users,
