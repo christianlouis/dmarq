@@ -152,6 +152,7 @@ example, mount the realm CA bundle at `/run/secrets/keycloak-ca.pem` and set:
 
 ```dotenv
 AUTH_MODE=oidc
+AUTH_DISABLED=false
 OIDC_PROVIDER_LABEL=Keycloak
 OIDC_ISSUER_URL=https://keycloak.internal/realms/dmarq
 OIDC_CLIENT_ID=dmarq
