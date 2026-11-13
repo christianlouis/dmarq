@@ -5,6 +5,7 @@ Tests for the Settings model and /api/v1/settings endpoints.
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -17,6 +18,7 @@ from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceAuditLog
 from app.services.account_milestone import (
     _auth_mode,
     _criterion,
@@ -32,7 +34,10 @@ from app.services.alert_history import (
 from app.services.alert_rules import evaluate_alert_rules
 from app.services.api_tokens import PROVIDER_READ_SCOPE, SCIM_READ_SCOPE
 from app.services.notifications import NotificationResult, send_notification
-from app.services.sender_classifications import record_sender_classification
+from app.services.sender_classifications import (
+    legitimate_sender_scopes,
+    record_sender_classification,
+)
 from app.services.summary_notifications import send_due_scheduled_summaries
 
 
@@ -1027,6 +1032,140 @@ class TestSettingsAPI:
         assert any(
             row.domain == other_domain.name and row.rule == "missing_reports" for row in active
         )
+
+    def test_legitimate_sender_scopes_latest_and_query_boundary(self, db_session: Session):
+        workspace = Workspace(slug="scope-latest", name="Scope Latest")
+        other_workspace = Workspace(slug="scope-other", name="Scope Other")
+        db_session.add_all([workspace, other_workspace])
+        db_session.commit()
+        for index in range(12):
+            record_sender_classification(
+                db_session,
+                workspace=workspace,
+                domain=f"history-{index}.example",
+                source_ip=f"203.0.113.{index + 1}",
+                classification="legitimate",
+                reason="History",
+                auth_context={"auth_type": "test"},
+            )
+        for index in range(10):
+            record_sender_classification(
+                db_session,
+                workspace=other_workspace,
+                domain=f"other-{index}.example",
+                source_ip=f"198.51.100.{index + 1}",
+                classification="legitimate",
+                reason="Other history",
+                auth_context={"auth_type": "test"},
+            )
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="requested.example",
+            source_ip="2001:db8::1",
+            classification="legitimate",
+            reason="Trusted",
+            auth_context={"auth_type": "test"},
+        )
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="requested.example",
+            source_ip="203.0.113.88",
+            classification="legitimate",
+            reason="Trusted",
+            auth_context={"auth_type": "test"},
+        )
+        latest_rows = (
+            db_session.query(WorkspaceAuditLog)
+            .filter(WorkspaceAuditLog.workspace_id == workspace.id)
+            .order_by(WorkspaceAuditLog.id.desc())
+            .limit(2)
+            .all()
+        )
+        for row in latest_rows:
+            row.created_at = datetime(2026, 1, 1)
+        db_session.commit()
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="requested.example",
+            source_ip="203.0.113.88",
+            classification="unknown",
+            reason="Needs review",
+            auth_context={"auth_type": "test"},
+        )
+        requested = {
+            (workspace.id, "requested.example", "2001:db8::1"),
+            (workspace.id, "requested.example", "203.0.113.88"),
+        }
+        loaded = []
+
+        def on_load(_target, _context):
+            loaded.append(True)
+
+        event.listen(WorkspaceAuditLog, "load", on_load)
+        try:
+            db_session.expunge_all()
+            assert legitimate_sender_scopes(db_session, requested) == {
+                (workspace.id, "requested.example", "2001:db8::1")
+            }
+            assert len(loaded) <= 2
+            loaded.clear()
+            assert legitimate_sender_scopes(db_session, set()) == set()
+            assert (
+                legitimate_sender_scopes(db_session, {(None, "requested.example", "2001:db8::1")})
+                == set()
+            )
+            assert loaded == []
+        finally:
+            event.remove(WorkspaceAuditLog, "load", on_load)
+
+    def test_trusted_sender_resolution_uses_current_domain_owner(self, db_session: Session):
+        former = Workspace(slug="former-owner", name="Former Owner")
+        current = Workspace(slug="current-owner", name="Current Owner")
+        domain = Domain(name="owner-change.example", workspace=former)
+        db_session.add_all([former, current, domain])
+        db_session.flush()
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="owner-change-source",
+            days_ago=0,
+            source_ip="203.0.113.99",
+            count=1,
+        )
+        db_session.commit()
+        alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        record_alert_evaluation(db_session, alerts)
+        domain.workspace = current
+        db_session.commit()
+        record_sender_classification(
+            db_session,
+            workspace=former,
+            domain=domain.name,
+            source_ip="203.0.113.99",
+            classification="legitimate",
+            reason="Former owner",
+            auth_context={"auth_type": "test"},
+        )
+        row = db_session.query(AlertHistory).filter(AlertHistory.domain == domain.name).one()
+        assert row.is_active
+        record_sender_classification(
+            db_session,
+            workspace=current,
+            domain=domain.name,
+            source_ip="203.0.113.99",
+            classification="legitimate",
+            reason="Current owner",
+            auth_context={"auth_type": "test"},
+        )
+        db_session.refresh(row)
+        assert not row.is_active
 
     def test_notification_alert_rules_detect_missing_reports(
         self,
