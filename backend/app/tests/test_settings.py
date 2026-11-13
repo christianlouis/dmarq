@@ -25,6 +25,7 @@ from app.services.account_milestone import (
 )
 from app.services.alert_history import (
     list_alert_config_audit,
+    pending_alert_notifications,
     record_alert_config_change,
     record_alert_evaluation,
 )
@@ -895,6 +896,46 @@ class TestSettingsAPI:
         summary_rows = [row for row in db_session.query(AlertHistory).all() if row.is_active]
         assert all(row.payload.find("2001:0db8:0:0:0:0:0:1") == -1 for row in summary_rows)
 
+        # A pre-existing active row from before the trust decision is settled
+        # by the next evaluation and does not produce a pending notification.
+        record_alert_evaluation(db_session, initial_alerts)
+        reconciled_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        assert [alert["source_ip"] for alert in reconciled_alerts] == ["203.0.113.25"]
+        record_alert_evaluation(db_session, reconciled_alerts)
+        assert all(
+            alert["source_ip"] != "2001:0db8:0:0:0:0:0:1"
+            for alert in pending_alert_notifications(db_session, reconciled_alerts)
+        )
+
+        # Removing trust re-enables a new occurrence for the same source.
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="trusted.example",
+            source_ip="2001:db8::1",
+            classification="unknown",
+            reason="Needs review",
+            auth_context={"auth_type": "test"},
+        )
+        restored_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        assert {alert["source_ip"] for alert in restored_alerts} == {
+            "2001:0db8:0:0:0:0:0:1",
+            "203.0.113.25",
+        }
+        record_alert_evaluation(db_session, restored_alerts)
+        assert any(
+            row.is_active and "2001:0db8:0:0:0:0:0:1" in row.payload
+            for row in db_session.query(AlertHistory).all()
+        )
+
         reassigned_workspace = Workspace(slug="reassigned-sources", name="Reassigned Sources")
         db_session.add(reassigned_workspace)
         domain.workspace = reassigned_workspace
@@ -908,6 +949,57 @@ class TestSettingsAPI:
             "2001:0db8:0:0:0:0:0:1",
             "203.0.113.25",
         }
+
+    def test_trusted_sender_does_not_cross_domain_or_rule_boundaries(self, db_session: Session):
+        """Trusting one domain/IP leaves another domain and rule active."""
+        workspace = Workspace(slug="boundary-sources", name="Boundary Sources")
+        trusted_domain = Domain(name="trusted-boundary.example", workspace=workspace)
+        other_domain = Domain(name="other-boundary.example", workspace=workspace)
+        db_session.add_all([workspace, trusted_domain, other_domain])
+        db_session.flush()
+        for domain, report_id in (
+            (trusted_domain, "trusted-boundary-source"),
+            (other_domain, "other-boundary-source"),
+        ):
+            _add_report_record(
+                db_session,
+                domain,
+                report_id=report_id,
+                days_ago=0,
+                source_ip="203.0.113.44",
+                count=4,
+            )
+        db_session.commit()
+        source_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        unrelated = {
+            "rule": "missing_reports",
+            "severity": "warning",
+            "domain": "other-boundary.example",
+            "missing_days": 7,
+            "title": "Missing DMARC reports",
+            "detail": "unrelated rule",
+        }
+        record_alert_evaluation(db_session, source_alerts + [unrelated])
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain=trusted_domain.name,
+            source_ip="203.0.113.44",
+            classification="legitimate",
+            reason="Recognized provider",
+            auth_context={"auth_type": "test"},
+        )
+        active = [row for row in db_session.query(AlertHistory).all() if row.is_active]
+        assert any(
+            row.domain == other_domain.name and row.rule == "new_sender_source" for row in active
+        )
+        assert any(
+            row.domain == other_domain.name and row.rule == "missing_reports" for row in active
+        )
 
     def test_notification_alert_rules_detect_missing_reports(
         self,
