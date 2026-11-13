@@ -13,8 +13,8 @@ from app.core.security import require_admin_auth
 from app.models.alert import AlertConfigurationAudit, AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
-from app.models.report import DMARCReport, ReportRecord
 from app.models.mail_source import MailSource
+from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.account_milestone import (
@@ -23,9 +23,15 @@ from app.services.account_milestone import (
     _has_scope_token,
     build_account_milestone_readiness,
 )
+from app.services.alert_history import (
+    list_alert_config_audit,
+    record_alert_config_change,
+    record_alert_evaluation,
+)
+from app.services.alert_rules import evaluate_alert_rules
 from app.services.api_tokens import PROVIDER_READ_SCOPE, SCIM_READ_SCOPE
-from app.services.alert_history import list_alert_config_audit, record_alert_config_change
 from app.services.notifications import NotificationResult, send_notification
+from app.services.sender_classifications import record_sender_classification
 from app.services.summary_notifications import send_due_scheduled_summaries
 
 
@@ -823,6 +829,85 @@ class TestSettingsAPI:
         assert "dmarc_failures_above_threshold" in rules
         new_source = next(alert for alert in alerts if alert["rule"] == "new_sender_source")
         assert new_source["source_ip"] == "203.0.113.20"
+
+    def test_trusted_sender_resolves_and_suppresses_only_its_new_source_alert(
+        self, db_session: Session
+    ):
+        """Trusting one source settles its alert and leaves other signals intact."""
+        workspace = Workspace(slug="trusted-sources", name="Trusted Sources")
+        domain = Domain(name="trusted.example", workspace=workspace)
+        db_session.add_all([workspace, domain])
+        db_session.flush()
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="trusted-source",
+            days_ago=0,
+            source_ip="2001:0db8:0:0:0:0:0:1",
+            count=12,
+        )
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="unknown-source",
+            days_ago=0,
+            source_ip="203.0.113.25",
+            count=8,
+        )
+        db_session.commit()
+
+        initial_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        assert {alert["source_ip"] for alert in initial_alerts} == {
+            "2001:0db8:0:0:0:0:0:1",
+            "203.0.113.25",
+        }
+        record_alert_evaluation(db_session, initial_alerts)
+
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain="trusted.example",
+            source_ip="2001:db8::1",
+            classification="legitimate",
+            reason="Recognized provider",
+            auth_context={"auth_type": "test"},
+        )
+
+        trusted_history = (
+            db_session.query(AlertHistory)
+            .filter(AlertHistory.rule == "new_sender_source", AlertHistory.domain == domain.name)
+            .all()
+        )
+        assert len(trusted_history) == 2
+        assert sum(not row.is_active for row in trusted_history) == 1
+        assert sum(row.is_active for row in trusted_history) == 1
+        remaining_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        assert [alert["source_ip"] for alert in remaining_alerts] == ["203.0.113.25"]
+
+        summary_rows = [row for row in db_session.query(AlertHistory).all() if row.is_active]
+        assert all(row.payload.find("2001:0db8:0:0:0:0:0:1") == -1 for row in summary_rows)
+
+        reassigned_workspace = Workspace(slug="reassigned-sources", name="Reassigned Sources")
+        db_session.add(reassigned_workspace)
+        domain.workspace = reassigned_workspace
+        db_session.commit()
+        reassigned_alerts = [
+            alert
+            for alert in evaluate_alert_rules(db_session)
+            if alert["rule"] == "new_sender_source"
+        ]
+        assert {alert["source_ip"] for alert in reassigned_alerts} == {
+            "2001:0db8:0:0:0:0:0:1",
+            "203.0.113.25",
+        }
 
     def test_notification_alert_rules_detect_missing_reports(
         self,

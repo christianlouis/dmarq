@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from ipaddress import ip_address
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import ensure_utc
+from app.models.alert import AlertHistory
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_audit import record_workspace_audit_log
@@ -129,6 +131,32 @@ def record_sender_classification(
         },
         auth_context=auth_context,
         request=request,
-        commit=True,
+        commit=False,
     )
+    if normalized_classification == "legitimate":
+        # A trusted sender decision must settle an already-active new-source
+        # alert immediately; the next rule evaluation also omits it.
+        active_rows = (
+            db.query(AlertHistory)
+            .filter(
+                AlertHistory.rule == "new_sender_source",
+                AlertHistory.domain == normalized_domain,
+                AlertHistory.is_active.is_(True),
+            )
+            .all()
+        )
+        for alert in active_rows:
+            try:
+                payload = json.loads(alert.payload or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            try:
+                alert_ip = str(ip_address(str(payload.get("source_ip") or "").strip()))
+            except ValueError:
+                continue
+            if alert_ip == normalized_ip:
+                alert.is_active = False
+                alert.resolved_at = datetime.utcnow()
+    # Persist the audit decision and any alert resolution atomically.
+    db.commit()
     return _classification_projection(row)
