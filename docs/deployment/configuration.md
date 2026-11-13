@@ -159,18 +159,18 @@ OIDC_CLIENT_SECRET=replace-with-secret
 OIDC_CA_CERT_FILE=/run/secrets/keycloak-ca.pem
 ```
 
-With Docker Compose, add the read-only CA mount to the backend service in a
+With Docker Compose, add the read-only CA mount to the app service in a
 local override file such as `docker-compose.override.yml`, then recreate that
 service:
 
 ```yaml
 services:
-  backend:
+  app:
     volumes:
       - ./keycloak-ca.pem:/run/secrets/keycloak-ca.pem:ro
 ```
 
-Run `docker compose up -d --force-recreate backend` after placing the CA file
+Run `docker compose up -d --force-recreate app` after placing the CA file
 beside the Compose file.
 
 The current generic flow does not send a PKCE challenge, so a Keycloak client
