@@ -1252,6 +1252,9 @@ class TestOIDCTLSConfiguration:
     def test_default_oidc_tls_verification_is_enabled(self):
         assert _oidc_tls_verify(self._provider()) is True
 
+    def test_explicit_skip_ssl_verify_remains_opt_in(self):
+        assert _oidc_tls_verify(self._provider(skip_ssl_verify=True)) is False
+
     def test_custom_ca_uses_context_and_preserves_verification(self, monkeypatch):
         context = object()
         create_context = MagicMock(return_value=context)
