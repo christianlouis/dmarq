@@ -277,10 +277,21 @@ set -eu
 compose_version="$(docker compose version --short | sed 's/^v//')"
 compose_major="${compose_version%%.*}"
 compose_rest="${compose_version#*.}"
+case "$compose_rest" in *.*) ;; *) echo "Invalid Docker Compose version: $compose_version" >&2; exit 1;; esac
 compose_minor="${compose_rest%%.*}"
-if [ "$compose_major" -lt 2 ] || {
-  [ "$compose_major" -eq 2 ] && [ "$compose_minor" -lt 24 ];
-}; then
+compose_patch="${compose_rest#*.}"
+case "$compose_major" in ''|*[!0-9]*) echo "Invalid Docker Compose version: $compose_version" >&2; exit 1;; esac
+case "$compose_minor" in ''|*[!0-9]*) echo "Invalid Docker Compose version: $compose_version" >&2; exit 1;; esac
+case "$compose_patch" in ''|*[!0-9]*) echo "Invalid Docker Compose version: $compose_version" >&2; exit 1;; esac
+too_old=0
+if [ "$compose_major" -lt 2 ]; then
+  too_old=1
+elif [ "$compose_major" -eq 2 ] && [ "$compose_minor" -lt 24 ]; then
+  too_old=1
+elif [ "$compose_major" -eq 2 ] && [ "$compose_minor" -eq 24 ] && [ "$compose_patch" -lt 4 ]; then
+  too_old=1
+fi
+if [ "$too_old" -eq 1 ]; then
   echo "Docker Compose v2.24.4 or later is required (found $compose_version)" >&2
   exit 1
 fi
