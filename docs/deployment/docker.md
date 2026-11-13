@@ -267,11 +267,23 @@ docker compose exec -T db sh -c 'pg_restore --list' \
 Create a separately named target volume and restore into a target container;
 keep the original Compose volume untouched until verification succeeds. This
 temporary override keeps the target on the Compose network and makes the
-volume switch explicit:
+volume switch explicit. This example requires Docker Compose v2.24.4 or later
+for the `!override` tag. Check the version before stopping the existing
+database:
 
 ```bash
 (
 set -eu
+compose_version="$(docker compose version --short | sed 's/^v//')"
+compose_major="${compose_version%%.*}"
+compose_rest="${compose_version#*.}"
+compose_minor="${compose_rest%%.*}"
+if [ "$compose_major" -lt 2 ] || {
+  [ "$compose_major" -eq 2 ] && [ "$compose_minor" -lt 24 ];
+}; then
+  echo "Docker Compose v2.24.4 or later is required (found $compose_version)" >&2
+  exit 1
+fi
 docker compose stop db
 docker volume create dmarq_postgres_data_v17
 cat > /tmp/dmarq-postgres-target.yml <<'YAML'
@@ -288,7 +300,7 @@ docker compose -f docker-compose.yml -f /tmp/dmarq-postgres-target.yml up -d db
 ready=0
 for attempt in $(seq 1 60); do
   if docker compose -f docker-compose.yml -f /tmp/dmarq-postgres-target.yml \
-      exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
+      exec -T db sh -c 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
     ready=1
     break
   fi
