@@ -1260,7 +1260,7 @@ class TestOIDCTLSConfiguration:
         assert _oidc_tls_verify(self._provider(ca_cert_file="/run/secrets/keycloak-ca.pem")) is context
         create_context.assert_called_once_with(cafile="/run/secrets/keycloak-ca.pem")
 
-    def test_invalid_custom_ca_fails_closed(self, monkeypatch):
+    def test_invalid_custom_ca_fails_closed(self, monkeypatch, caplog):
         monkeypatch.setattr(
             "app.core.auth_providers.ssl.create_default_context",
             MagicMock(side_effect=ssl.SSLError("bad certificate")),
@@ -1271,6 +1271,7 @@ class TestOIDCTLSConfiguration:
 
         assert exc.value.status_code == 503
         assert "OIDC_CA_CERT_FILE" in exc.value.detail
+        assert "custom CA bundle could not be loaded" in caplog.text
 
     @staticmethod
     def _tls_server(tmp_path):
@@ -1357,6 +1358,7 @@ class TestOIDCTLSConfiguration:
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_context.minimum_version = ssl.TLSVersion.TLSv1_2
         server_context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
         server.socket = server_context.wrap_socket(server.socket, server_side=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
