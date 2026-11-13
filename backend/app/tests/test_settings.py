@@ -1000,6 +1000,17 @@ class TestSettingsAPI:
             "detail": "unrelated rule",
         }
         record_alert_evaluation(db_session, source_alerts + [unrelated])
+        # A workspace may submit a foreign domain payload, but must not settle
+        # that domain's alert or make its trust effective.
+        record_sender_classification(
+            db_session,
+            workspace=workspace,
+            domain=other_domain.name,
+            source_ip="203.0.113.44",
+            classification="legitimate",
+            reason="Foreign payload",
+            auth_context={"auth_type": "test"},
+        )
         record_sender_classification(
             db_session,
             workspace=workspace,

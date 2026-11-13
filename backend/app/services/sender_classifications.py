@@ -8,6 +8,7 @@ from datetime import datetime
 from ipaddress import ip_address
 from typing import Any, Dict, Optional
 
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.app_timezone import ensure_utc
@@ -106,15 +107,30 @@ def legitimate_sender_scopes(
     domains = {domain for _, domain, _ in scopes}
     if not workspace_ids or not domains:
         return set()
-    rows = (
-        db.query(WorkspaceAuditLog)
+    requested_keys = {
+        (_scope_id(domain, source_ip), workspace_id) for workspace_id, domain, source_ip in scopes
+    }
+    ranked = (
+        db.query(
+            WorkspaceAuditLog.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=(WorkspaceAuditLog.workspace_id, WorkspaceAuditLog.entity_id),
+                order_by=(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc()),
+            )
+            .label("row_number"),
+        )
         .filter(
-            WorkspaceAuditLog.workspace_id.in_(workspace_ids),
-            WorkspaceAuditLog.entity_name.in_(domains),
+            tuple_(WorkspaceAuditLog.entity_id, WorkspaceAuditLog.workspace_id).in_(requested_keys),
             WorkspaceAuditLog.action == SENDER_CLASSIFICATION_ACTION,
             WorkspaceAuditLog.entity_type == SENDER_CLASSIFICATION_ENTITY,
         )
-        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+        .subquery()
+    )
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .join(ranked, ranked.c.id == WorkspaceAuditLog.id)
+        .filter(ranked.c.row_number == 1)
         .all()
     )
     latest: set[tuple[Optional[int], str, str]] = set()
