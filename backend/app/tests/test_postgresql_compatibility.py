@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -17,6 +17,7 @@ from app.models.workspace_access import WorkspaceAuditLog
 from app.services.sender_classifications import (
     SENDER_CLASSIFICATION_ACTION,
     SENDER_CLASSIFICATION_ENTITY,
+    _scope_id,
     legitimate_sender_scopes,
 )
 
@@ -93,52 +94,28 @@ def test_postgresql_trusted_sender_scopes_are_latest_and_workspace_scoped():
             session.flush()
             workspace_ids = [first.id, second.id]
             domain = f"{slug}.example"
-            source_ip = "2001:0db8:0:0:0:0:0:1"
+            source_ip = "2001:db8::1"
             base = datetime.utcnow()
-            rows = [
-                WorkspaceAuditLog(
-                    workspace_id=first.id,
+
+            def audit_row(workspace_id, classification):
+                return WorkspaceAuditLog(
+                    workspace_id=workspace_id,
                     actor_type="test",
                     action=SENDER_CLASSIFICATION_ACTION,
                     entity_type=SENDER_CLASSIFICATION_ENTITY,
+                    entity_id=_scope_id(domain, source_ip),
                     entity_name=domain,
                     details=json.dumps(
-                        {
-                            "domain": domain,
-                            "source_ip": "2001:db8::1",
-                            "classification": "legitimate",
-                        }
+                        {"domain": domain, "source_ip": source_ip, "classification": classification}
                     ),
                     created_at=base,
-                ),
-                WorkspaceAuditLog(
-                    workspace_id=first.id,
-                    actor_type="test",
-                    action=SENDER_CLASSIFICATION_ACTION,
-                    entity_type=SENDER_CLASSIFICATION_ENTITY,
-                    entity_name=domain,
-                    details=json.dumps(
-                        {"domain": domain, "source_ip": source_ip, "classification": "unknown"}
-                    ),
-                    created_at=base + timedelta(seconds=1),
-                ),
-                WorkspaceAuditLog(
-                    workspace_id=second.id,
-                    actor_type="test",
-                    action=SENDER_CLASSIFICATION_ACTION,
-                    entity_type=SENDER_CLASSIFICATION_ENTITY,
-                    entity_name=domain,
-                    details=json.dumps(
-                        {
-                            "domain": domain,
-                            "source_ip": "2001:db8::1",
-                            "classification": "legitimate",
-                        }
-                    ),
-                    created_at=base + timedelta(seconds=2),
-                ),
-            ]
-            session.add_all(rows)
+                )
+
+            session.add(audit_row(first.id, "legitimate"))
+            session.flush()
+            session.add(audit_row(first.id, "unknown"))
+            session.flush()
+            session.add(audit_row(second.id, "legitimate"))
             session.flush()
             scopes = {(first.id, domain, "2001:db8::1")}
             assert legitimate_sender_scopes(session, scopes=scopes) == set()
