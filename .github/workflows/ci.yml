@@ -706,7 +706,7 @@ jobs:
         if: always()
         run: docker compose down -v --remove-orphans
 
-  # ── Stage 4: GitOps – update non-production k8s manifests ────────────────
+  # ── Stage 4: GitOps – update demo k8s manifests ──────────────────────────
   update-k8s-manifest:
     name: Update K8s Manifests
     runs-on: ubuntu-latest
@@ -789,7 +789,6 @@ jobs:
         with:
           cmd: |
             for manifest in \
-              k8s-cluster-state/apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
               k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml \
               k8s-cluster-state/apps/dmarq/greenfield-demo-multi/dmarq-stack.yaml
             do
@@ -808,13 +807,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
           git add \
-            apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
             apps/dmarq/greenfield-demo/dmarq-stack.yaml \
             apps/dmarq/greenfield-demo-multi/dmarq-stack.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore(gitops): update dmarq nonprod images to ${{ steps.tag.outputs.short_sha }}"
+            git commit -m "chore(gitops): update dmarq demo images to ${{ steps.tag.outputs.short_sha }}"
             for attempt in 1 2 3; do
               if git push; then
                 exit 0
