@@ -706,6 +706,50 @@ jobs:
         if: always()
         run: docker compose down -v --remove-orphans
 
+  # A workflow-only merge must not promote an application image to production.
+  # Missing or invalid history is fail-safe: keep the production gate enabled.
+  change-scope:
+    name: Determine Production Change Scope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      workflow_only: ${{ steps.scope.outputs.workflow_only }}
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          CURRENT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          workflow_only=false
+
+          if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" && -n "$BEFORE" && -n "$CURRENT" ]]; then
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && git cat-file -e "$CURRENT^{commit}" 2>/dev/null; then
+              changed_files="$(git diff --name-only "$BEFORE" "$CURRENT")"
+              if [[ -n "$changed_files" ]]; then
+                workflow_only=true
+                while IFS= read -r path; do
+                  if [[ "$path" != ".github/workflows/ci.yml" ]]; then
+                    workflow_only=false
+                    break
+                  fi
+                done <<< "$changed_files"
+              fi
+            fi
+          fi
+
+          echo "workflow_only=$workflow_only" >> "$GITHUB_OUTPUT"
+          echo "Production workflow-only scope: $workflow_only"
+
   # ── Stage 4: GitOps – update demo k8s manifests ──────────────────────────
   update-k8s-manifest:
     name: Update K8s Manifests
@@ -833,8 +877,8 @@ jobs:
   promote-prod-k8s-manifest:
     name: Promote Production K8s Manifest
     runs-on: ubuntu-latest
-    needs: [docker, registry-image-smoke]
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')
+    needs: [docker, registry-image-smoke, change-scope]
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')) && needs.change-scope.outputs.workflow_only != 'true'
     environment: dmarq-production-gitops
     permissions:
       contents: read
